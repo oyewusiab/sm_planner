@@ -171,6 +171,13 @@ export async function syncFromBackend(): Promise<boolean> {
     const local = getDB();
     const normalizedRemote = normalizeDB(remote);
 
+    // Guard against remote data missing UNIT_SETTINGS (common misconfig / empty sheet).
+    // Keep local settings and seed the backend instead of forcing re-setup.
+    if (!normalizedRemote.UNIT_SETTINGS && local.UNIT_SETTINGS) {
+      await importRemoteDB(local, "merge");
+      return true;
+    }
+
     if (isEmptyDB(normalizedRemote) && !isEmptyDB(local)) {
       await importRemoteDB(local, "merge");
       return true;
