@@ -1,0 +1,141 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #ffffff;
+  --text: #00171f;
+  --sidebar: #003459;
+  --primary: #007ea7;
+  --accent: #00a8e8;
+  --border: rgba(0, 0, 0, 0.08);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Modal scrolling (screen only) */
+.modal-body {
+  max-height: min(70vh, 720px);
+  overflow: auto;
+}
+
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Print helpers */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  /* Hide the app shell chrome; keep main content so the modal print area is not hidden */
+  body.printing-assignments aside,
+  body.printing-assignments nav,
+  body.printing-assignments header,
+  body.printing-planner aside,
+  body.printing-planner nav,
+  body.printing-planner header {
+    display: none !important;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+
+  /* Remove modal chrome entirely in print and avoid flex-centering (prevents blank print previews in some browsers) */
+  .modal-root,
+  .modal-root > div,
+  .modal-shell,
+  .modal-body {
+    position: static !important;
+    inset: auto !important;
+    max-width: none !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+  }
+
+  .modal-root > div {
+    display: block !important;
+    padding: 0 !important;
+  }
+
+  .modal-body {
+    padding: 0 !important;
+  }
+
+  .print-page-break {
+    page-break-after: always;
+    break-after: page;
+  }
+
+  /* Notifications: EXACTLY 3 per A4 page, cut-out friendly */
+  .notif-page {
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* 3 cards per A4 page (portrait). */
+  .notif-grid {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 5mm !important;
+  }
+
+  .notif-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    box-shadow: none !important;
+    border: 0.25mm dashed #6b7280 !important; /* light cut line */
+    border-radius: 0 !important;
+    padding: 4mm !important;
+    height: 87mm; /* 3x87 + 2x5 = 271mm fits inside 277mm */
+    overflow: hidden;
+  }
+}
+
+/* Screen helpers for notification layout */
+.notif-card {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.notif-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.notif-page {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  padding: 16px;
+}
+
+.notif-blank {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(0, 0, 0, 0.02),
+    rgba(0, 0, 0, 0.02) 8px,
+    rgba(0, 0, 0, 0.00) 8px,
+    rgba(0, 0, 0, 0.00) 16px
+  );
+}
+
