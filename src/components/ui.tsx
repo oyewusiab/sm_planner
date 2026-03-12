@@ -5,7 +5,7 @@ export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElemen
   return (
     <div
       className={cn(
-        "rounded-xl border border-[color:var(--border)] bg-white shadow-sm",
+        "stat-card",
         className
       )}
       {...props}
@@ -14,15 +14,31 @@ export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElemen
 }
 
 export function CardHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("border-b border-[color:var(--border)] p-4", className)} {...props} />;
+  return (
+    <div
+      className={cn(
+        "border-b border-[color:var(--border)] px-5 py-4",
+        className
+      )}
+      {...props}
+    />
+  );
 }
 
 export function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("text-base font-semibold text-[color:var(--text)]", className)} {...props} />;
+  return (
+    <div
+      className={cn(
+        "text-sm font-semibold tracking-wide text-slate-700 uppercase",
+        className
+      )}
+      {...props}
+    />
+  );
 }
 
 export function CardBody({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("p-4", className)} {...props} />;
+  return <div className={cn("p-5", className)} {...props} />;
 }
 
 export function Button({
@@ -33,13 +49,14 @@ export function Button({
   variant?: "primary" | "secondary" | "ghost" | "danger";
 }) {
   const base =
-    "inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition disabled:opacity-50";
+    "inline-flex items-center justify-center gap-2 rounded-[10px] px-4 py-2 text-sm font-semibold transition-all duration-200 disabled:opacity-50 active:scale-[0.97]";
   const styles: Record<string, string> = {
-    primary: "bg-[color:var(--primary)] text-white hover:bg-[color:var(--accent)]",
+    primary:
+      "bg-gradient-to-r from-[color:var(--primary)] to-[color:var(--primary-light)] text-white shadow-sm hover:shadow-md hover:brightness-110",
     secondary:
-      "bg-white text-[color:var(--text)] border border-[color:var(--border)] hover:bg-slate-50",
-    ghost: "bg-transparent text-[color:var(--text)] hover:bg-slate-100",
-    danger: "bg-rose-600 text-white hover:bg-rose-700",
+      "bg-white text-slate-700 border border-[color:var(--border)] hover:bg-slate-50 shadow-sm",
+    ghost: "bg-transparent text-slate-600 hover:bg-slate-100",
+    danger: "bg-gradient-to-r from-rose-600 to-rose-500 text-white shadow-sm hover:brightness-110",
   };
   return <button className={cn(base, styles[variant], className)} {...props} />;
 }
@@ -48,7 +65,7 @@ export function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInp
   return (
     <input
       className={cn(
-        "w-full rounded-lg border border-[color:var(--border)] bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[color:var(--accent)]",
+        "w-full rounded-[10px] border border-[color:var(--border)] bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:ring-2 focus:ring-[color:var(--primary)] focus:border-[color:var(--primary)]",
         className
       )}
       {...props}
@@ -60,7 +77,7 @@ export function Select({ className, ...props }: React.SelectHTMLAttributes<HTMLS
   return (
     <select
       className={cn(
-        "w-full rounded-lg border border-[color:var(--border)] bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[color:var(--accent)]",
+        "w-full rounded-[10px] border border-[color:var(--border)] bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:ring-2 focus:ring-[color:var(--primary)] focus:border-[color:var(--primary)]",
         className
       )}
       {...props}
@@ -68,11 +85,14 @@ export function Select({ className, ...props }: React.SelectHTMLAttributes<HTMLS
   );
 }
 
-export function Textarea({ className, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export function Textarea({
+  className,
+  ...props
+}: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
       className={cn(
-        "w-full rounded-lg border border-[color:var(--border)] bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[color:var(--accent)]",
+        "w-full rounded-[10px] border border-[color:var(--border)] bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:ring-2 focus:ring-[color:var(--primary)] focus:border-[color:var(--primary)]",
         className
       )}
       {...props}
@@ -81,7 +101,12 @@ export function Textarea({ className, ...props }: React.TextareaHTMLAttributes<H
 }
 
 export function Label({ className, ...props }: React.LabelHTMLAttributes<HTMLLabelElement>) {
-  return <label className={cn("text-xs font-medium text-slate-600", className)} {...props} />;
+  return (
+    <label
+      className={cn("text-xs font-semibold text-slate-500 uppercase tracking-wide", className)}
+      {...props}
+    />
+  );
 }
 
 export function Divider({ className }: { className?: string }) {
@@ -96,16 +121,16 @@ export function Badge({
   tone?: "gray" | "blue" | "green" | "amber" | "rose";
 }) {
   const tones: Record<string, string> = {
-    gray: "bg-slate-100 text-slate-700",
-    blue: "bg-sky-100 text-sky-800",
-    green: "bg-emerald-100 text-emerald-800",
-    amber: "bg-amber-100 text-amber-900",
-    rose: "bg-rose-100 text-rose-800",
+    gray: "bg-slate-100 text-slate-600",
+    blue: "bg-sky-100 text-sky-700",
+    green: "bg-emerald-100 text-emerald-700",
+    amber: "bg-amber-100 text-amber-700",
+    rose: "bg-rose-100 text-rose-700",
   };
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+        "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold",
         tones[tone],
         className
       )}
@@ -116,9 +141,11 @@ export function Badge({
 
 export function SectionTitle({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <div className="space-y-1">
-      <div className="text-lg font-semibold text-[color:var(--text)]">{title}</div>
-      {subtitle ? <div className="text-sm text-slate-500">{subtitle}</div> : null}
+    <div className="space-y-0.5">
+      <div className="text-2xl font-bold tracking-tight text-[color:var(--text)]">{title}</div>
+      {subtitle ? (
+        <div className="text-sm text-slate-500 font-medium">{subtitle}</div>
+      ) : null}
     </div>
   );
 }
@@ -133,11 +160,12 @@ export function EmptyState({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-dashed border-[color:var(--border)] bg-white p-8 text-center">
-      <div className="mx-auto max-w-lg space-y-2">
-        <div className="text-base font-semibold text-slate-900">{title}</div>
-        {body ? <div className="text-sm text-slate-500">{body}</div> : null}
-        {action ? <div className="pt-3">{action}</div> : null}
+    <div className="rounded-2xl border border-dashed border-[color:var(--border)] bg-white/70 backdrop-blur-sm p-10 text-center">
+      <div className="mx-auto max-w-lg space-y-3">
+        <div className="text-3xl">📋</div>
+        <div className="text-base font-semibold text-slate-800">{title}</div>
+        {body ? <div className="text-sm text-slate-500 leading-relaxed">{body}</div> : null}
+        {action ? <div className="pt-4">{action}</div> : null}
       </div>
     </div>
   );

@@ -71,11 +71,20 @@ function normalizeDB(raw: any): DB {
   }
 
   const USERS = USERS0.map((u) => {
-    if (u.username && u.username.trim()) return u;
+    // Backward/alternate schema support: some sheets use "password" instead of "password_hash".
+    const password_hash =
+      (u as any).password_hash ||
+      (u as any).password ||
+      (u as any).passwordHash ||
+      (u as any).password_hash;
+
+    const merged = password_hash ? { ...u, password_hash } : u;
+
+    if (merged.username && merged.username.trim()) return merged;
     const fromEmail = u.email ? slug(u.email.split("@")[0] || "") : "";
     const fromName = slug(u.name);
     const base = fromEmail || fromName || "user";
-    return { ...u, username: unique(base) };
+    return { ...merged, username: unique(base) };
   });
 
   const toArr = (v: any): string[] => {

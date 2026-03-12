@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Planner, PlannerState, UnitSettings, User, WeekPlan } from "../types";
 import { Badge, Button, Card, CardBody, CardHeader, CardTitle, Divider, EmptyState, Input, Label, SectionTitle, Select, Textarea } from "../components/ui";
 import { Modal } from "../components/Modal";
@@ -67,31 +68,44 @@ export function PlannerPage({
   const [mode, setMode] = useState<"list" | "edit">("list");
   const [previewPlanner, setPreviewPlanner] = useState<Planner | null>(null);
 
-  // When preview is open, enable a print mode that hides app chrome and prints in A4 landscape.
+  // Print portal: renders table directly in body so modal chrome is bypassed during printing.
   useEffect(() => {
-    const cls = "printing-planner";
     const styleId = "planner-print-page";
+    const portalId = "planner-print-portal";
 
     if (previewPlanner) {
-      document.body.classList.add(cls);
-
-      // Inject a late @page override so planner prints in landscape without affecting other modules.
+      // Landscape A4 page rule + hide everything except the portal during print
       if (!document.getElementById(styleId)) {
         const el = document.createElement("style");
         el.id = styleId;
-        el.textContent = `@media print { @page { size: A4 landscape; margin: 10mm; } }`;
+        el.textContent = [
+          "@media print {",
+          "  @page { size: A4 landscape; margin: 8mm; }",
+          "  body > *:not(#planner-print-portal) { display: none !important; }",
+          "  #planner-print-portal { display: block !important; }",
+          "}",
+        ].join("\n");
         document.head.appendChild(el);
       }
+      // Create portal host
+      if (!document.getElementById(portalId)) {
+        const host = document.createElement("div");
+        host.id = portalId;
+        host.style.display = "none"; // hidden on screen; shown by print CSS
+        document.body.appendChild(host);
+      }
     } else {
-      document.body.classList.remove(cls);
-      const el = document.getElementById(styleId);
-      if (el) el.remove();
+      const styleEl = document.getElementById(styleId);
+      if (styleEl) styleEl.remove();
+      const portalEl = document.getElementById(portalId);
+      if (portalEl) portalEl.remove();
     }
 
     return () => {
-      document.body.classList.remove(cls);
-      const el = document.getElementById(styleId);
-      if (el) el.remove();
+      const styleEl = document.getElementById(styleId);
+      if (styleEl) styleEl.remove();
+      const portalEl = document.getElementById(portalId);
+      if (portalEl) portalEl.remove();
     };
   }, [previewPlanner]);
 
@@ -269,7 +283,7 @@ export function PlannerPage({
                       variant="secondary"
                       onClick={() => {
                         setPreviewPlanner(p);
-                        setTimeout(() => window.print(), 50);
+                        setTimeout(() => window.print(), 400);
                       }}
                     >
                       Print
@@ -278,7 +292,7 @@ export function PlannerPage({
                       variant="secondary"
                       onClick={() => {
                         setPreviewPlanner(p);
-                        setTimeout(() => window.print(), 50);
+                        setTimeout(() => window.print(), 400);
                       }}
                     >
                       Download PDF
@@ -349,7 +363,7 @@ export function PlannerPage({
             variant="secondary"
             onClick={() => {
               setPreviewPlanner(draft);
-              setTimeout(() => window.print(), 50);
+              setTimeout(() => window.print(), 400);
             }}
           >
             Print
@@ -358,7 +372,7 @@ export function PlannerPage({
             variant="secondary"
             onClick={() => {
               setPreviewPlanner(draft);
-              setTimeout(() => window.print(), 50);
+              setTimeout(() => window.print(), 400);
             }}
           >
             Download PDF
@@ -1022,24 +1036,39 @@ export function PlannerPage({
         ))}
       </div>
 
-      <Modal
-        open={!!previewPlanner}
-        title="Planner Preview (A4 Landscape)"
-        onClose={() => setPreviewPlanner(null)}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => window.print()}>
-              Print / Save as PDF
-            </Button>
-            <Button variant="ghost" onClick={() => setPreviewPlanner(null)}>
-              Close
-            </Button>
-          </>
-        }
-        className="max-w-6xl"
-      >
-        {previewPlanner ? <PlannerPreviewTable planner={previewPlanner} unit={unit} /> : null}
-      </Modal>
+      {/* Screen preview modal – hidden when printing */}
+      <div className="no-print">
+        <Modal
+          open={!!previewPlanner}
+          title="Planner Preview (A4 Landscape – 2 pages)"
+          onClose={() => setPreviewPlanner(null)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => window.print()}>
+                Print / Save as PDF
+              </Button>
+              <Button variant="ghost" onClick={() => setPreviewPlanner(null)}>
+                Close
+              </Button>
+            </>
+          }
+          className="max-w-6xl"
+        >
+          {previewPlanner ? <PlannerPreviewTable planner={previewPlanner} unit={unit} /> : null}
+        </Modal>
+      </div>
+
+      {/* Print portal – renders OUTSIDE modal so browser prints only these 2 pages */}
+      {previewPlanner &&
+        (() => {
+          const host = document.getElementById("planner-print-portal");
+          return host
+            ? createPortal(
+                <PlannerPreviewTable planner={previewPlanner} unit={unit} />,
+                host
+              )
+            : null;
+        })()}
     </div>
   );
 }

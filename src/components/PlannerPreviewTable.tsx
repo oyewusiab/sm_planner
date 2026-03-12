@@ -3,159 +3,281 @@ import { formatDateShort, monthName } from "../utils/date";
 
 type Gender = "M" | "F";
 
-function withBrotherSister(name: string, gender?: Gender) {
+function gender(name: string, g?: Gender) {
   const n = (name || "").trim();
   if (!n) return "";
-  const lower = n.toLowerCase();
-  if (lower.startsWith("brother ") || lower.startsWith("sister ")) return n;
-  if (gender === "M") return `Brother ${n}`;
-  if (gender === "F") return `Sister ${n}`;
+  const lo = n.toLowerCase();
+  if (lo.startsWith("brother ") || lo.startsWith("sister ")) return n;
+  if (g === "M") return `Brother ${n}`;
+  if (g === "F") return `Sister ${n}`;
   return n;
 }
 
-function namesListToText(list: string[] | undefined): string {
-  return (Array.isArray(list) ? list : []).join(", ");
+function names(arr: string[] | undefined) {
+  const list = (Array.isArray(arr) ? arr : []).filter(Boolean);
+  return list.length ? list.join(", ") : "—";
 }
 
-function plannerLabel(p: Planner) {
-  return `${monthName(p.month)} ${p.year}`;
-}
+/** Shared inline styles – these are the ONLY styles for the printed output */
+const S = {
+  // Page containers – 281mm = 297mm A4 landscape minus 2×8mm margins
+  page: {
+    width: "281mm",
+    minHeight: "190mm",
+    fontFamily: "'Inter', Arial, sans-serif",
+    fontSize: "12px",
+    color: "#111",
+    lineHeight: "1.45",
+    boxSizing: "border-box" as const,
+  },
+  pageBreak: {
+    pageBreakAfter: "always" as const,
+    breakAfter: "page" as const,
+  },
+  // Header
+  title: {
+    textAlign: "center" as const,
+    fontWeight: 700,
+    fontSize: "15px",
+    letterSpacing: "0.05em",
+    textTransform: "uppercase" as const,
+    marginBottom: "3px",
+  },
+  subtitle: {
+    textAlign: "center" as const,
+    fontSize: "11px",
+    color: "#555",
+    marginBottom: "6px",
+  },
+  pageLabel: {
+    fontSize: "10px",
+    fontWeight: 600,
+    textTransform: "uppercase" as const,
+    color: "#555",
+    letterSpacing: "0.08em",
+    marginBottom: "5px",
+  },
+  // Table
+  table: {
+    width: "100%",
+    borderCollapse: "collapse" as const,
+    tableLayout: "fixed" as const,
+  },
+  th: {
+    border: "1px solid #aaa",
+    padding: "6px 8px",
+    background: "#e8eef4",
+    fontWeight: 700,
+    fontSize: "11px",
+    textAlign: "center" as const,
+    verticalAlign: "middle" as const,
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.04em",
+    lineHeight: "1.3",
+  },
+  thSub: {
+    border: "1px solid #aaa",
+    padding: "5px 8px",
+    background: "#f4f7fa",
+    fontWeight: 600,
+    fontSize: "10px",
+    textAlign: "center" as const,
+    verticalAlign: "middle" as const,
+    color: "#444",
+  },
+  td: {
+    border: "1px solid #aaa",
+    padding: "6px 8px",
+    fontSize: "12px",
+    verticalAlign: "top" as const,
+    whiteSpace: "pre-wrap" as const,
+    color: "#111",
+    lineHeight: "1.5",
+  },
+  tdCenter: {
+    border: "1px solid #aaa",
+    padding: "6px 8px",
+    fontSize: "12px",
+    verticalAlign: "middle" as const,
+    textAlign: "center" as const,
+    color: "#111",
+    fontWeight: 600,
+  },
+};
 
 export function PlannerPreviewTable({ planner, unit }: { planner: Planner; unit: UnitSettings }) {
   const maxSpeakers = Math.max(
-    0,
+    1,
     ...planner.weeks
       .filter((w) => !w.fast_testimony)
       .map((w) => (Array.isArray(w.speakers) ? w.speakers.length : 0))
   );
 
-  const header = (
-    <div className="space-y-1">
-      <div className="text-center">
-        <div className="text-lg font-semibold tracking-wide text-slate-900">
-          {(unit.unit_name || "").toUpperCase()} — SACRAMENT MEETING PLAN
-        </div>
-        <div className="text-sm text-slate-600">
-          {plannerLabel(planner)} • Venue: {unit.venue || "—"} • Time: {unit.meeting_time || "—"}
-        </div>
-      </div>
-    </div>
-  );
+  const planLabel = `${monthName(planner.month)} ${planner.year}`;
+  const headerInfo = `Venue: ${unit.venue || "—"}  |  Time: ${unit.meeting_time || "—"}  |  Conducting: ${planner.conducting_officer || "—"}`;
 
-  const cell = "border border-slate-300 px-2 py-2 align-top";
-  const th = `${cell} bg-slate-50 text-[11px] font-semibold text-slate-700`;
-  const td = `${cell} text-[11px] text-slate-900`;
+  // Speaker column width – share remaining space evenly
+  const wkW = "38px";
+  const dateW = "54px";
+  const spkW = `${Math.floor((100 - 8 - 10) / maxSpeakers)}%`;
 
-  const weekLabel = (idx: number) => `Week ${idx + 1}`;
-
-  const speakerCellText = (name: string, gender: Gender | undefined, topic: string) => {
-    const n = withBrotherSister(name, gender) || "";
-    const t = (topic || "").trim();
-    if (!n && !t) return "";
-    if (!n) return t;
-    if (!t) return n;
-    return `${n}\n${t}`;
-  };
-
-  const names = (list: string[] | undefined) => {
-    const txt = namesListToText(list);
-    return (txt || "").trim() || "—";
-  };
-
-  const tableWrap = "overflow-x-auto";
+  // Back-page column widths
+  const bwk = "44px";
+  const bhymns = "18%";
+  const bsac = "22%";
+  const bpray = "18%";
+  // note column fills remaining
 
   return (
-    <div className="space-y-4 planner-print">
-      {header}
-
-      {/* FRONT PAGE */}
-      <div className="planner-page space-y-2">
-        <div className="text-sm font-semibold text-slate-900">Front Page (Speakers)</div>
-        <div className={tableWrap}>
-          <table className="w-full border-collapse">
-            <thead>
-              <tr>
-                <th className={th}>Week</th>
-                <th className={th}>Date</th>
-                {Array.from({ length: Math.max(1, maxSpeakers) }).map((_, i) => (
-                  <th key={i} className={th}>{`Speaker ${i + 1} (Name / Topic & Ref.)`}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {planner.weeks.map((w, idx) => (
-                <tr key={w.week_id}>
-                  <td className={td}>{weekLabel(idx)}</td>
-                  <td className={td}>{formatDateShort(w.date)}</td>
-
-                  {w.fast_testimony ? (
-                    <td className={`${td} whitespace-pre-line`} colSpan={Math.max(1, maxSpeakers)}>
-                      Fast & Testimony Sunday (No planned speakers)
-                    </td>
-                  ) : (
-                    Array.from({ length: Math.max(1, maxSpeakers) }).map((_, i) => {
-                      const s = w.speakers?.[i];
-                      const text = s ? speakerCellText(s.name, s.gender, s.topic) : "";
-                      return (
-                        <td key={i} className={`${td} whitespace-pre-line`}>
-                          {text || "—"}
-                        </td>
-                      );
-                    })
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+    <div>
+      {/* ══════════════════════════════════════════
+          FRONT PAGE – Speakers
+      ══════════════════════════════════════════ */}
+      <div style={{ ...S.page, ...S.pageBreak }}>
+        <div style={S.title}>
+          {(unit.unit_name || "").toUpperCase()} — SACRAMENT MEETING PLAN
         </div>
+        <div style={S.subtitle}>{planLabel}  |  {headerInfo}</div>
+        <div style={S.pageLabel}>Page 1 — Speakers (Front)</div>
+
+        <table style={{ ...S.table }}>
+          <colgroup>
+            <col style={{ width: wkW }} />
+            <col style={{ width: dateW }} />
+            {Array.from({ length: maxSpeakers }).map((_, i) => (
+              <col key={i} style={{ width: spkW }} />
+            ))}
+          </colgroup>
+          <thead>
+            <tr>
+              <th style={{ ...S.th, width: wkW }} rowSpan={2}>WK</th>
+              <th style={{ ...S.th, width: dateW }} rowSpan={2}>DATE</th>
+              {Array.from({ length: maxSpeakers }).map((_, i) => (
+                <th key={i} style={S.th}>SPEAKER {i + 1}</th>
+              ))}
+            </tr>
+            <tr>
+              {Array.from({ length: maxSpeakers }).map((_, i) => (
+                <th key={i} style={S.thSub}>Name / Topic &amp; Reference</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {planner.weeks.map((w, idx) => (
+              <tr key={w.week_id} style={{ background: idx % 2 === 1 ? "#fafbfc" : "#fff" }}>
+                <td style={S.tdCenter}>{idx + 1}</td>
+                <td style={{ ...S.td, textAlign: "center" }}>{formatDateShort(w.date)}</td>
+
+                {w.fast_testimony ? (
+                  <td
+                    style={{ ...S.td, fontStyle: "italic", color: "#666" }}
+                    colSpan={maxSpeakers}
+                  >
+                    Fast &amp; Testimony Sunday — No Planned Speakers
+                  </td>
+                ) : (
+                  Array.from({ length: maxSpeakers }).map((_, i) => {
+                    const s = w.speakers?.[i];
+                    const nameStr = s ? gender(s.name, s.gender) : "";
+                    const topicStr = (s?.topic || "").trim();
+                    const cell =
+                      nameStr && topicStr
+                        ? `${nameStr}\n${topicStr}`
+                        : nameStr || topicStr || "—";
+                    return (
+                      <td key={i} style={S.td}>
+                        {cell}
+                      </td>
+                    );
+                  })
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
-      <div className="print-page-break" />
-
-      {/* BACK PAGE */}
-      <div className="planner-page space-y-2">
-        <div className="text-sm font-semibold text-slate-900">Back Page (Hymns / Sacrament / Prayers / Note)</div>
-        <div className={tableWrap}>
-          <table className="w-full border-collapse">
-            <thead>
-              <tr>
-                <th className={th}>Week</th>
-                <th className={th}>Hymns (Opening / Sacrament / Closing)</th>
-                <th className={th}>Sacrament Administration (Preparing / Blessing / Passing)</th>
-                <th className={th}>Prayers (Invocation / Benediction)</th>
-                <th className={th}>Note</th>
-              </tr>
-            </thead>
-            <tbody>
-              {planner.weeks.map((w, idx) => (
-                <tr key={w.week_id}>
-                  <td className={td}>
-                    {weekLabel(idx)}
-                    <div className="mt-1 text-[10px] text-slate-600">{formatDateShort(w.date)}</div>
-                  </td>
-                  <td className={`${td} whitespace-pre-line`}>
-                    Opening: {w.hymns.opening || "—"}
-                    {"\n"}Sacrament: {w.hymns.sacrament || "—"}
-                    {"\n"}Closing: {w.hymns.closing || "—"}
-                  </td>
-                  <td className={`${td} whitespace-pre-line`}>
-                    Preparing: {names(w.sacrament.preparing)}
-                    {"\n"}Blessing: {names(w.sacrament.blessing)}
-                    {"\n"}Passing: {names(w.sacrament.passing)}
-                  </td>
-                  <td className={`${td} whitespace-pre-line`}>
-                    Invocation: {withBrotherSister(w.prayers.invocation, w.prayers.invocation_gender) || "—"}
-                    {"\n"}Benediction: {withBrotherSister(w.prayers.benediction, w.prayers.benediction_gender) || "—"}
-                  </td>
-                  <td className={`${td} whitespace-pre-line`}>{(w.note || "").trim() || "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* ══════════════════════════════════════════
+          BACK PAGE – Hymns / Sacrament / Prayers
+      ══════════════════════════════════════════ */}
+      <div style={S.page}>
+        <div style={S.title}>
+          {(unit.unit_name || "").toUpperCase()} — SACRAMENT MEETING PLAN
         </div>
-      </div>
+        <div style={S.subtitle}>{planLabel}  |  {headerInfo}</div>
+        <div style={S.pageLabel}>Page 2 — Hymns / Sacrament / Prayers (Back)</div>
 
-      <div className="no-print text-xs text-slate-500">Tip: Use “Print → Save as PDF” to download.</div>
+        <table style={S.table}>
+          <colgroup>
+            <col style={{ width: bwk }} />
+            <col style={{ width: bhymns }} />
+            <col style={{ width: bsac }} />
+            <col style={{ width: bpray }} />
+            <col /> {/* Note fills remaining */}
+          </colgroup>
+          <thead>
+            {/* Top header row – group labels */}
+            <tr>
+              <th style={{ ...S.th, width: bwk }} rowSpan={2}>WEEK</th>
+              <th style={S.th}>HYMNS</th>
+              <th style={S.th}>SACRAMENT ADMINISTRATION</th>
+              <th style={S.th}>PRAYER</th>
+              <th style={{ ...S.th }} rowSpan={2}>NOTE</th>
+            </tr>
+            {/* Sub-header row */}
+            <tr>
+              <th style={S.thSub}>Opening / Sacrament / Closing</th>
+              <th style={S.thSub}>Preparing / Blessing / Passing</th>
+              <th style={S.thSub}>Invocation / Benediction</th>
+            </tr>
+          </thead>
+          <tbody>
+            {planner.weeks.map((w, idx) => {
+              const inv = gender(w.prayers.invocation, w.prayers.invocation_gender);
+              const ben = gender(w.prayers.benediction, w.prayers.benediction_gender);
+              return (
+                <tr key={w.week_id} style={{ background: idx % 2 === 1 ? "#fafbfc" : "#fff" }}>
+                  <td style={S.tdCenter}>
+                    <div style={{ fontWeight: 700 }}>{idx + 1}</div>
+                    <div style={{ fontSize: "8px", color: "#555", marginTop: "2px" }}>
+                      {formatDateShort(w.date)}
+                    </div>
+                  </td>
+
+                  <td style={S.td}>
+                    <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Opening: </span>
+                    {w.hymns.opening || "—"}{"\n"}
+                    <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Sacrament: </span>
+                    {w.hymns.sacrament || "—"}{"\n"}
+                    <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Closing: </span>
+                    {w.hymns.closing || "—"}
+                  </td>
+
+                  <td style={S.td}>
+                    <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Preparing: </span>
+                    {names(w.sacrament.preparing)}{"\n"}
+                    <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Blessing: </span>
+                    {names(w.sacrament.blessing)}{"\n"}
+                    <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Passing: </span>
+                    {names(w.sacrament.passing)}
+                  </td>
+
+                  <td style={S.td}>
+                    <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Invocation: </span>
+                    {inv || "—"}{"\n"}
+                    <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Benediction: </span>
+                    {ben || "—"}
+                  </td>
+
+                  <td style={{ ...S.td, fontSize: "9px", color: "#444" }}>
+                    {(w.note || "").trim() || "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

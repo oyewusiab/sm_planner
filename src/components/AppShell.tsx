@@ -20,22 +20,22 @@ export type RouteKey =
 const navItems: {
   key: RouteKey;
   label: string;
+  icon: string;
   roles?: Role[];
-  /** Optional additional visibility rule (e.g., calling-based). */
   show?: (user: User) => boolean;
 }[] = [
-  { key: "dashboard", label: "Dashboard" },
-  { key: "planner", label: "Planner", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
-  { key: "archive", label: "Archive", roles: ["ADMIN", "BISHOPRIC"] },
-  { key: "assignments", label: "Assignments", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
-  { key: "notifications", label: "Notifications", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY", "MUSIC"] },
-  { key: "checklist", label: "Checklist", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
-  { key: "members", label: "Members", roles: ["ADMIN", "BISHOPRIC", "CLERK"] },
-  { key: "music", label: "Music", roles: ["ADMIN", "MUSIC"] },
-  // PART 2: Bishop can edit; Clerk (Co-admin) can request edits (requires approval).
+  { key: "dashboard",     label: "Dashboard",     icon: "⊞" },
+  { key: "planner",       label: "Planner",        icon: "📅", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
+  { key: "archive",       label: "Archive",        icon: "🗂️", roles: ["ADMIN", "BISHOPRIC"] },
+  { key: "assignments",   label: "Assignments",    icon: "✉️", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
+  { key: "notifications", label: "Notifications",  icon: "🔔", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY", "MUSIC"] },
+  { key: "checklist",     label: "Checklist",      icon: "✅", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
+  { key: "members",       label: "Members",        icon: "👥", roles: ["ADMIN", "BISHOPRIC", "CLERK"] },
+  { key: "music",         label: "Music",          icon: "🎵", roles: ["ADMIN", "MUSIC"] },
   {
     key: "settings",
     label: "Settings",
+    icon: "⚙️",
     roles: ["ADMIN", "CLERK"],
     show: (u) => u.role === "ADMIN" || (u.role === "CLERK" && u.calling === "Clerk (Co-admin)"),
   },
@@ -45,6 +45,19 @@ function notifCta(n: Notification): { label: string; route: RouteKey } | null {
   if (n.type === "SETTINGS_APPROVAL_REQUEST") return { label: "Open Settings", route: "settings" };
   if (n.type === "MUSIC_INPUT_REQUEST") return { label: "Open Music", route: "music" };
   return null;
+}
+
+// Initials avatar helper
+function Initials({ name }: { name: string }) {
+  const parts = name.trim().split(" ");
+  const letters = parts.length >= 2
+    ? parts[0][0] + parts[parts.length - 1][0]
+    : parts[0].slice(0, 2);
+  return (
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#00c6fb] to-[#005bea] text-sm font-bold text-white shadow-sm">
+      {letters.toUpperCase()}
+    </div>
+  );
 }
 
 export function AppShell({
@@ -75,83 +88,148 @@ export function AppShell({
   }, [user.user_id, notifTick]);
 
   return (
-    <div className="min-h-screen bg-[color:var(--bg)]">
-      <div className="grid min-h-screen grid-cols-1 md:grid-cols-[280px_1fr]">
-        <aside className="no-print flex flex-col bg-[color:var(--sidebar)] text-white">
-          <div className="border-b border-white/10 p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold tracking-wide text-white/90">{unit.unit_name}</div>
-                <div className="mt-1 text-xs text-white/70">
-                  {unit.unit_type} • {unit.venue} • {unit.meeting_time}
+    <div className="min-h-screen" style={{ background: "var(--bg)" }}>
+      <div className="grid min-h-screen grid-cols-1 md:grid-cols-[268px_1fr]">
+        {/* ── Sidebar ── */}
+        <aside
+          className="no-print flex flex-col text-white"
+          style={{
+            background: "linear-gradient(180deg, #003459 0%, #001f35 80%, #00171f 100%)",
+          }}
+        >
+          {/* Brand header */}
+          <div
+            className="border-b px-5 py-5"
+            style={{ borderColor: "rgba(255,255,255,0.08)" }}
+          >
+            {/* App logo row */}
+            <div className="mb-3 flex items-center gap-3">
+              <div
+                className="flex h-9 w-9 items-center justify-center rounded-xl text-lg shadow-md"
+                style={{
+                  background: "linear-gradient(135deg, #00c6fb 0%, #005bea 100%)",
+                }}
+              >
+                ✝
+              </div>
+              <div>
+                <div className="text-xs font-bold uppercase tracking-widest text-white/50">
+                  Sacrament
                 </div>
+                <div className="text-sm font-bold leading-tight text-white">Planner</div>
               </div>
 
+              {/* Notification bell */}
               <button
                 className={cn(
-                  "relative inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 bg-white/5 text-sm hover:bg-white/10",
-                  unread ? "ring-2 ring-white/20" : ""
+                  "relative ml-auto inline-flex h-9 w-9 items-center justify-center rounded-lg border text-sm transition",
+                  "border-white/10 bg-white/5 hover:bg-white/10",
+                  unread ? "ring-2 ring-[#00c6fb]/40" : ""
                 )}
                 title="Notifications"
                 onClick={() => setNotifOpen(true)}
               >
                 <span aria-hidden>🔔</span>
                 {unread ? (
-                  <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[color:var(--accent)] px-1 text-[11px] font-semibold text-white">
+                  <span
+                    className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-bold text-white"
+                    style={{ background: "linear-gradient(135deg, #00c6fb, #005bea)" }}
+                  >
                     {unread}
                   </span>
                 ) : null}
               </button>
             </div>
+
+            {/* Unit info */}
+            <div
+              className="rounded-xl px-3 py-2.5"
+              style={{ background: "rgba(255,255,255,0.06)" }}
+            >
+              <div className="truncate text-sm font-semibold text-white/90">
+                {unit.unit_name}
+              </div>
+              <div className="mt-0.5 truncate text-xs text-white/50">
+                {unit.unit_type} · {unit.meeting_time}
+              </div>
+            </div>
           </div>
 
-          <nav className="p-3">
-            <div className="space-y-1">
+          {/* Navigation */}
+          <nav className="flex-1 px-3 py-4">
+            <div className="mb-1 px-3 text-[10px] font-bold uppercase tracking-widest text-white/30">
+              Navigation
+            </div>
+            <div className="space-y-0.5">
               {navItems
-                .filter((i) => (!i.roles || i.roles.includes(user.role)) && (!i.show || i.show(user)))
+                .filter(
+                  (i) =>
+                    (!i.roles || i.roles.includes(user.role)) &&
+                    (!i.show || i.show(user))
+                )
                 .map((i) => {
                   const active = route === i.key;
                   return (
                     <button
                       key={i.key}
                       onClick={() => setRoute(i.key)}
-                      className={cn(
-                        "flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition",
-                        active ? "bg-white/12" : "hover:bg-white/10"
-                      )}
+                      className={cn("sidebar-nav-item", active ? "active" : "")}
                     >
+                      <span className="sidebar-nav-icon">{i.icon}</span>
                       <span>{i.label}</span>
-                      {active ? <span className="text-xs text-white/60">•</span> : null}
+                      {i.key === "notifications" && unread ? (
+                        <span
+                          className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-bold text-white"
+                          style={{ background: "linear-gradient(135deg, #00c6fb, #005bea)" }}
+                        >
+                          {unread}
+                        </span>
+                      ) : active ? (
+                        <span
+                          className="ml-auto h-1.5 w-1.5 rounded-full"
+                          style={{ background: "#00c6fb" }}
+                        />
+                      ) : null}
                     </button>
                   );
                 })}
             </div>
           </nav>
 
-          <div className="mt-auto border-t border-white/10 p-4">
+          {/* User area */}
+          <div
+            className="border-t px-4 py-4"
+            style={{ borderColor: "rgba(255,255,255,0.08)" }}
+          >
             <button
-              className="w-full text-left"
+              className="w-full text-left transition"
               onClick={() => setProfileOpen(true)}
               title="Edit your profile"
             >
-              <div className="text-sm font-medium hover:underline">{user.name}</div>
+              <div className="flex items-center gap-3">
+                <Initials name={user.name} />
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-white hover:underline">
+                    {user.name}
+                  </div>
+                  <div className="truncate text-xs text-white/50">
+                    {user.calling || user.role}
+                  </div>
+                </div>
+              </div>
             </button>
-            <div className="mt-0.5 text-xs text-white/70">
-              {user.calling ? `${user.calling} • ` : ""}
-              {user.organisation ? `${user.organisation} • ` : ""}
-              {user.role}
-            </div>
-            <div className="mt-3 grid grid-cols-1 gap-2">
-              <Button variant="secondary" className="w-full" onClick={() => setNotifOpen(true)}>
-                Notifications {unread ? <Badge tone="blue">{unread}</Badge> : null}
-              </Button>
-              <Button variant="secondary" className="w-full" onClick={onLogout}>
-                Sign out
-              </Button>
+            <div className="mt-3">
+              <button
+                className="w-full rounded-xl py-2 text-center text-xs font-semibold text-white/50 transition hover:bg-white/5 hover:text-white/80"
+                onClick={onLogout}
+              >
+                Sign out ↩
+              </button>
             </div>
           </div>
         </aside>
 
+        {/* ── Main content ── */}
         <main className="p-4 md:p-8">
           <div className="mx-auto max-w-6xl">{children}</div>
         </main>
@@ -162,7 +240,6 @@ export function AppShell({
           viewer={user}
           target={user}
           onSaved={() => {
-            // Profile changes are stored in localStorage; ask parent to refresh.
             setNotifTick((t) => t + 1);
             onProfileChanged?.();
           }}
@@ -207,13 +284,19 @@ export function AppShell({
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="text-sm font-semibold text-slate-900">{n.title}</div>
-                        <div className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{n.body}</div>
+                        <div className="mt-1 whitespace-pre-wrap text-sm text-slate-700">
+                          {n.body}
+                        </div>
                         <div className="mt-2 text-xs text-slate-500">
                           {new Date(n.created_date).toLocaleString()}
                         </div>
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-2">
-                        {!n.read ? <Badge tone="blue">New</Badge> : <Badge tone="gray">Read</Badge>}
+                        {!n.read ? (
+                          <Badge tone="blue">New</Badge>
+                        ) : (
+                          <Badge tone="gray">Read</Badge>
+                        )}
                         <Button
                           variant="secondary"
                           onClick={() => {
