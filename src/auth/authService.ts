@@ -1,6 +1,6 @@
 import type { Role, User } from "../types";
 import { sha256, timingSafeEqual } from "../utils/crypto";
-import { getDB, setDB, time, updateDB, ids } from "../utils/storage";
+import { getDB, updateDB, ids, time } from "../utils/storage";
 
 function norm(s: string) {
   return (s || "").trim().toLowerCase();
@@ -29,25 +29,7 @@ export function getUserById(user_id: string): User | null {
   return db.USERS.find((u) => u.user_id === user_id) || null;
 }
 
-export async function ensureSeedUserIfEmpty() {
-  const db = getDB();
-  if (db.USERS.length > 0) return;
-  // Seed a default Bishop (Admin) for first-time evaluation.
-  // Real deployments would preload USERS sheet.
-  const password_hash = await sha256("admin");
-  const bishop: User = {
-    user_id: ids.uid("user"),
-    name: "Bishop (Default)",
-    email: "admin@local",
-    role: "ADMIN",
-    organisation: "Bishopric",
-    calling: "Bishop",
-    password_hash,
-    created_date: time.nowISO(),
-    must_reset_password: true,
-  };
-  setDB({ ...db, USERS: [bishop] });
-}
+// ensureSeedUserIfEmpty removed - users are now provided via backend USERS sheet.
 
 export async function login(identifier: string, password: string): Promise<User | null> {
   const db = getDB();

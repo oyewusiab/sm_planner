@@ -1,22 +1,17 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { User } from "../types";
 import { Button, Card, CardBody, CardHeader, CardTitle, Input, Label } from "../components/ui";
 import * as auth from "../auth/authService";
-import { getDB } from "../utils/storage";
 
 export function LoginPage({
   onLoggedIn,
 }: {
   onLoggedIn: (user: User) => void;
 }) {
-  const seededHint = useMemo(() => {
-    const db = getDB();
-    const has = db.USERS.some((u) => u.email.toLowerCase() === "admin@local");
-    return has ? "Default login: admin@local / admin" : null;
-  }, []);
+  const seededHint = null; // Removed seeded admin hint.
 
-  const [identifier, setIdentifier] = useState("admin@local");
-  const [password, setPassword] = useState("admin");
+  const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -98,7 +93,7 @@ export function LoginPage({
                   <Input
                     value={identifier}
                     onChange={(e) => setIdentifier(e.target.value)}
-                    placeholder="email@example.com or username"
+                    placeholder="Enter email or username"
                   />
                 </div>
                 <div className="space-y-1">

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { UnitSettings, User } from "./types";
 import { AppShell, type RouteKey } from "./components/AppShell";
 import { LoginPage } from "./pages/LoginPage";
-import { SetupWizard } from "./pages/SetupWizard";
 import { DashboardPage } from "./pages/DashboardPage";
 import { PlannerPage } from "./pages/PlannerPage";
 import { PlannerArchivePage } from "./pages/PlannerArchivePage";
@@ -16,6 +15,7 @@ import * as auth from "./auth/authService";
 import { clearSession, getSession, newSessionForUser, setSession } from "./auth/session";
 import { syncNow, syncFromBackend, getDB } from "./utils/storage";
 import { backendEnabled, pingBackend } from "./utils/backend";
+import { Button } from "./components/ui";
 
 function LoadingScreen({ label = "Loading…" }: { label?: string }) {
   return (
@@ -93,10 +93,8 @@ export function App() {
 
   useEffect(() => {
     (async () => {
+      // Sync from backend immediately to get USERS data
       await syncFromBackend();
-
-      // Ensure a seed user exists so you can get into the app on first run.
-      await auth.ensureSeedUserIfEmpty();
 
       const db = getDB();
       setUnit(db.UNIT_SETTINGS);
@@ -127,52 +125,39 @@ export function App() {
     );
   }
 
-  if (!unit) {
-    return (
-      <SetupWizard
-        currentUser={user}
-        onComplete={(u) => {
-          setUnit(u);
-          const latest = auth.getUserById(user.user_id);
-          if (latest) setUser(latest);
-          setRoute("dashboard");
-          refresh();
-        }}
-      />
-    );
-  }
-
   function logout() {
     clearSession();
     setUser(null);
     setRoute("dashboard");
   }
 
-  return (
-    <AppShell
-      user={user}
-      unit={unit}
-      route={route}
-      setRoute={setRoute}
-      onLogout={logout}
-    >
-      {route === "dashboard" ? (
-        <DashboardPage user={user} unit={unit} onNavigate={(r) => setRoute(r)} />
-      ) : route === "planner" ? (
-        <PlannerPage user={user} unit={unit} onChanged={refresh} />
-      ) : route === "archive" ? (
-        <PlannerArchivePage user={user} unit={unit} onChanged={refresh} />
-      ) : route === "assignments" ? (
-        <AssignmentsPage user={user} unit={unit} onChanged={refresh} />
-      ) : route === "checklist" ? (
-        <ChecklistPage user={user} unit={unit} onChanged={refresh} />
-      ) : route === "members" ? (
-        <MembersPage user={user} unit={unit} onChanged={refresh} />
-      ) : route === "music" ? (
-        <MusicPage user={user} unit={unit} onChanged={refresh} />
-      ) : route === "notifications" ? (
-        <NotificationsPage user={user} unit={unit} onChanged={refresh} />
-      ) : route === "settings" ? (
+  // If unit settings are missing after sync, we still allow the user in, 
+  // but they'll see a prompt to update settings.
+  const content = (() => {
+    if (!unit) {
+      return (
+        <div className="flex flex-col items-center justify-center p-12 text-center">
+          <div className="text-lg font-semibold text-slate-900">Unit Settings Missing</div>
+          <p className="mt-1 text-sm text-slate-600">
+            Please configure your unit details in <strong>Settings</strong> to continue.
+          </p>
+          <Button className="mt-4" onClick={() => setRoute("settings")}>
+            Go to Settings
+          </Button>
+        </div>
+      );
+    }
+
+    if (route === "dashboard") return <DashboardPage user={user} unit={unit} onNavigate={(r) => setRoute(r)} />;
+    if (route === "planner") return <PlannerPage user={user} unit={unit} onChanged={refresh} />;
+    if (route === "archive") return <PlannerArchivePage user={user} unit={unit} onChanged={refresh} />;
+    if (route === "assignments") return <AssignmentsPage user={user} unit={unit} onChanged={refresh} />;
+    if (route === "checklist") return <ChecklistPage user={user} unit={unit} onChanged={refresh} />;
+    if (route === "members") return <MembersPage user={user} unit={unit} onChanged={refresh} />;
+    if (route === "music") return <MusicPage user={user} unit={unit} onChanged={refresh} />;
+    if (route === "notifications") return <NotificationsPage user={user} unit={unit} onChanged={refresh} />;
+    if (route === "settings") {
+      return (
         <SettingsPage
           user={user}
           unit={unit}
@@ -181,10 +166,20 @@ export function App() {
           syncing={syncing}
           onSyncNow={handleSyncNow}
         />
-      ) : (
-        <div className="text-sm text-slate-600">Unknown route.</div>
-      )}
+      );
+    }
+    return <div className="text-sm text-slate-600">Unknown route.</div>;
+  })();
 
+  return (
+    <AppShell
+      user={user}
+      unit={unit || ({} as any)}
+      route={route}
+      setRoute={setRoute}
+      onLogout={logout}
+    >
+      {content}
       <div className="hidden">{dbSnapshot.UNIT_SETTINGS?.unit_name}</div>
     </AppShell>
   );
