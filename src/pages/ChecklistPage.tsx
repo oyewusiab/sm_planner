@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ChecklistTask, Planner, UnitSettings, User } from "../types";
-import { Button, Card, CardBody, CardHeader, CardTitle, Divider, EmptyState, Input, Label, SectionTitle, Select } from "../components/ui";
+import { Button, Card, CardBody, CardHeader, CardTitle, Divider, EmptyState, Label, SectionTitle, Select } from "../components/ui";
 import { Modal } from "../components/Modal";
 import { formatDateShort, monthName } from "../utils/date";
 import { getDB, ids, time, updateDB } from "../utils/storage";
+import { MemberAutocomplete } from "../components/MemberAutocomplete";
 
 const DEFAULT_TASKS = [
   "Podium prepared",
@@ -46,6 +47,7 @@ export function ChecklistPage({
 }) {
   const enabled = unit.prefs?.enable_checklist !== false;
   const db = getDB();
+  const members = db.MEMBERS;
 
   const planners = useMemo(
     () => [...db.PLANNERS].filter((p) => p.state !== "ARCHIVED").sort((a, b) => b.updated_date.localeCompare(a.updated_date)),
@@ -190,9 +192,11 @@ export function ChecklistPage({
                   <tr key={t.checklist_id} className="border-t border-[color:var(--border)]">
                     <td className="p-3">{t.task}</td>
                     <td className="p-3">
-                      <Input
+                      <MemberAutocomplete
+                        members={members}
                         value={t.responsible || ""}
-                        onChange={(e) => updateTask(t.checklist_id, { responsible: e.target.value })}
+                        onChange={(val) => updateTask(t.checklist_id, { responsible: val })}
+                        onPick={(m) => updateTask(t.checklist_id, { responsible: m.name })}
                         placeholder="Name"
                       />
                     </td>

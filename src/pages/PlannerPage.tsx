@@ -6,8 +6,11 @@ import { Modal } from "../components/Modal";
 import { PlannerPreviewTable } from "../components/PlannerPreviewTable";
 import { MemberAutocomplete, normalizeGender } from "../components/MemberAutocomplete";
 import { can } from "../utils/permissions";
+import { formatUserDisplayName } from "../utils/format";
 import { formatDateShort, monthName, nextSundaysInMonth, yyyyMmToLabel } from "../utils/date";
-import { getDB, ids, time, updateDB } from "../utils/storage";
+import { getDB, ids, updateDB, time } from "../utils/storage";
+import * as auth from "../auth/authService";
+import { notifyUser } from "../utils/notifications";
 
 type Gender = "M" | "F";
 
@@ -175,7 +178,29 @@ export function PlannerPage({
   function submit() {
     if (!draft) return;
     if (draft.weeks.length === 0) return;
-    save("SUBMITTED");
+    const p = save("SUBMITTED");
+    if (p) {
+      // Notify Music Coordinator
+      auth.getUsersByRole("MUSIC").forEach((u: User) => {
+        notifyUser({
+          to_user_id: u.user_id,
+          type: "MUSIC_INPUT_REQUEST",
+          title: "New Planner Submitted",
+          body: `A new plan for ${monthName(p.month)} ${p.year} has been submitted. Please input music details.`,
+          meta: { planner_id: p.planner_id },
+        });
+      });
+      // Notify Secretary / Assistants
+      auth.getUsersByRole("SECRETARY").forEach((u: User) => {
+        notifyUser({
+          to_user_id: u.user_id,
+          type: "PLANNER_SUBMITTED",
+          title: "Planner Ready for Review",
+          body: `The plan for ${monthName(p.month)} ${p.year} is ready. Please review and distribute assignments.`,
+          meta: { planner_id: p.planner_id },
+        });
+      });
+    }
   }
 
   function archive(planner_id: string) {
@@ -420,10 +445,10 @@ export function PlannerPage({
                   setDraft((d) =>
                     d
                       ? {
-                          ...d,
-                          month,
-                          weeks: sundays.slice(0, 5).map((date) => blankWeek(date, d.conducting_officer, defaultSpeakers)),
-                        }
+                        ...d,
+                        month,
+                        weeks: sundays.slice(0, 5).map((date) => blankWeek(date, d.conducting_officer, defaultSpeakers)),
+                      }
                       : d
                   );
                 }}
@@ -501,394 +526,448 @@ export function PlannerPage({
               ) : null}
             </CardHeader>
             <CardBody>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="space-y-1">
-                  <Label>Date</Label>
-                  <Input
-                    disabled={readonly}
-                    type="date"
-                    value={w.date}
-                    onChange={(e) =>
-                      setDraft((d) =>
-                        d
-                          ? { ...d, weeks: d.weeks.map((x) => (x.week_id === w.week_id ? { ...x, date: e.target.value } : x)) }
-                          : d
-                      )
-                    }
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>Presiding (optional)</Label>
-                  <Input
-                    disabled={readonly}
-                    value={w.presiding || ""}
-                    onChange={(e) =>
-                      setDraft((d) =>
-                        d
-                          ? { ...d, weeks: d.weeks.map((x) => (x.week_id === w.week_id ? { ...x, presiding: e.target.value } : x)) }
-                          : d
-                      )
-                    }
-                  />
+              <div className="mb-4 rounded-xl bg-slate-50 p-4 border border-slate-200">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <Label className="font-bold text-slate-800">Sacrament Meeting Will be Held?</Label>
+                    <p className="text-xs text-slate-500">Toggle off for Stake Conference, General Conference, etc.</p>
+                  </div>
+                  <label className="relative inline-flex cursor-pointer items-center">
+                    <input
+                      type="checkbox"
+                      className="peer sr-only"
+                      disabled={readonly}
+                      checked={!w.is_canceled}
+                      onChange={(e) => {
+                        const is_canceled = !e.target.checked;
+                        setDraft((d) =>
+                          d
+                            ? {
+                              ...d,
+                              weeks: d.weeks.map((x) =>
+                                x.week_id === w.week_id ? { ...x, is_canceled, cancel_reason: is_canceled ? x.cancel_reason : "" } : x
+                              ),
+                            }
+                            : d
+                        );
+                      }}
+                    />
+                    <div className="peer h-6 w-11 rounded-full bg-slate-300 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-blue-600 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300" />
+                  </label>
                 </div>
 
-                <div className="space-y-2 md:col-span-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="text-sm font-semibold text-slate-900">Speakers</div>
-                      {!readonly && !w.fast_testimony ? (
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="secondary"
-                            onClick={() =>
-                              setDraft((d) => {
-                                if (!d) return d;
-                                const weeks = d.weeks.map((x) =>
-                                  x.week_id === w.week_id
-                                    ? {
+                {w.is_canceled && (
+                  <div className="mt-4 space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <Label className="text-amber-700 font-semibold">Reason for no meeting</Label>
+                    <Input
+                      placeholder="e.g. Stake Conference, General Conference, Ward Temple Day..."
+                      disabled={readonly}
+                      value={w.cancel_reason || ""}
+                      onChange={(e) =>
+                        setDraft((d) =>
+                          d
+                            ? {
+                              ...d,
+                              weeks: d.weeks.map((x) => (x.week_id === w.week_id ? { ...x, cancel_reason: e.target.value } : x)),
+                            }
+                            : d
+                        )
+                      }
+                      className="border-amber-200 focus:border-amber-400 focus:ring-amber-100"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {!w.is_canceled ? (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label>Date</Label>
+                    <Input
+                      disabled={readonly}
+                      type="date"
+                      value={w.date}
+                      onChange={(e) =>
+                        setDraft((d) =>
+                          d
+                            ? { ...d, weeks: d.weeks.map((x) => (x.week_id === w.week_id ? { ...x, date: e.target.value } : x)) }
+                            : d
+                        )
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Presiding (optional)</Label>
+                    <Input
+                      disabled={readonly}
+                      value={w.presiding || ""}
+                      onChange={(e) =>
+                        setDraft((d) =>
+                          d
+                            ? { ...d, weeks: d.weeks.map((x) => (x.week_id === w.week_id ? { ...x, presiding: e.target.value } : x)) }
+                            : d
+                        )
+                      }
+                    />
+                  </div>
+
+                  <div className="space-y-2 md:col-span-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="text-sm font-semibold text-slate-900">Speakers</div>
+                        {!readonly && !w.fast_testimony ? (
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="secondary"
+                              onClick={() =>
+                                setDraft((d) => {
+                                  if (!d) return d;
+                                  const weeks = d.weeks.map((x) =>
+                                    x.week_id === w.week_id
+                                      ? {
                                         ...x,
                                         speakers: [...(x.speakers || []), { name: "", topic: "", gender: undefined }],
                                       }
-                                    : x
-                                );
-                                return { ...d, weeks };
-                              })
-                            }
-                          >
-                            + Speaker
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            disabled={(w.speakers?.length || 0) === 0}
-                            onClick={() =>
-                              setDraft((d) => {
-                                if (!d) return d;
-                                const weeks = d.weeks.map((x) =>
-                                  x.week_id === w.week_id
-                                    ? {
-                                        ...x,
-                                        speakers: (x.speakers || []).slice(0, Math.max(0, (x.speakers || []).length - 1)),
-                                      }
-                                    : x
-                                );
-                                return { ...d, weeks };
-                              })
-                            }
-                          >
-                            − Speaker
-                          </Button>
-                        </div>
-                      ) : null}
-                    </div>
-
-                    <label className="flex items-center gap-2 text-sm text-slate-700">
-                      <input
-                        type="checkbox"
-                        disabled={readonly}
-                        checked={!!w.fast_testimony}
-                        onChange={(e) =>
-                          setDraft((d) => {
-                            if (!d) return d;
-                            const defaultSpeakers = unit.prefs?.default_speakers ?? 3;
-                            const weeks = d.weeks.map((x) => {
-                              if (x.week_id !== w.week_id) return x;
-                              const fast_testimony = e.target.checked;
-                              return {
-                                ...x,
-                                fast_testimony,
-                                speakers: fast_testimony
-                                  ? []
-                                  : (x.speakers && x.speakers.length > 0
-                                      ? x.speakers
-                                      : Array.from({ length: Math.max(0, defaultSpeakers) }).map(() => ({
-                                          name: "",
-                                          topic: "",
-                                          gender: undefined,
-                                        }))),
-                              };
-                            });
-                            return { ...d, weeks };
-                          })
-                        }
-                      />
-                      Fast & Testimony Meeting (no speakers)
-                    </label>
-                  </div>
-
-                  {w.fast_testimony ? (
-                    <div className="rounded-lg border border-[color:var(--border)] bg-slate-50 p-3 text-sm text-slate-700">
-                      Speakers are disabled for this week.
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                      {w.speakers.map((s, i) => (
-                        <div key={i} className="space-y-2 rounded-lg border border-[color:var(--border)] p-3">
-                          <div className="text-xs font-medium text-slate-500">Speaker {i + 1}</div>
-
-                          <div className="space-y-1">
-                            <Label>Gender / Prefix</Label>
-                            <Select
-                              disabled={readonly}
-                              value={s.gender || ""}
-                              onChange={(e) =>
-                                setDraft((d) => {
-                                  if (!d) return d;
-                                  const gender = (e.target.value || undefined) as Gender | undefined;
-                                  const weeks = d.weeks.map((x) => {
-                                    if (x.week_id !== w.week_id) return x;
-                                    const speakers = x.speakers.map((sp, j) => (j === i ? { ...sp, gender } : sp));
-                                    return { ...x, speakers };
-                                  });
+                                      : x
+                                  );
                                   return { ...d, weeks };
                                 })
                               }
                             >
-                              <option value="">—</option>
-                              <option value="M">Brother</option>
-                              <option value="F">Sister</option>
-                            </Select>
-                          </div>
-
-                          <div className="space-y-1">
-                            <Label>Name</Label>
-                            <MemberAutocomplete
-                              members={members}
-                              disabled={readonly}
-                              value={s.name}
-                              placeholder="Select from Members…"
-                              onChange={(val) =>
+                              + Speaker
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              disabled={(w.speakers?.length || 0) === 0}
+                              onClick={() =>
                                 setDraft((d) => {
                                   if (!d) return d;
-                                  const weeks = d.weeks.map((x) => {
-                                    if (x.week_id !== w.week_id) return x;
-                                    const speakers = x.speakers.map((sp, j) => (j === i ? { ...sp, name: val } : sp));
-                                    return { ...x, speakers };
-                                  });
+                                  const weeks = d.weeks.map((x) =>
+                                    x.week_id === w.week_id
+                                      ? {
+                                        ...x,
+                                        speakers: (x.speakers || []).slice(0, Math.max(0, (x.speakers || []).length - 1)),
+                                      }
+                                      : x
+                                  );
                                   return { ...d, weeks };
                                 })
                               }
-                              onPick={(m) => {
-                                const g = normalizeGender(m.gender);
-                                setDraft((d) => {
-                                  if (!d) return d;
-                                  const weeks = d.weeks.map((x) => {
-                                    if (x.week_id !== w.week_id) return x;
-                                    const speakers = x.speakers.map((sp, j) =>
-                                      j === i ? { ...sp, name: m.name, gender: g ?? sp.gender } : sp
-                                    );
-                                    return { ...x, speakers };
-                                  });
-                                  return { ...d, weeks };
-                                });
-                              }}
-                            />
+                            >
+                              − Speaker
+                            </Button>
                           </div>
+                        ) : null}
+                      </div>
 
-                          <div className="space-y-1">
-                            <Label>Topic & Reference</Label>
-                            <Textarea
-                              disabled={readonly}
-                              rows={3}
-                              value={s.topic}
-                              onChange={(e) =>
-                                setDraft((d) => {
-                                  if (!d) return d;
-                                  const weeks = d.weeks.map((x) => {
-                                    if (x.week_id !== w.week_id) return x;
-                                    const speakers = x.speakers.map((sp, j) => (j === i ? { ...sp, topic: e.target.value } : sp));
-                                    return { ...x, speakers };
+                      <label className="flex items-center gap-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          disabled={readonly}
+                          checked={!!w.fast_testimony}
+                          onChange={(e) =>
+                            setDraft((d) => {
+                              if (!d) return d;
+                              const defaultSpeakers = unit.prefs?.default_speakers ?? 3;
+                              const weeks = d.weeks.map((x) => {
+                                if (x.week_id !== w.week_id) return x;
+                                const fast_testimony = e.target.checked;
+                                return {
+                                  ...x,
+                                  fast_testimony,
+                                  speakers: fast_testimony
+                                    ? []
+                                    : (x.speakers && x.speakers.length > 0
+                                      ? x.speakers
+                                      : Array.from({ length: Math.max(0, defaultSpeakers) }).map(() => ({
+                                        name: "",
+                                        topic: "",
+                                        gender: undefined,
+                                      }))),
+                                };
+                              });
+                              return { ...d, weeks };
+                            })
+                          }
+                        />
+                        Fast & Testimony Meeting (no speakers)
+                      </label>
+                    </div>
+
+                    {w.fast_testimony ? (
+                      <div className="rounded-lg border border-[color:var(--border)] bg-slate-50 p-3 text-sm text-slate-700">
+                        Speakers are disabled for this week.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                        {w.speakers.map((s, i) => (
+                          <div key={i} className="space-y-2 rounded-lg border border-[color:var(--border)] p-3">
+                            <div className="text-xs font-medium text-slate-500">Speaker {i + 1}</div>
+
+                            <div className="space-y-1">
+                              <Label>Gender / Prefix</Label>
+                              <Select
+                                disabled={readonly}
+                                value={s.gender || ""}
+                                onChange={(e) =>
+                                  setDraft((d) => {
+                                    if (!d) return d;
+                                    const gender = (e.target.value || undefined) as Gender | undefined;
+                                    const weeks = d.weeks.map((x) => {
+                                      if (x.week_id !== w.week_id) return x;
+                                      const speakers = x.speakers.map((sp, j) => (j === i ? { ...sp, gender } : sp));
+                                      return { ...x, speakers };
+                                    });
+                                    return { ...d, weeks };
+                                  })
+                                }
+                              >
+                                <option value="">—</option>
+                                <option value="M">Brother</option>
+                                <option value="F">Sister</option>
+                              </Select>
+                            </div>
+
+                            <div className="space-y-1">
+                              <Label>Name</Label>
+                              <MemberAutocomplete
+                                members={members}
+                                disabled={readonly}
+                                value={s.name}
+                                placeholder="Select from Members…"
+                                onChange={(val) =>
+                                  setDraft((d) => {
+                                    if (!d) return d;
+                                    const weeks = d.weeks.map((x) => {
+                                      if (x.week_id !== w.week_id) return x;
+                                      const speakers = x.speakers.map((sp, j) => (j === i ? { ...sp, name: val } : sp));
+                                      return { ...x, speakers };
+                                    });
+                                    return { ...d, weeks };
+                                  })
+                                }
+                                onPick={(m) => {
+                                  const g = normalizeGender(m.gender);
+                                  setDraft((d) => {
+                                    if (!d) return d;
+                                    const weeks = d.weeks.map((x) => {
+                                      if (x.week_id !== w.week_id) return x;
+                                      const speakers = x.speakers.map((sp, j) =>
+                                        j === i ? { ...sp, name: m.name, gender: g ?? sp.gender } : sp
+                                      );
+                                      return { ...x, speakers };
+                                    });
+                                    return { ...d, weeks };
                                   });
-                                  return { ...d, weeks };
-                                })
-                              }
-                            />
+                                }}
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <Label>Topic & Reference</Label>
+                              <Textarea
+                                disabled={readonly}
+                                rows={3}
+                                value={s.topic}
+                                onChange={(e) =>
+                                  setDraft((d) => {
+                                    if (!d) return d;
+                                    const weeks = d.weeks.map((x) => {
+                                      if (x.week_id !== w.week_id) return x;
+                                      const speakers = x.speakers.map((sp, j) => (j === i ? { ...sp, topic: e.target.value } : sp));
+                                      return { ...x, speakers };
+                                    });
+                                    return { ...d, weeks };
+                                  })
+                                }
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 md:col-span-2">
+                    <Divider />
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                      <div className="space-y-2">
+                        <div className="text-sm font-semibold text-slate-900">Hymns</div>
+                        <div className="space-y-1">
+                          <Label>Opening</Label>
+                          <Input disabled={readonly} value={w.hymns.opening} onChange={(e) => setDraft((d) => d ? ({ ...d, weeks: d.weeks.map((x) => x.week_id === w.week_id ? ({ ...x, hymns: { ...x.hymns, opening: e.target.value } }) : x) }) : d)} />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Sacrament</Label>
+                          <Input disabled={readonly} value={w.hymns.sacrament} onChange={(e) => setDraft((d) => d ? ({ ...d, weeks: d.weeks.map((x) => x.week_id === w.week_id ? ({ ...x, hymns: { ...x.hymns, sacrament: e.target.value } }) : x) }) : d)} />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Closing</Label>
+                          <Input disabled={readonly} value={w.hymns.closing} onChange={(e) => setDraft((d) => d ? ({ ...d, weeks: d.weeks.map((x) => x.week_id === w.week_id ? ({ ...x, hymns: { ...x.hymns, closing: e.target.value } }) : x) }) : d)} />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="text-sm font-semibold text-slate-900">Sacrament Administration</div>
+                        <div className="text-xs text-slate-500">Use + / − to add multiple names.</div>
+
+                        {/* Preparing */}
+                        <div className="space-y-2 rounded-lg border border-[color:var(--border)] p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <Label>Preparing</Label>
+                            {!readonly ? (
+                              <Button variant="secondary" type="button" onClick={() => addSacramentName(w.week_id, "preparing")}>
+                                +
+                              </Button>
+                            ) : null}
+                          </div>
+                          <div className="space-y-2">
+                            {ensureListWithAtLeastOne(w.sacrament.preparing).map((name, i) => (
+                              <div key={i} className="flex items-center gap-2">
+                                <MemberAutocomplete
+                                  members={members}
+                                  disabled={readonly}
+                                  placeholder={`Name ${i + 1}`}
+                                  value={name}
+                                  onChange={(val) => updateSacramentName(w.week_id, "preparing", i, val)}
+                                />
+                                {!readonly ? (
+                                  <Button
+                                    variant="secondary"
+                                    type="button"
+                                    onClick={() => removeSacramentName(w.week_id, "preparing", i)}
+                                    className="px-2"
+                                    title="Remove"
+                                  >
+                                    −
+                                  </Button>
+                                ) : null}
+                              </div>
+                            ))}
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
 
-                <div className="space-y-2 md:col-span-2">
-                  <Divider />
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                    <div className="space-y-2">
-                      <div className="text-sm font-semibold text-slate-900">Hymns</div>
-                      <div className="space-y-1">
-                        <Label>Opening</Label>
-                        <Input disabled={readonly} value={w.hymns.opening} onChange={(e) => setDraft((d) => d ? ({ ...d, weeks: d.weeks.map((x) => x.week_id === w.week_id ? ({ ...x, hymns: { ...x.hymns, opening: e.target.value } }) : x) }) : d)} />
-                      </div>
-                      <div className="space-y-1">
-                        <Label>Sacrament</Label>
-                        <Input disabled={readonly} value={w.hymns.sacrament} onChange={(e) => setDraft((d) => d ? ({ ...d, weeks: d.weeks.map((x) => x.week_id === w.week_id ? ({ ...x, hymns: { ...x.hymns, sacrament: e.target.value } }) : x) }) : d)} />
-                      </div>
-                      <div className="space-y-1">
-                        <Label>Closing</Label>
-                        <Input disabled={readonly} value={w.hymns.closing} onChange={(e) => setDraft((d) => d ? ({ ...d, weeks: d.weeks.map((x) => x.week_id === w.week_id ? ({ ...x, hymns: { ...x.hymns, closing: e.target.value } }) : x) }) : d)} />
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <div className="text-sm font-semibold text-slate-900">Sacrament Administration</div>
-                      <div className="text-xs text-slate-500">Use + / − to add multiple names.</div>
-
-                      {/* Preparing */}
-                      <div className="space-y-2 rounded-lg border border-[color:var(--border)] p-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <Label>Preparing</Label>
-                          {!readonly ? (
-                            <Button variant="secondary" type="button" onClick={() => addSacramentName(w.week_id, "preparing")}>
-                              +
-                            </Button>
-                          ) : null}
+                        {/* Blessing */}
+                        <div className="space-y-2 rounded-lg border border-[color:var(--border)] p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <Label>Blessing</Label>
+                            {!readonly ? (
+                              <Button variant="secondary" type="button" onClick={() => addSacramentName(w.week_id, "blessing")}>
+                                +
+                              </Button>
+                            ) : null}
+                          </div>
+                          <div className="space-y-2">
+                            {ensureListWithAtLeastOne(w.sacrament.blessing).map((name, i) => (
+                              <div key={i} className="flex items-center gap-2">
+                                <MemberAutocomplete
+                                  members={members}
+                                  disabled={readonly}
+                                  placeholder={`Name ${i + 1}`}
+                                  value={name}
+                                  onChange={(val) => updateSacramentName(w.week_id, "blessing", i, val)}
+                                />
+                                {!readonly ? (
+                                  <Button
+                                    variant="secondary"
+                                    type="button"
+                                    onClick={() => removeSacramentName(w.week_id, "blessing", i)}
+                                    className="px-2"
+                                    title="Remove"
+                                  >
+                                    −
+                                  </Button>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        <div className="space-y-2">
-                          {ensureListWithAtLeastOne(w.sacrament.preparing).map((name, i) => (
-                            <div key={i} className="flex items-center gap-2">
-                              <MemberAutocomplete
-                                members={members}
+
+                        {/* Passing */}
+                        <div className="space-y-2 rounded-lg border border-[color:var(--border)] p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <Label>Passing</Label>
+                            {!readonly ? (
+                              <Button variant="secondary" type="button" onClick={() => addSacramentName(w.week_id, "passing")}>
+                                +
+                              </Button>
+                            ) : null}
+                          </div>
+                          <div className="space-y-2">
+                            {ensureListWithAtLeastOne(w.sacrament.passing).map((name, i) => (
+                              <div key={i} className="flex items-center gap-2">
+                                <MemberAutocomplete
+                                  members={members}
+                                  disabled={readonly}
+                                  placeholder={`Name ${i + 1}`}
+                                  value={name}
+                                  onChange={(val) => updateSacramentName(w.week_id, "passing", i, val)}
+                                />
+                                {!readonly ? (
+                                  <Button
+                                    variant="secondary"
+                                    type="button"
+                                    onClick={() => removeSacramentName(w.week_id, "passing", i)}
+                                    className="px-2"
+                                    title="Remove"
+                                  >
+                                    −
+                                  </Button>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="text-sm font-semibold text-slate-900">Prayers</div>
+
+                        <div className="rounded-lg border border-[color:var(--border)] p-3">
+                          <div className="text-xs font-medium text-slate-500">Invocation</div>
+                          <div className="mt-2 grid grid-cols-1 gap-2">
+                            <div className="space-y-1">
+                              <Label>Gender / Prefix</Label>
+                              <Select
                                 disabled={readonly}
-                                placeholder={`Name ${i + 1}`}
-                                value={name}
-                                onChange={(val) => updateSacramentName(w.week_id, "preparing", i, val)}
-                              />
-                              {!readonly ? (
-                                <Button
-                                  variant="secondary"
-                                  type="button"
-                                  onClick={() => removeSacramentName(w.week_id, "preparing", i)}
-                                  className="px-2"
-                                  title="Remove"
-                                >
-                                  −
-                                </Button>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Blessing */}
-                      <div className="space-y-2 rounded-lg border border-[color:var(--border)] p-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <Label>Blessing</Label>
-                          {!readonly ? (
-                            <Button variant="secondary" type="button" onClick={() => addSacramentName(w.week_id, "blessing")}>
-                              +
-                            </Button>
-                          ) : null}
-                        </div>
-                        <div className="space-y-2">
-                          {ensureListWithAtLeastOne(w.sacrament.blessing).map((name, i) => (
-                            <div key={i} className="flex items-center gap-2">
-                              <MemberAutocomplete
-                                members={members}
-                                disabled={readonly}
-                                placeholder={`Name ${i + 1}`}
-                                value={name}
-                                onChange={(val) => updateSacramentName(w.week_id, "blessing", i, val)}
-                              />
-                              {!readonly ? (
-                                <Button
-                                  variant="secondary"
-                                  type="button"
-                                  onClick={() => removeSacramentName(w.week_id, "blessing", i)}
-                                  className="px-2"
-                                  title="Remove"
-                                >
-                                  −
-                                </Button>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Passing */}
-                      <div className="space-y-2 rounded-lg border border-[color:var(--border)] p-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <Label>Passing</Label>
-                          {!readonly ? (
-                            <Button variant="secondary" type="button" onClick={() => addSacramentName(w.week_id, "passing")}>
-                              +
-                            </Button>
-                          ) : null}
-                        </div>
-                        <div className="space-y-2">
-                          {ensureListWithAtLeastOne(w.sacrament.passing).map((name, i) => (
-                            <div key={i} className="flex items-center gap-2">
-                              <MemberAutocomplete
-                                members={members}
-                                disabled={readonly}
-                                placeholder={`Name ${i + 1}`}
-                                value={name}
-                                onChange={(val) => updateSacramentName(w.week_id, "passing", i, val)}
-                              />
-                              {!readonly ? (
-                                <Button
-                                  variant="secondary"
-                                  type="button"
-                                  onClick={() => removeSacramentName(w.week_id, "passing", i)}
-                                  className="px-2"
-                                  title="Remove"
-                                >
-                                  −
-                                </Button>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <div className="text-sm font-semibold text-slate-900">Prayers</div>
-
-                      <div className="rounded-lg border border-[color:var(--border)] p-3">
-                        <div className="text-xs font-medium text-slate-500">Invocation</div>
-                        <div className="mt-2 grid grid-cols-1 gap-2">
-                          <div className="space-y-1">
-                            <Label>Gender / Prefix</Label>
-                            <Select
-                              disabled={readonly}
-                              value={w.prayers.invocation_gender || ""}
-                              onChange={(e) =>
-                                setDraft((d) =>
-                                  d
-                                    ? {
+                                value={w.prayers.invocation_gender || ""}
+                                onChange={(e) =>
+                                  setDraft((d) =>
+                                    d
+                                      ? {
                                         ...d,
                                         weeks: d.weeks.map((x) =>
                                           x.week_id === w.week_id
                                             ? {
-                                                ...x,
-                                                prayers: {
-                                                  ...x.prayers,
-                                                  invocation_gender: (e.target.value || undefined) as Gender | undefined,
-                                                },
-                                              }
+                                              ...x,
+                                              prayers: {
+                                                ...x.prayers,
+                                                invocation_gender: (e.target.value || undefined) as Gender | undefined,
+                                              },
+                                            }
                                             : x
                                         ),
                                       }
-                                    : d
-                                )
-                              }
-                            >
-                              <option value="">—</option>
-                              <option value="M">Brother</option>
-                              <option value="F">Sister</option>
-                            </Select>
-                          </div>
-                          <div className="space-y-1">
-                            <Label>Name</Label>
-                            <MemberAutocomplete
-                              members={members}
-                              disabled={readonly}
-                              value={w.prayers.invocation}
-                              placeholder="Select from Members…"
-                              onChange={(val) =>
-                                setDraft((d) =>
-                                  d
-                                    ? {
+                                      : d
+                                  )
+                                }
+                              >
+                                <option value="">—</option>
+                                <option value="M">Brother</option>
+                                <option value="F">Sister</option>
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Name</Label>
+                              <MemberAutocomplete
+                                members={members}
+                                disabled={readonly}
+                                value={w.prayers.invocation}
+                                placeholder="Select from Members…"
+                                onChange={(val) =>
+                                  setDraft((d) =>
+                                    d
+                                      ? {
                                         ...d,
                                         weeks: d.weeks.map((x) =>
                                           x.week_id === w.week_id
@@ -896,81 +975,81 @@ export function PlannerPage({
                                             : x
                                         ),
                                       }
-                                    : d
-                                )
-                              }
-                              onPick={(m) => {
-                                const g = normalizeGender(m.gender);
-                                setDraft((d) =>
-                                  d
-                                    ? {
+                                      : d
+                                  )
+                                }
+                                onPick={(m) => {
+                                  const g = normalizeGender(m.gender);
+                                  setDraft((d) =>
+                                    d
+                                      ? {
                                         ...d,
                                         weeks: d.weeks.map((x) =>
                                           x.week_id === w.week_id
                                             ? {
-                                                ...x,
-                                                prayers: {
-                                                  ...x.prayers,
-                                                  invocation: m.name,
-                                                  invocation_gender: g ?? x.prayers.invocation_gender,
-                                                },
-                                              }
+                                              ...x,
+                                              prayers: {
+                                                ...x.prayers,
+                                                invocation: m.name,
+                                                invocation_gender: g ?? x.prayers.invocation_gender,
+                                              },
+                                            }
                                             : x
                                         ),
                                       }
-                                    : d
-                                );
-                              }}
-                            />
+                                      : d
+                                  );
+                                }}
+                              />
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      <div className="rounded-lg border border-[color:var(--border)] p-3">
-                        <div className="text-xs font-medium text-slate-500">Benediction</div>
-                        <div className="mt-2 grid grid-cols-1 gap-2">
-                          <div className="space-y-1">
-                            <Label>Gender / Prefix</Label>
-                            <Select
-                              disabled={readonly}
-                              value={w.prayers.benediction_gender || ""}
-                              onChange={(e) =>
-                                setDraft((d) =>
-                                  d
-                                    ? {
+                        <div className="rounded-lg border border-[color:var(--border)] p-3">
+                          <div className="text-xs font-medium text-slate-500">Benediction</div>
+                          <div className="mt-2 grid grid-cols-1 gap-2">
+                            <div className="space-y-1">
+                              <Label>Gender / Prefix</Label>
+                              <Select
+                                disabled={readonly}
+                                value={w.prayers.benediction_gender || ""}
+                                onChange={(e) =>
+                                  setDraft((d) =>
+                                    d
+                                      ? {
                                         ...d,
                                         weeks: d.weeks.map((x) =>
                                           x.week_id === w.week_id
                                             ? {
-                                                ...x,
-                                                prayers: {
-                                                  ...x.prayers,
-                                                  benediction_gender: (e.target.value || undefined) as Gender | undefined,
-                                                },
-                                              }
+                                              ...x,
+                                              prayers: {
+                                                ...x.prayers,
+                                                benediction_gender: (e.target.value || undefined) as Gender | undefined,
+                                              },
+                                            }
                                             : x
                                         ),
                                       }
-                                    : d
-                                )
-                              }
-                            >
-                              <option value="">—</option>
-                              <option value="M">Brother</option>
-                              <option value="F">Sister</option>
-                            </Select>
-                          </div>
-                          <div className="space-y-1">
-                            <Label>Name</Label>
-                            <MemberAutocomplete
-                              members={members}
-                              disabled={readonly}
-                              value={w.prayers.benediction}
-                              placeholder="Select from Members…"
-                              onChange={(val) =>
-                                setDraft((d) =>
-                                  d
-                                    ? {
+                                      : d
+                                  )
+                                }
+                              >
+                                <option value="">—</option>
+                                <option value="M">Brother</option>
+                                <option value="F">Sister</option>
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Name</Label>
+                              <MemberAutocomplete
+                                members={members}
+                                disabled={readonly}
+                                value={w.prayers.benediction}
+                                placeholder="Select from Members…"
+                                onChange={(val) =>
+                                  setDraft((d) =>
+                                    d
+                                      ? {
                                         ...d,
                                         weeks: d.weeks.map((x) =>
                                           x.week_id === w.week_id
@@ -978,38 +1057,39 @@ export function PlannerPage({
                                             : x
                                         ),
                                       }
-                                    : d
-                                )
-                              }
-                              onPick={(m) => {
-                                const g = normalizeGender(m.gender);
-                                setDraft((d) =>
-                                  d
-                                    ? {
+                                      : d
+                                  )
+                                }
+                                onPick={(m) => {
+                                  const g = normalizeGender(m.gender);
+                                  setDraft((d) =>
+                                    d
+                                      ? {
                                         ...d,
                                         weeks: d.weeks.map((x) =>
                                           x.week_id === w.week_id
                                             ? {
-                                                ...x,
-                                                prayers: {
-                                                  ...x.prayers,
-                                                  benediction: m.name,
-                                                  benediction_gender: g ?? x.prayers.benediction_gender,
-                                                },
-                                              }
+                                              ...x,
+                                              prayers: {
+                                                ...x.prayers,
+                                                benediction: m.name,
+                                                benediction_gender: g ?? x.prayers.benediction_gender,
+                                              },
+                                            }
                                             : x
                                         ),
                                       }
-                                    : d
-                                );
-                              }}
-                            />
+                                      : d
+                                  );
+                                }}
+                              />
+                            </div>
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    <div className="space-y-1 md:col-span-3">
+                    <div className="space-y-1 md:col-span-2">
                       <Label>Note (optional)</Label>
                       <Textarea
                         disabled={readonly}
@@ -1020,9 +1100,9 @@ export function PlannerPage({
                           setDraft((d) =>
                             d
                               ? {
-                                  ...d,
-                                  weeks: d.weeks.map((x) => (x.week_id === w.week_id ? { ...x, note: e.target.value } : x)),
-                                }
+                                ...d,
+                                weeks: d.weeks.map((x) => (x.week_id === w.week_id ? { ...x, note: e.target.value } : x)),
+                              }
                               : d
                           )
                         }
@@ -1030,7 +1110,20 @@ export function PlannerPage({
                     </div>
                   </div>
                 </div>
-              </div>
+              ) : (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-center">
+                  <div className="text-4xl mb-2">ℹ️</div>
+                  <div className="font-bold text-amber-900 text-lg">No Sacrament Meeting</div>
+                  <div className="text-amber-800 mt-1">
+                    {w.cancel_reason || "No reason provided."}
+                  </div>
+                  {!readonly && (
+                    <p className="mt-4 text-xs text-amber-600">
+                      Toggle "Sacrament Meeting Held" back on to resume planning for this week.
+                    </p>
+                  )}
+                </div>
+              )}
             </CardBody>
           </Card>
         ))}
@@ -1064,9 +1157,9 @@ export function PlannerPage({
           const host = document.getElementById("planner-print-portal");
           return host
             ? createPortal(
-                <PlannerPreviewTable planner={previewPlanner} unit={unit} />,
-                host
-              )
+              <PlannerPreviewTable planner={previewPlanner} unit={unit} />,
+              host
+            )
             : null;
         })()}
     </div>

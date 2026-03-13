@@ -37,14 +37,14 @@ const rolePerms: Record<Role, Record<Feature, boolean>> = {
     SETTINGS: false,
   },
 
-  /** Clerk / Assistant Clerk — printing + members (settings handled later via approval workflow) */
+  /** Clerk / Assistant Clerk — printing + members (settings handled via approval workflow) */
   CLERK: {
     CREATE_PLANNER: false,
     EDIT_SUBMITTED: false,
     VIEW_SUBMITTED: true,
     GENERATE_ASSIGNMENTS: true,
     MANAGE_MEMBERS: true,
-    SETTINGS: false,
+    SETTINGS: true,
   },
 
   /** Secretary / Assistant Secretary — printing */

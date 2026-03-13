@@ -139,11 +139,11 @@ export function LoginPage({
                 />
               </svg>
             </div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
-              Sacrament Planner
+            <h1 className="text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
+              Sacrament Meeting Planner
             </h1>
             <p className="mt-2 text-sm font-medium text-slate-400">
-              Professional meeting coordination for LDS units
+              Sacrament Meeting Coordination Tool for LDS units
             </p>
           </div>
 
@@ -285,13 +285,12 @@ export function LoginPage({
           <div className="mt-8 flex items-center justify-center gap-4">
             <div className="flex items-center gap-2">
               <div
-                className={`h-2 w-2 rounded-full ring-4 ring-white/10 ${
-                  backendStatus === "online"
-                    ? "bg-emerald-400"
-                    : backendStatus === "connecting"
+                className={`h-2 w-2 rounded-full ring-4 ring-white/10 ${backendStatus === "online"
+                  ? "bg-emerald-400"
+                  : backendStatus === "connecting"
                     ? "animate-pulse bg-amber-400"
                     : "bg-slate-600"
-                }`}
+                  }`}
               />
               <span className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
                 {backendStatus === "online" ? "System Online" : "System Offline"}

@@ -17,7 +17,9 @@ import {
 import { Modal } from "../components/Modal";
 import { can } from "../utils/permissions";
 import { formatDateShort, monthName, toISODateLocal } from "../utils/date";
-import { getDB, ids, time, updateDB } from "../utils/storage";
+import { formatDateLong, parseISO } from "../utils/date";
+import { formatUserDisplayName } from "../utils/format";
+import { getDB, ids, updateDB } from "../utils/storage";
 
 type Gender = "M" | "F";
 
@@ -430,7 +432,9 @@ export function AssignmentsPage({
                     />
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <div className="text-sm font-medium text-slate-900">{withBrotherSister(x.person, x.gender) || x.person}</div>
+                        <div className="text-sm font-medium text-slate-900">
+                          {formatUserDisplayName({ name: x.person, gender: x.gender as any })}
+                        </div>
                         <Badge tone={tone as any}>{roleAsText(x.role)}</Badge>
                       </div>
                       <div className="mt-0.5 text-xs text-slate-600">

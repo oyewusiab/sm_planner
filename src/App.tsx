@@ -13,7 +13,7 @@ import { NotificationsPage } from "./pages/NotificationsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import * as auth from "./auth/authService";
 import { clearSession, getSession, newSessionForUser, setSession } from "./auth/session";
-import { syncNow, syncFromBackend, getDB } from "./utils/storage";
+import { syncNow, syncFromBackend, getDB, onSyncStatusChange } from "./utils/storage";
 import { backendEnabled, pingBackend } from "./utils/backend";
 import { Button } from "./components/ui";
 
@@ -40,7 +40,7 @@ export function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>(() =>
     backendEnabled() ? "connecting" : "disabled"
   );
-  const [syncing, setSyncing] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
 
   const dbSnapshot = useMemo(() => {
@@ -82,7 +82,7 @@ export function App() {
 
   async function handleSyncNow() {
     if (!backendEnabled()) return;
-    setSyncing(true);
+    setIsSyncing(true);
     setSyncError(null);
     try {
       await syncNow();
@@ -91,44 +91,62 @@ export function App() {
     } catch (err: any) {
       setSyncError(err?.message || "Sync failed");
     } finally {
-      setSyncing(false);
+      setIsSyncing(false);
     }
   }
+
+  // Subscribe to background sync status overrides
+  useEffect(() => {
+    return onSyncStatusChange((syncing) => {
+      setIsSyncing(syncing);
+      if (!syncing) refresh(); // Refresh UI when background sync completes
+    });
+  }, [user]);
 
   useEffect(() => {
     (async () => {
       try {
-        // Sync from backend to get USERS and other data
-        await syncFromBackend();
-        setSyncError(null);
-      } catch (err: any) {
-        console.error("Initial sync failed:", err);
-        setSyncError(err?.message || "Failed to connect to backend");
-      }
+        const db = getDB();
+        const hasUsers = db.USERS && db.USERS.length > 0;
 
-      const db = getDB();
-      setUnit(db.UNIT_SETTINGS);
-
-      // Check for existing session
-      const sess = getSession();
-      if (sess) {
-        const u = auth.getUserById(sess.user_id);
-        if (u && !u.disabled) {
-          setUser(u);
+        if (!hasUsers) {
+          try {
+            await syncFromBackend();
+            setSyncError(null);
+          } catch (err: any) {
+            console.error("Initial sync failed:", err);
+            setSyncError(err?.message || "Failed to connect to backend");
+          }
         } else {
-          // Session invalid or user disabled
-          clearSession();
+          // Background sync for existing local data
+          void syncFromBackend();
         }
-      }
 
-      await refreshBackendStatus();
-      setBooting(false);
+        const latestDB = getDB();
+        setUnit(latestDB.UNIT_SETTINGS);
+
+        // Check for existing session
+        const sess = getSession();
+        if (sess) {
+          const u = auth.getUserById(sess.user_id);
+          if (u && !u.disabled) {
+            setUser(u);
+          } else {
+            clearSession();
+          }
+        }
+
+        await refreshBackendStatus();
+      } catch (err) {
+        console.error("Booting error:", err);
+      } finally {
+        setBooting(false);
+      }
     })();
   }, []);
 
-  if (booting) return <LoadingScreen label="Connecting to server..." />;
+  if (booting) return <LoadingScreen label="Loading..." />;
 
-  // Show login page if no authenticated user
   if (!user) {
     return (
       <LoginPage
@@ -151,7 +169,6 @@ export function App() {
     setRoute("dashboard");
   }
 
-  // Content rendering - allow navigation even without unit settings
   const effectiveUnit: UnitSettings =
     unit || ({
       unit_name: "Unit Not Configured",
@@ -210,7 +227,7 @@ export function App() {
           unit={effectiveUnit}
           onChanged={refresh}
           backendStatus={backendStatus}
-          syncing={syncing}
+          syncing={isSyncing}
           onSyncNow={handleSyncNow}
         />
       );
@@ -220,6 +237,12 @@ export function App() {
 
   return (
     <AppShell user={user} unit={effectiveUnit} route={route} setRoute={setRoute} onLogout={logout}>
+      {isSyncing && (
+        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 text-xs font-medium text-white shadow-lg animate-pulse">
+          <span className="h-2 w-2 rounded-full bg-sky-400"></span>
+          Saving changes...
+        </div>
+      )}
       {content}
       <div className="hidden">{dbSnapshot.UNIT_SETTINGS?.unit_name}</div>
     </AppShell>

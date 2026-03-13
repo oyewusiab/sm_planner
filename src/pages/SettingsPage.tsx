@@ -16,8 +16,8 @@ import {
 } from "../components/ui";
 import { can } from "../utils/permissions";
 import { getDB, ids, updateDB } from "../utils/storage";
-import * as auth from "../auth/authService";
 import { sha256 } from "../utils/crypto";
+import { notifyRoles, notifyUser } from "../utils/notifications";
 
 const bishopricCallings = ["1st Counsellor", "2nd Counsellor"] as const;
 const clerkCallings = ["Clerk (Co-admin)", "Assistant Clerk"] as const;
@@ -39,6 +39,8 @@ export function SettingsPage({
   onSyncNow: () => void;
 }) {
   const allowed = can(user.role, "SETTINGS");
+  const isClerk = user.role === "CLERK";
+  const isBishop = user.role === "ADMIN";
   const db = getDB();
 
   const [form, setForm] = useState<UnitSettings>({
@@ -108,9 +110,45 @@ export function SettingsPage({
     if (!next.venue) return setFlash({ tone: "error", msg: "Venue is required." });
     if (!next.meeting_time) return setFlash({ tone: "error", msg: "Meeting Time is required." });
 
+    if (isClerk) {
+      notifyRoles({
+        toRoles: ["ADMIN"],
+        type: "SETTINGS_APPROVAL_REQUEST",
+        title: "Settings change request",
+        body: `${user.name} (${user.calling}) has requested a change to unit ${kind === "unit" ? "information" : "preferences"}.`,
+        meta: { 
+          request_type: "SETTINGS_CHANGE",
+          request_kind: kind,
+          payload: JSON.stringify(next)
+        }
+      });
+      setFlash({ tone: "success", msg: "Request sent to Bishop for approval." });
+      return;
+    }
+
     updateDB((db0) => ({ ...db0, UNIT_SETTINGS: next }));
     onChanged();
     setFlash({ tone: "success", msg: kind === "unit" ? "Unit settings saved." : "Preferences saved." });
+  }
+
+  function handleDecision(notif_id: string, approved: boolean, payload: string) {
+    if (!approved) {
+      updateDB(db0 => ({
+        ...db0,
+        NOTIFICATIONS: db0.NOTIFICATIONS.filter(n => n.notification_id !== notif_id)
+      }));
+      setFlash({ tone: "error", msg: "Request rejected." });
+      return;
+    }
+
+    const next = JSON.parse(payload) as UnitSettings;
+    updateDB((db0) => ({ 
+      ...db0, 
+      UNIT_SETTINGS: next,
+      NOTIFICATIONS: db0.NOTIFICATIONS.filter(n => n.notification_id !== notif_id)
+    }));
+    onChanged();
+    setFlash({ tone: "success", msg: "Settings approved and applied." });
   }
 
   async function createUser() {
@@ -210,6 +248,29 @@ export function SettingsPage({
         </div>
       ) : null}
 
+      {isBishop && db.NOTIFICATIONS.some(n => n.type === "SETTINGS_APPROVAL_REQUEST") && (
+        <Card className="border-amber-200 bg-amber-50/30">
+          <CardHeader>
+            <CardTitle className="text-amber-900">Pending Approval Requests</CardTitle>
+          </CardHeader>
+          <CardBody className="space-y-4">
+            {db.NOTIFICATIONS.filter(n => n.type === "SETTINGS_APPROVAL_REQUEST").map(n => (
+              <div key={n.notification_id} className="flex items-center justify-between rounded-xl border border-amber-200 bg-white p-4 shadow-sm">
+                <div>
+                  <div className="font-semibold text-slate-900">{n.title}</div>
+                  <div className="text-sm text-slate-600">{n.body}</div>
+                  <div className="mt-1 text-xs text-slate-400">{new Date(n.created_date).toLocaleString()}</div>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="secondary" onClick={() => handleDecision(n.notification_id, true, n.meta?.payload || "")}>Approve</Button>
+                  <Button variant="ghost" onClick={() => handleDecision(n.notification_id, false, "")}>Reject</Button>
+                </div>
+              </div>
+            ))}
+          </CardBody>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Unit Information</CardTitle>
@@ -283,7 +344,7 @@ export function SettingsPage({
           </div>
 
           <div className="flex justify-end pt-4">
-            <Button onClick={() => saveUnit("unit")}>Save Unit Settings</Button>
+            <Button onClick={() => saveUnit("unit")}>{isClerk ? "Request Approval" : "Save Unit Settings"}</Button>
           </div>
         </CardBody>
       </Card>
@@ -337,16 +398,17 @@ export function SettingsPage({
             </div>
           </div>
           <div className="flex justify-end">
-            <Button onClick={() => saveUnit("prefs")}>Save Preferences</Button>
+            <Button onClick={() => saveUnit("prefs")}>{isClerk ? "Request Approval" : "Save Preferences"}</Button>
           </div>
         </CardBody>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Roles Management</CardTitle>
-        </CardHeader>
-        <CardBody className="space-y-4">
+      {!isClerk && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Roles Management</CardTitle>
+          </CardHeader>
+          <CardBody className="space-y-4">
           <div className="text-sm text-slate-600">
             Promote/demote users and reset passwords. Reset sets password to <span className="font-medium">changeme</span> and forces a reset at next login.
           </div>
@@ -524,80 +586,93 @@ export function SettingsPage({
           </div>
         </CardBody>
       </Card>
+    )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Backend</CardTitle>
-        </CardHeader>
-        <CardBody>
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="inline-flex items-center gap-2 rounded-full border border-[color:var(--border)] bg-white px-3 py-1 text-xs text-slate-500">
-                <span
-                  className={
-                    "h-2 w-2 rounded-full " +
-                    (backendStatus === "online"
-                      ? "bg-emerald-500"
+      {!isClerk && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Backend</CardTitle>
+          </CardHeader>
+          <CardBody>
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="inline-flex items-center gap-2 rounded-full border border-[color:var(--border)] bg-white px-3 py-1 text-xs text-slate-500">
+                  <span
+                    className={
+                      "h-2 w-2 rounded-full " +
+                      (backendStatus === "online"
+                        ? "bg-emerald-500"
+                        : backendStatus === "connecting"
+                          ? "bg-amber-400"
+                          : backendStatus === "error"
+                            ? "bg-rose-500"
+                            : "bg-slate-300")
+                    }
+                  />
+                  <span>
+                    {backendStatus === "online"
+                      ? "Backend connected"
                       : backendStatus === "connecting"
-                        ? "bg-amber-400"
+                        ? "Connecting to backend"
                         : backendStatus === "error"
-                          ? "bg-rose-500"
-                          : "bg-slate-300")
-                  }
-                />
-                <span>
-                  {backendStatus === "online"
-                    ? "Backend connected"
-                    : backendStatus === "connecting"
-                      ? "Connecting to backend"
-                      : backendStatus === "error"
-                        ? "Backend error"
-                        : import.meta.env.PROD
-                          ? "Backend disabled (Check VITE_ environment variables)"
-                          : "Backend disabled"}
-                </span>
+                          ? "Backend error (Check Script URL or API Key)"
+                          : import.meta.env.PROD
+                            ? "Backend disabled (Check VITE_ environment variables)"
+                            : "Backend disabled"}
+                  </span>
+                </div>
+                {backendStatus === "error" && (
+                  <div className="w-full mt-2 rounded-lg bg-rose-50 p-3 text-xs text-rose-800 border border-rose-100">
+                    <strong>Troubleshooting:</strong>
+                    <ul className="mt-1 list-disc list-inside space-y-1">
+                      <li>Ensure the <strong>Web App URL</strong> is correct.</li>
+                      <li>Verify the <strong>API Key</strong> matches <code>gs.md</code>.</li>
+                      <li>Check if the script is deployed as a <strong>Web App</strong> and accessible to "Anyone".</li>
+                    </ul>
+                  </div>
+                )}
+                <Button
+                  variant="secondary"
+                  onClick={onSyncNow}
+                  disabled={syncing || backendStatus === "disabled" || backendStatus === "connecting"}
+                >
+                  {syncing ? "Syncing..." : "Sync Now"}
+                </Button>
               </div>
-              <Button
-                variant="secondary"
-                onClick={onSyncNow}
-                disabled={syncing || backendStatus === "disabled" || backendStatus === "connecting"}
-              >
-                {syncing ? "Syncing..." : "Sync Now"}
-              </Button>
-            </div>
 
-            <Divider />
+              <Divider />
 
-            <div className="text-sm text-slate-600">
-              Members directory sync (optional). Configure a Web App URL to pull member data from a backend list.
-            </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <div className="space-y-1 md:col-span-2">
-                <Label>Web App URL</Label>
-                <Input
-                  value={syncUrl}
-                  onChange={(e) => setSyncUrl(e.target.value)}
-                  placeholder="https://script.google.com/macros/s/.../exec"
-                />
+              <div className="text-sm text-slate-600">
+                Members directory sync (optional). Configure a Web App URL to pull member data from a backend list.
               </div>
-              <div className="space-y-1">
-                <Label>API Key (optional)</Label>
-                <Input
-                  value={syncKey}
-                  onChange={(e) => setSyncKey(e.target.value)}
-                  placeholder="Your API key"
-                />
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div className="space-y-1 md:col-span-2">
+                  <Label>Web App URL</Label>
+                  <Input
+                    value={syncUrl}
+                    onChange={(e) => setSyncUrl(e.target.value)}
+                    placeholder="https://script.google.com/macros/s/.../exec"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>API Key (optional)</Label>
+                  <Input
+                    value={syncKey}
+                    onChange={(e) => setSyncKey(e.target.value)}
+                    placeholder="Your API key"
+                  />
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button variant="secondary" onClick={syncMembers}>
+                  Sync Members
+                </Button>
+                {syncStatus ? <div className="text-xs text-slate-500">{syncStatus}</div> : null}
               </div>
             </div>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Button variant="secondary" onClick={syncMembers}>
-                Sync Members
-              </Button>
-              {syncStatus ? <div className="text-xs text-slate-500">{syncStatus}</div> : null}
-            </div>
-          </div>
-        </CardBody>
-      </Card>
+          </CardBody>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

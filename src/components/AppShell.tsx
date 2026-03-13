@@ -6,6 +6,8 @@ import { Modal } from "./Modal";
 import { ProfileModal } from "./ProfileModal";
 import { Badge, Button } from "./ui";
 
+import { formatUserDisplayName } from "../utils/format";
+
 export type RouteKey =
   | "dashboard"
   | "planner"
@@ -26,7 +28,7 @@ const navItems: {
 }[] = [
   { key: "dashboard",     label: "Dashboard",     icon: "⊞" },
   { key: "planner",       label: "Planner",        icon: "📅", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
-  { key: "archive",       label: "Archive",        icon: "🗂️", roles: ["ADMIN", "BISHOPRIC"] },
+  { key: "archive",       label: "Archive",        icon: "🗂️", roles: ["ADMIN", "CLERK"] },
   { key: "assignments",   label: "Assignments",    icon: "✉️", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
   { key: "notifications", label: "Notifications",  icon: "🔔", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY", "MUSIC"] },
   { key: "checklist",     label: "Checklist",      icon: "✅", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
@@ -37,7 +39,6 @@ const navItems: {
     label: "Settings",
     icon: "⚙️",
     roles: ["ADMIN", "CLERK"],
-    show: (u) => u.role === "ADMIN" || (u.role === "CLERK" && u.calling === "Clerk (Co-admin)"),
   },
 ];
 
@@ -222,7 +223,7 @@ export function AppShell({
                 <Initials name={user.name} />
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-white hover:underline">
-                    {user.name}
+                    {formatUserDisplayName(user)}
                   </div>
                   <div className="truncate text-xs text-white/50">
                     {user.calling || user.role}

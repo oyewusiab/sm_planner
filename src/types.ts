@@ -166,6 +166,8 @@ export type WeekPlan = {
   venue_id?: string;
   meeting_time_override?: string;
   meeting_type?: "Normal" | "Fast & Testimony" | "Combined" | "Stake Conference" | "Special";
+  is_canceled?: boolean;
+  cancel_reason?: string;
 };
 
 export type Hymn = {
@@ -250,7 +252,8 @@ export type NotificationType =
   | "MUSIC_INPUT_REQUEST"
   | "REMINDER"
   | "TODO_ASSIGNED"
-  | "TODO_COMPLETED";
+  | "TODO_COMPLETED"
+  | "SETTINGS_DECISION";
 
 export type Notification = {
   notification_id: string;

@@ -25,18 +25,31 @@ function buildUrl(params: Record<string, string>) {
 }
 
 async function apiGet<T>(params: Record<string, string>): Promise<ApiResponse<T>> {
-  const res = await fetch(buildUrl(params));
-  return res.json();
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), 10000); // 10s timeout
+  try {
+    const res = await fetch(buildUrl(params), { signal: controller.signal });
+    return await res.json();
+  } finally {
+    clearTimeout(id);
+  }
 }
 
 async function apiPost<T>(body: any): Promise<ApiResponse<T>> {
-  const res = await fetch(BASE_URL, {
-    method: "POST",
-    // Use text/plain to avoid CORS preflight on Apps Script web apps.
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(API_KEY ? { ...body, key: API_KEY } : body),
-  });
-  return res.json();
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), 10000); // 10s timeout
+  try {
+    const res = await fetch(BASE_URL, {
+      method: "POST",
+      // Use text/plain to avoid CORS preflight on Apps Script web apps.
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(API_KEY ? { ...body, key: API_KEY } : body),
+      signal: controller.signal,
+    });
+    return await res.json();
+  } finally {
+    clearTimeout(id);
+  }
 }
 
 export async function exportRemoteDB(): Promise<any | null> {

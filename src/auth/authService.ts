@@ -47,7 +47,7 @@ export function getUserByUsername(username: string): User | null {
 export async function login(identifier: string, password: string): Promise<User | null> {
   let db = getDB();
 
-  // If no users in local DB, attempt to sync from backend
+  // If no users in local DB, attempt to sync from backend (blocking)
   if (!db.USERS || db.USERS.length === 0) {
     try {
       await syncFromBackend();
@@ -56,11 +56,9 @@ export async function login(identifier: string, password: string): Promise<User 
       console.error("Failed to sync users from backend:", err);
       throw new Error("Unable to connect to server. Please try again.");
     }
-  }
-
-  // Still no users after sync
-  if (!db.USERS || db.USERS.length === 0) {
-    throw new Error("No users configured. Please contact your administrator.");
+  } else {
+    // Background sync to ensure data is fresh for next time
+    void syncFromBackend();
   }
 
   const id = identifier.trim().toLowerCase();

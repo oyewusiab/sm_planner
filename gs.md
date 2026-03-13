@@ -11,7 +11,7 @@ Copy everything in the code block below into your Apps Script project (e.g., `Co
  */
 const CONFIG = {
   SPREADSHEET_ID: "1RGG0HbR2eYx0zENFftSuZpZhGyd0nwu2IE2ihzlL57g",
-  API_KEY: "CHANGE_ME", // required in ?key= or JSON body {key: "..."}
+  API_KEY: "ThisIsMySecretKey123!@", // required in ?key= or JSON body {key: "..."}
 };
 
 // Sheet schemas (header row 1)
@@ -53,6 +53,7 @@ const SCHEMA = {
     "created_date",
     "last_login_date",
     "must_reset_password",
+    "disabled",
   ],
   MEMBERS: [
     "member_id",
@@ -172,10 +173,10 @@ const NUMBER_FIELDS = {
 const BOOLEAN_FIELDS = {
   CHECKLISTS: ["status"],
   NOTIFICATIONS: ["read"],
-  USERS: ["must_reset_password"],
+  USERS: ["must_reset_password", "disabled"],
 };
 
-const UNIT_JSON_KEYS = ["prefs"];
+const UNIT_JSON_KEYS = ["prefs", "venues"];
 
 function doGet(e) {
   return withLock(() => route_(e, "GET"));
@@ -185,8 +186,16 @@ function doPost(e) {
   return withLock(() => route_(e, "POST"));
 }
 
-function doOptions() {
+function doOptions(e) {
   return jsonResponse_({ ok: true, ts: new Date().toISOString() });
+}
+
+function withCORS(fn) {
+  try {
+    return fn();
+  } catch (err) {
+    return jsonError_(String(err), 500);
+  }
 }
 
 function setup() {
@@ -198,6 +207,8 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu("SM Planner")
     .addItem("Initialize / Repair Sheets", "setup")
+    .addItem("Hash User Passwords", "hashUserPasswords")
+    .addItem("Run Checklist Reminders", "scheduledChecklistReminders")
     .addToUi();
 }
 
@@ -591,15 +602,18 @@ function authorize_(key) {
 }
 
 function jsonResponse_(payload) {
-  return ContentService.createTextOutput(JSON.stringify(payload))
-    .setMimeType(ContentService.MimeType.JSON)
-    .setHeader("Access-Control-Allow-Origin", "*")
-    .setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
-    .setHeader("Access-Control-Allow-Headers", "Content-Type");
+  var output = ContentService.createTextOutput(JSON.stringify(payload));
+  output.setMimeType(ContentService.MimeType.JSON);
+  return output;
 }
 
 function jsonError_(message, code) {
-  return jsonResponse_({ ok: false, error: message, code: code, ts: new Date().toISOString() });
+  return jsonResponse_({ 
+    ok: false, 
+    error: message, 
+    code: code || 500, 
+    ts: new Date().toISOString() 
+  });
 }
 
 function withLock(fn) {
@@ -652,5 +666,101 @@ function formatUnitSettingValue_(key, val) {
     }
   }
   return val == null ? "" : String(val);
+}
+
+function hashUserPasswords() {
+  const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  const sh = ss.getSheetByName("USERS");
+  if (!sh) throw new Error("USERS sheet not found");
+
+  const data = sh.getDataRange().getValues();
+  if (data.length < 2) return "No user rows";
+
+  const headers = data[0];
+  const idx = headers.indexOf("password_hash");
+  if (idx === -1) throw new Error("password_hash column not found");
+
+  const isHex64 = (s) => typeof s === "string" && /^[a-f0-9]{64}$/i.test(s.trim());
+
+  let changed = 0;
+  for (let r = 1; r < data.length; r++) {
+    const raw = String(data[r][idx] || "").trim();
+    if (!raw) continue;
+    if (isHex64(raw)) continue; // already hashed
+
+    const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, raw, Utilities.Charset.UTF_8);
+    const hex = bytes.map((b) => ("0" + (b & 0xff).toString(16)).slice(-2)).join("");
+    data[r][idx] = hex;
+    changed++;
+  }
+
+  if (changed > 0) {
+    sh.getRange(2, 1, data.length - 1, headers.length).setValues(data.slice(1));
+  }
+
+  return `Hashed ${changed} password(s).`;
+}
+
+/**
+ * Scheduled task: Notify users of incomplete checklist items.
+ * Recommended trigger: Every Thursday 5pm, Every Saturday 3pm.
+ */
+function scheduledChecklistReminders() {
+  const db = getFullDB_();
+  // Find planners that are in SUBMITTED state (currently active)
+  const activePlanners = db.PLANNERS.filter(p => p.state === "SUBMITTED");
+  if (activePlanners.length === 0) return "No active planners found.";
+
+  const notifications = [];
+  const now = new Date().toISOString();
+
+  activePlanners.forEach(planner => {
+    // Find checklist items for this planner that are incomplete
+    const incomplete = db.CHECKLISTS.filter(c => c.planner_id === planner.planner_id && !c.status);
+    if (incomplete.length === 0) return;
+
+    // Group by week
+    const weeksWithIncomplete = [...new Set(incomplete.map(c => c.week_id))];
+    
+    // Notify all users except MUSIC role
+    const usersToNotify = db.USERS.filter(u => u.role !== "MUSIC" && !u.disabled);
+
+    weeksWithIncomplete.forEach(week_id => {
+      const weekTasks = incomplete.filter(c => c.week_id === week_id);
+      const weekLabel = weekTasks[0]?.week_label || "Active Week";
+
+      usersToNotify.forEach(user => {
+        notifications.push({
+          notification_id: "notif_" + Math.random().toString(36).substr(2, 9),
+          to_user_id: user.user_id,
+          type: "REMINDER",
+          created_date: now,
+          read: false,
+          title: "Checklist Reminder",
+          body: `There are ${weekTasks.length} items incomplete in the checklist for ${weekLabel}.`,
+          meta: JSON.stringify({ planner_id: planner.planner_id, week_id: week_id })
+        });
+      });
+    });
+  });
+
+  if (notifications.length > 0) {
+    const sheet = getSheet_("NOTIFICATIONS");
+    const headers = SCHEMA.NOTIFICATIONS;
+    notifications.forEach(n => {
+      sheet.appendRow(objToRow_("NOTIFICATIONS", headers, n));
+    });
+    return `Sent ${notifications.length} reminder(s).`;
+  }
+  return "All checklist items complete.";
+}
+
+function getFullDB_() {
+  const out = {};
+  Object.keys(SCHEMA).forEach(t => {
+    if (t === "UNIT_SETTINGS") out[t] = getUnitSettings_();
+    else out[t] = getAllRows_(t);
+  });
+  return out;
 }
 ```

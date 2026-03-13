@@ -33,6 +33,20 @@ let remoteSyncTimer: number | null = null;
 let remoteSyncInFlight = false;
 let suppressRemoteSync = 0;
 
+let cachedDB: DB | null = null;
+let syncListeners: ((syncing: boolean) => void)[] = [];
+
+function notifySyncListeners(syncing: boolean) {
+  syncListeners.forEach((l) => l(syncing));
+}
+
+export function onSyncStatusChange(listener: (syncing: boolean) => void) {
+  syncListeners.push(listener);
+  return () => {
+    syncListeners = syncListeners.filter((l) => l !== listener);
+  };
+}
+
 function safeParse<T>(value: string | null): T | null {
   if (!value) return null;
   try {
@@ -156,6 +170,7 @@ async function pushAllToBackend() {
   if (!backendEnabled() || suppressRemoteSync > 0) return;
   if (remoteSyncInFlight) return;
   remoteSyncInFlight = true;
+  notifySyncListeners(true);
   try {
     const db = getDB();
     await importRemoteDB(db, "merge");
@@ -163,16 +178,19 @@ async function pushAllToBackend() {
     console.warn("Remote sync failed", err);
   } finally {
     remoteSyncInFlight = false;
+    notifySyncListeners(false);
   }
 }
 
 function setDBInternal(next: DB, suppressRemote?: boolean) {
+  cachedDB = next;
   localStorage.setItem(APP_KEY, JSON.stringify(next));
   if (!suppressRemote) scheduleRemoteSync();
 }
 
 export async function syncFromBackend(): Promise<boolean> {
   if (!backendEnabled()) return false;
+  notifySyncListeners(true);
   try {
     const remote = await exportRemoteDB();
     if (!remote) return false;
@@ -203,6 +221,8 @@ export async function syncFromBackend(): Promise<boolean> {
   } catch (err) {
     console.warn("Failed to sync from backend", err);
     return false;
+  } finally {
+    notifySyncListeners(false);
   }
 }
 
@@ -219,6 +239,8 @@ export async function syncNow(): Promise<boolean> {
 }
 
 export function getDB(): DB {
+  if (cachedDB) return cachedDB;
+
   const existing = safeParse<any>(localStorage.getItem(APP_KEY));
   if (existing) {
     const normalized = normalizeDB(existing);
@@ -233,6 +255,7 @@ export function getDB(): DB {
     if (needsPersist) {
       localStorage.setItem(APP_KEY, JSON.stringify(normalized));
     }
+    cachedDB = normalized;
     return normalized;
   }
   const fresh: DB = {
@@ -248,6 +271,7 @@ export function getDB(): DB {
     REMINDERS: [],
   };
   localStorage.setItem(APP_KEY, JSON.stringify(fresh));
+  cachedDB = fresh;
   return fresh;
 }
 
@@ -273,6 +297,8 @@ export const time = {
 };
 
 export function resetDB() {
+  cachedDB = null;
   localStorage.removeItem(APP_KEY);
   scheduleRemoteSync();
 }
+

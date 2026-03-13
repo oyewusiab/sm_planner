@@ -3,6 +3,8 @@ import type { UnitSettings, User } from "../types";
 import { Button, EmptyState } from "../components/ui";
 import { formatDateShort, nextSundaysInMonth, yyyyMmToLabel } from "../utils/date";
 import { getDB } from "../utils/storage";
+import { cn } from "../utils/cn";
+import { formatUserDisplayName } from "../utils/format";
 
 const QUOTES = [
   { ref: "Moroni 10:32", text: "Come unto Christ, and be perfected in him." },
@@ -106,7 +108,7 @@ export function DashboardPage({
   }, [currentMonthSundays]);
 
   const greeting = getGreeting(hour);
-  const firstName = user.name.split(" ")[0];
+  const displayName = formatUserDisplayName(user);
 
   return (
     <div className="space-y-6">
@@ -117,10 +119,12 @@ export function DashboardPage({
             {yyyyMmToLabel(month, year)} · {unit.unit_name}
           </div>
           <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-white sm:text-4xl">
-            {greeting}, {firstName}
+            {greeting}, {displayName}
           </h1>
           <p className="mt-2 text-sm text-white/80 max-w-md">
-            Your sacrament meeting coordinator dashboard. Everything you need for this month's planning is right here.
+            {user.role === "MUSIC" 
+              ? "Your music coordination dashboard. Manage hymns and musical assignments for upcoming meetings."
+              : "Your sacrament meeting coordinator dashboard. Everything you need for this month's planning is right here."}
           </p>
 
           {/* Summary pill row */}
@@ -129,14 +133,24 @@ export function DashboardPage({
               <span>📅</span>
               <span>{upcoming.length} upcoming Sunday{upcoming.length !== 1 ? "s" : ""}</span>
             </div>
-            <div className="flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm">
-              <span>🎙️</span>
-              <span>{speakerCount} speaker{speakerCount !== 1 ? "s" : ""} assigned</span>
-            </div>
-            <div className="flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm">
-              <span>✅</span>
-              <span>{checklistStats.pct}% checklist done</span>
-            </div>
+            {user.role !== "MUSIC" && (
+              <>
+                <div className="flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm">
+                  <span>🎙️</span>
+                  <span>{speakerCount} speaker{speakerCount !== 1 ? "s" : ""} assigned</span>
+                </div>
+                <div className="flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm">
+                  <span>✅</span>
+                  <span>{checklistStats.pct}% checklist done</span>
+                </div>
+              </>
+            )}
+            {user.role === "MUSIC" && (
+              <div className="flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm">
+                <span>🎵</span>
+                <span>{latestSubmitted?.music_status === "COMPLETE" ? "Music items finalized" : "Music input needed"}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -269,15 +283,18 @@ export function DashboardPage({
         </div>
         <div className="flex gap-3 overflow-x-auto pb-1">
           {[
-            { icon: "📅", label: "New Plan", color: "#e0f2fe", route: "planner" as const },
-            { icon: "👥", label: "Members", color: "#ede9fe", route: "members" as const },
-            { icon: "✅", label: "Checklist", color: "#dcfce7", route: "checklist" as const },
-            { icon: "✉️", label: "Notify", color: "#fef9c3", route: "assignments" as const },
-          ].map((qa) => (
+            { icon: "📅", label: "New Plan", color: "#e0f2fe", route: "planner" as const, roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
+            { icon: "👥", label: "Members", color: "#ede9fe", route: "members" as const, roles: ["ADMIN", "BISHOPRIC", "CLERK"] },
+            { icon: "✅", label: "Checklist", color: "#dcfce7", route: "checklist" as const, roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
+            { icon: "🎵", label: "Music", color: "#fdf4ff", route: "music" as const, roles: ["ADMIN", "MUSIC"] },
+            { icon: "✉️", label: "Notify", color: "#fef9c3", route: "assignments" as const, roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
+          ]
+            .filter(qa => !qa.roles || qa.roles.includes(user.role))
+            .map((qa) => (
             <button
               key={qa.route}
               className="quick-action-btn"
-              onClick={() => onNavigate(qa.route)}
+              onClick={() => onNavigate(qa.route as any)}
               style={{ minWidth: "80px" }}
             >
               <div className="qa-icon" style={{ background: qa.color }}>
@@ -318,7 +335,7 @@ export function DashboardPage({
           </div>
         </div>
         <div className="space-y-3">
-          {db.PLANNERS.slice(0, 3).map((p, idx) => (
+          {db.PLANNERS.slice(0, 3).map((p) => (
             <div key={p.planner_id} className="flex items-center gap-4 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm transition-all hover:scale-[1.01] hover:shadow-md">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
                 <span className="text-lg font-bold">{p.month}</span>
@@ -331,7 +348,7 @@ export function DashboardPage({
                   Status: <span className={cn("font-semibold", p.state === "SUBMITTED" ? "text-emerald-600" : "text-amber-600")}>{p.state}</span> · Updated {new Date(p.updated_date).toLocaleDateString()}
                 </div>
               </div>
-              <Button variant="ghost" size="sm" onClick={() => onNavigate("planner")}>
+              <Button variant="ghost" onClick={() => onNavigate("planner")}>
                 View
               </Button>
             </div>
