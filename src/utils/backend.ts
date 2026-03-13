@@ -1,6 +1,10 @@
 const BASE_URL = (import.meta.env.VITE_GS_BASE_URL || "").trim();
 const API_KEY = (import.meta.env.VITE_GS_API_KEY || "").trim();
 
+if (!BASE_URL && import.meta.env.PROD) {
+  console.warn("VITE_GS_BASE_URL is missing in production environment!");
+}
+
 type ApiResponse<T> = {
   ok: boolean;
   data?: T;
