@@ -15,7 +15,7 @@ import {
   Select,
 } from "../components/ui";
 import { can } from "../utils/permissions";
-import { getDB, updateDB } from "../utils/storage";
+import { getDB, ids, updateDB } from "../utils/storage";
 import * as auth from "../auth/authService";
 import { sha256 } from "../utils/crypto";
 
@@ -97,7 +97,10 @@ export function SettingsPage({
         checklist_tasks: form.prefs?.checklist_tasks,
         assignment_message_template: form.prefs?.assignment_message_template,
         default_country: "NG",
+        enable_music_toolkit: form.prefs?.enable_music_toolkit ?? true,
+        enable_member_analytics: form.prefs?.enable_member_analytics ?? true,
       },
+      venues: form.venues || [],
     };
 
     if (!next.unit_name) return setFlash({ tone: "error", msg: "Unit Name is required." });
@@ -245,7 +248,41 @@ export function SettingsPage({
               <Input value={form.meeting_time} onChange={(e) => setForm((f) => ({ ...f, meeting_time: e.target.value }))} />
             </div>
           </div>
-          <div className="flex justify-end">
+
+          <Divider />
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-800">Available Venues</h3>
+              <Button variant="secondary" onClick={() => {
+                const next = [...(form.venues || []), { venue_id: String(Date.now()), name: "New Venue", address: "" }];
+                setForm(f => ({ ...f, venues: next }));
+              }}>Add Venue</Button>
+            </div>
+            <div className="grid grid-cols-1 gap-3">
+              {(form.venues || []).map((v, i) => (
+                <div key={v.venue_id} className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-3">
+                  <div className="flex-1">
+                    <Input value={v.name} onChange={(e) => {
+                      const next = [...(form.venues || [])];
+                      next[i].name = e.target.value;
+                      setForm(f => ({ ...f, venues: next }));
+                    }} placeholder="Venue Name" className="h-9 mb-1" />
+                    <Input value={v.address || ""} onChange={(e) => {
+                      const next = [...(form.venues || [])];
+                      next[i].address = e.target.value;
+                      setForm(f => ({ ...f, venues: next }));
+                    }} placeholder="Address" className="h-8 text-xs" />
+                  </div>
+                  <Button variant="ghost" onClick={() => {
+                    const next = (form.venues || []).filter((_, j) => i !== j);
+                    setForm(f => ({ ...f, venues: next }));
+                  }}>Remove</Button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex justify-end pt-4">
             <Button onClick={() => saveUnit("unit")}>Save Unit Settings</Button>
           </div>
         </CardBody>

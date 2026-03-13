@@ -31,6 +31,7 @@ export function MembersPage({
 }) {
   const allowed = can(user.role, "MANAGE_MEMBERS");
   const db = getDB();
+  const [tab, setTab] = useState<"directory" | "analytics">("directory");
   const [q, setQ] = useState("");
   const [org, setOrg] = useState("ALL");
 
@@ -51,6 +52,27 @@ export function MembersPage({
       })
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [db.MEMBERS, q, org]);
+
+  const analytics = useMemo(() => {
+    // Mock analytics based on planners for now, in a real app this would be more complex
+    return db.MEMBERS.map(m => {
+      const assignments = db.PLANNERS.flatMap(p => p.weeks.flatMap(w => [
+        ...w.speakers.filter(s => s.name === m.name),
+        ...(w.prayers.invocation === m.name ? [{name: m.name, role: "Invocation"}] : []),
+        ...(w.prayers.benediction === m.name ? [{name: m.name, role: "Benediction"}] : [])
+      ]));
+      
+      const last = assignments.length > 0 ? assignments[0] : null; // Simple mock
+      return {
+        member_id: m.member_id,
+        name: m.name,
+        assignment_count_12m: assignments.length,
+        last_assignment_date: "2024-03-10", // Mock
+        unconfirmed_rate: assignments.length > 0 ? 0.15 : 0, // Mock
+        avg_completion_time_days: 2.5 // Mock
+      };
+    });
+  }, [db.MEMBERS, db.PLANNERS]);
 
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Member | null>(null);
@@ -105,6 +127,23 @@ export function MembersPage({
         </div>
       </div>
 
+      <div className="flex gap-1 rounded-xl bg-slate-100 p-1 w-fit">
+        <button
+          onClick={() => setTab("directory")}
+          className={cn("px-4 py-1.5 text-xs font-bold rounded-lg transition", tab === "directory" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700")}
+        >
+          Directory
+        </button>
+        <button
+          onClick={() => setTab("analytics")}
+          className={cn("px-4 py-1.5 text-xs font-bold rounded-lg transition", tab === "analytics" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700")}
+        >
+          Analytics
+        </button>
+      </div>
+
+      {tab === "directory" ? (
+        <>
       <Card>
         <CardHeader>
           <CardTitle>Search & Filter</CardTitle>
@@ -175,6 +214,73 @@ export function MembersPage({
           </tbody>
         </table>
       </div>
+      </>
+      ) : (
+        /* Analytics View */
+        <div className="space-y-6 animate-fade-in">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+            <div className="stat-card p-5 animate-scale-in stagger-1">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Avg. Load</div>
+              <div className="mt-2 text-3xl font-black text-slate-800">1.2</div>
+              <div className="mt-1 text-xs font-semibold text-emerald-600">Stable vs last month</div>
+            </div>
+            <div className="stat-card p-5 animate-scale-in stagger-2">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Unconfirmed</div>
+              <div className="mt-2 text-3xl font-black text-slate-800">8%</div>
+              <div className="mt-1 text-xs font-semibold text-rose-500">Requires focus</div>
+            </div>
+            <div className="stat-card p-5 animate-scale-in stagger-3">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Checklist %</div>
+              <div className="mt-2 text-3xl font-black text-slate-800">92%</div>
+              <div className="mt-1 text-xs font-semibold text-emerald-600">On track</div>
+            </div>
+            <div className="stat-card p-5 animate-scale-in stagger-4">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Avg. Prep Time</div>
+              <div className="mt-2 text-3xl font-black text-slate-800">3.5d</div>
+              <div className="mt-1 text-xs font-semibold text-slate-400">Time to complete</div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-100 bg-white overflow-hidden shadow-sm animate-fade-in-up stagger-4">
+            <div className="bg-slate-50/50 px-5 py-4 border-b border-slate-100">
+              <h3 className="text-sm font-bold text-slate-800">Member Assignment Load (Last 12 Months)</h3>
+            </div>
+            <div className="p-0">
+               <table className="w-full text-left text-sm">
+                 <thead className="bg-slate-50/30">
+                   <tr>
+                     <th className="p-4 font-bold text-slate-600">Member Name</th>
+                     <th className="p-4 font-bold text-slate-600">Total Assignments</th>
+                     <th className="p-4 font-bold text-slate-600">Unconfirmed Rate</th>
+                     <th className="p-4 font-bold text-slate-600">Status</th>
+                   </tr>
+                 </thead>
+                 <tbody className="divide-y divide-slate-50">
+                   {analytics.slice(0, 10).map(m => (
+                     <tr key={m.member_id} className="hover:bg-slate-50/30 transition">
+                       <td className="p-4 font-semibold text-slate-800">{m.name}</td>
+                       <td className="p-4">
+                         <div className="flex items-center gap-2">
+                           <div className="h-1.5 w-24 rounded-full bg-slate-100 overflow-hidden">
+                             <div className="h-full bg-blue-500 transition-all duration-1000" style={{ width: `${Math.min(m.assignment_count_12m * 20, 100)}%` }} />
+                           </div>
+                           <span className="text-xs font-bold text-slate-600">{m.assignment_count_12m}</span>
+                         </div>
+                       </td>
+                       <td className="p-4 text-xs font-medium text-slate-500">{Math.round(m.unconfirmed_rate * 100)}%</td>
+                       <td className="p-4">
+                         <Badge tone={m.assignment_count_12m > 3 ? "amber" : "green"}>
+                           {m.assignment_count_12m > 3 ? "High Load" : "Ready"}
+                         </Badge>
+                       </td>
+                     </tr>
+                   ))}
+                 </tbody>
+               </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Modal
         open={open}

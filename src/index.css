@@ -2,24 +2,29 @@
 @import "tailwindcss";
 
 :root {
-  /* Core palette */
-  --bg: #f0f4f8;
-  --text: #0f2027;
-  --sidebar: #003459;
-  --sidebar-end: #00171f;
-  --primary: #007ea7;
-  --primary-light: #0096c7;
-  --accent: #00c6fb;
-  --accent-end: #005bea;
-  --border: rgba(0, 0, 0, 0.07);
+  /* Premium Slate & Sky Palette */
+  --bg: #f8fafc;
+  --text: #0f172a;
+  --sidebar: #1e293b;
+  --sidebar-end: #0f172a;
+  --primary: #2563eb;
+  --primary-light: #3b82f6;
+  --accent: #0ea5e9;
+  --accent-end: #0284c7;
+  --border: rgba(0, 0, 0, 0.06);
   --card-bg: #ffffff;
 
+  /* Glassmorphism */
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.2);
+  --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+
   /* Design tokens */
-  --radius-card: 16px;
-  --radius-btn: 10px;
-  --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.06);
-  --shadow-card-hover: 0 4px 12px rgba(0,0,0,0.10), 0 8px 32px rgba(0,0,0,0.08);
-  --transition-base: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --radius-card: 20px;
+  --radius-btn: 12px;
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.02), 0 4px 12px rgba(0,0,0,0.03);
+  --shadow-card-hover: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+  --transition-base: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 html,
@@ -28,11 +33,20 @@ body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
 
 body {
   background: var(--bg);
   color: var(--text);
+}
+
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
 }
 
 /* ─── Animations ───────────────────────────────────────── */
@@ -349,3 +363,19 @@ body {
   );
 }
 
+
+@keyframes scaleIn {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.stagger-1 { animation-delay: 0.1s; }
+.stagger-2 { animation-delay: 0.15s; }
+.stagger-3 { animation-delay: 0.2s; }
+.stagger-4 { animation-delay: 0.25s; }
+.stagger-5 { animation-delay: 0.3s; }
+.stagger-6 { animation-delay: 0.35s; }

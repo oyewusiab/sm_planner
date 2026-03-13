@@ -1,6 +1,6 @@
 import { useState, type KeyboardEvent } from "react";
 import type { User } from "../types";
-import { Button, Card, CardBody, CardHeader, CardTitle, Input, Label } from "../components/ui";
+import { Button, Input, Label } from "../components/ui";
 import * as auth from "../auth/authService";
 
 type BackendStatus = "disabled" | "connecting" | "online" | "error";
@@ -114,182 +114,192 @@ export function LoginPage({
   const showConnectionWarning = backendStatus === "error" || syncError;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-white to-slate-50 p-4 md:p-10">
-      <div className="mx-auto max-w-md space-y-6">
-        {/* Header */}
-        <div className="space-y-2 text-center">
-          <div className="text-2xl font-semibold text-[color:var(--text)]">
-            Sacrament Meeting Planner
-          </div>
-          <div className="text-sm text-slate-600">
-            Secure, role-based planning for your unit.
-          </div>
-        </div>
+    <div className="relative min-h-screen overflow-hidden bg-[#0f172a]">
+      {/* Background Blobs */}
+      <div className="absolute -top-[10%] -left-[10%] h-[40%] w-[40%] rounded-full bg-blue-600/20 blur-[120px]" />
+      <div className="absolute top-[20%] -right-[10%] h-[35%] w-[35%] rounded-full bg-indigo-600/20 blur-[100px]" />
+      <div className="absolute -bottom-[10%] left-[20%] h-[30%] w-[30%] rounded-full bg-sky-500/10 blur-[80px]" />
 
-        {/* Connection Status Warning */}
-        {showConnectionWarning && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-            <div className="flex items-start gap-3">
-              <div className="text-amber-600">⚠️</div>
-              <div className="flex-1">
-                <div className="font-medium text-amber-900">Connection Issue</div>
-                <p className="mt-1 text-sm text-amber-800">
-                  {syncError || "Unable to connect to the server. Please check your connection."}
-                </p>
-                {onRetrySync && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-2"
-                    onClick={onRetrySync}
-                  >
-                    Retry Connection
-                  </Button>
-                )}
-              </div>
+      <div className="relative flex min-h-screen flex-col items-center justify-center p-6">
+        <div className="w-full max-w-[440px] animate-fade-in-up">
+          {/* Brand/Logo Area */}
+          <div className="mb-10 text-center">
+            <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-xl shadow-blue-500/20 ring-1 ring-white/20">
+              <svg
+                className="h-8 w-8 text-white"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+                />
+              </svg>
             </div>
+            <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
+              Sacrament Planner
+            </h1>
+            <p className="mt-2 text-sm font-medium text-slate-400">
+              Professional meeting coordination for LDS units
+            </p>
           </div>
-        )}
 
-        {/* Main Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {needsReset ? "Set Your New Password" : "Sign In"}
-            </CardTitle>
-            {needsReset && (
-              <p className="text-sm text-slate-600 mt-1">
-                Welcome, {needsReset.preferred_name || needsReset.name || needsReset.username}!
-                Please create a new password to continue.
+          {/* Connection Status Indicator (Top) */}
+          {showConnectionWarning && (
+            <div className="mb-6 animate-shake rounded-2xl border border-rose-500/20 bg-rose-500/10 p-4 text-center backdrop-blur-md">
+              <p className="text-sm font-semibold text-rose-200">
+                {syncError || "Unable to connect to service"}
               </p>
-            )}
-          </CardHeader>
-          <CardBody>
+              {onRetrySync && (
+                <button
+                  onClick={onRetrySync}
+                  className="mt-2 text-xs font-bold uppercase tracking-wider text-rose-300 underline decoration-rose-300/30 underline-offset-4 hover:text-rose-100"
+                >
+                  Retry Connection
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Glass Card */}
+          <div className="glass-panel rounded-[32px] p-8 shadow-2xl">
+            <div className="mb-8">
+              <h2 className="text-xl font-bold text-slate-800">
+                {needsReset ? "Secure Account" : "Welcome Back"}
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                {needsReset
+                  ? `Please set a password for ${needsReset.name}`
+                  : "Sign in to manage your assignments"}
+              </p>
+            </div>
+
             {needsReset ? (
               /* Password Reset Form */
-              <div className="space-y-4" onKeyDown={handleKeyDown}>
-                <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-                  Your account requires a password change for security purposes.
-                </div>
-
-                <div className="space-y-1">
+              <div className="space-y-5" onKeyDown={handleKeyDown}>
+                <div className="space-y-1.5">
                   <Label htmlFor="newPassword">New Password</Label>
                   <Input
                     id="newPassword"
                     type="password"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Enter new password (min. 6 characters)"
+                    placeholder="Min. 6 characters"
+                    className="h-12 bg-white/50"
                     autoFocus
                   />
                 </div>
 
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <Label htmlFor="confirmPassword">Confirm Password</Label>
                   <Input
                     id="confirmPassword"
                     type="password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Confirm your new password"
+                    placeholder="Repeat password"
+                    className="h-12 bg-white/50"
                   />
                 </div>
 
                 {error && (
-                  <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+                  <div className="rounded-xl bg-rose-50 p-3 text-xs font-semibold text-rose-600 ring-1 ring-rose-200">
                     {error}
                   </div>
                 )}
 
-                <div className="flex gap-2">
+                <div className="flex gap-3 pt-2">
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     onClick={cancelReset}
                     disabled={loading}
+                    className="h-12 px-6"
                   >
                     Back
                   </Button>
                   <Button
                     onClick={doReset}
                     disabled={loading}
-                    className="flex-1"
+                    className="h-12 flex-1 shadow-lg shadow-blue-500/20"
                   >
-                    {loading ? "Saving..." : "Set Password & Continue"}
+                    {loading ? "Saving..." : "Create Password"}
                   </Button>
                 </div>
               </div>
             ) : (
               /* Login Form */
-              <div className="space-y-4" onKeyDown={handleKeyDown}>
-                <div className="space-y-1">
-                  <Label htmlFor="identifier">Email or Username</Label>
+              <div className="space-y-5" onKeyDown={handleKeyDown}>
+                <div className="space-y-1.5">
+                  <Label htmlFor="identifier">Identifier</Label>
                   <Input
                     id="identifier"
                     value={identifier}
                     onChange={(e) => setIdentifier(e.target.value)}
-                    placeholder="Enter your email or username"
+                    placeholder="Email or Username"
+                    className="h-12 bg-white/50 focus:scale-[1.01]"
                     autoFocus
                     autoComplete="username"
                   />
                 </div>
 
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <Label htmlFor="password">Password</Label>
                   <Input
                     id="password"
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter your password"
+                    placeholder="••••••••"
+                    className="h-12 bg-white/50 focus:scale-[1.01]"
                     autoComplete="current-password"
                   />
                 </div>
 
                 {error && (
-                  <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+                  <div className="rounded-xl bg-rose-50 p-3 text-xs font-semibold text-rose-600 ring-1 ring-rose-200">
                     {error}
                   </div>
                 )}
 
-                <Button
-                  onClick={submit}
-                  disabled={loading}
-                  className="w-full"
-                >
-                  {loading ? "Signing in..." : "Sign In"}
-                </Button>
-
-                <div className="text-center text-xs text-slate-500">
-                  Contact your administrator if you need access or forgot your password.
+                <div className="pt-2">
+                  <Button
+                    onClick={submit}
+                    disabled={loading}
+                    className="h-12 w-full text-base shadow-lg shadow-blue-500/20"
+                  >
+                    {loading ? "Verifying..." : "Sign In"}
+                  </Button>
                 </div>
+
+                <p className="text-center text-xs font-medium text-slate-400">
+                  By signing in, you agree to handle unit data with care.
+                </p>
               </div>
             )}
-          </CardBody>
-        </Card>
+          </div>
 
-        {/* Backend Status Indicator */}
-        <div className="flex justify-center">
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <div
-              className={`h-2 w-2 rounded-full ${backendStatus === "online"
-                  ? "bg-green-500"
-                  : backendStatus === "connecting"
-                    ? "bg-amber-500 animate-pulse"
-                    : backendStatus === "error"
-                      ? "bg-red-500"
-                      : "bg-slate-300"
+          {/* Footer Status */}
+          <div className="mt-8 flex items-center justify-center gap-4">
+            <div className="flex items-center gap-2">
+              <div
+                className={`h-2 w-2 rounded-full ring-4 ring-white/10 ${
+                  backendStatus === "online"
+                    ? "bg-emerald-400"
+                    : backendStatus === "connecting"
+                    ? "animate-pulse bg-amber-400"
+                    : "bg-slate-600"
                 }`}
-            />
-            <span>
-              {backendStatus === "online"
-                ? "Connected"
-                : backendStatus === "connecting"
-                  ? "Connecting..."
-                  : backendStatus === "error"
-                    ? "Connection Error"
-                    : import.meta.env.PROD
-                      ? "Offline (Check VITE_ environment variables)"
-                      : "Offline Mode"}
+              />
+              <span className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
+                {backendStatus === "online" ? "System Online" : "System Offline"}
+              </span>
+            </div>
+            <div className="h-1 w-1 rounded-full bg-slate-700" />
+            <span className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
+              v2.1.0 Premium
             </span>
           </div>
         </div>

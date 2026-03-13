@@ -113,14 +113,14 @@ export function DashboardPage({
       {/* ── Hero banner ── */}
       <div className="dash-hero animate-fade-in-up">
         <div className="relative z-10">
-          <div className="text-xs font-bold uppercase tracking-widest text-white/50">
+          <div className="text-xs font-bold uppercase tracking-widest text-white/60">
             {yyyyMmToLabel(month, year)} · {unit.unit_name}
           </div>
-          <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
-            {greeting}, {firstName} 👋
+          <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-white sm:text-4xl">
+            {greeting}, {firstName}
           </h1>
-          <p className="mt-1 text-sm text-white/70">
-            Here's your sacrament meeting overview for this month.
+          <p className="mt-2 text-sm text-white/80 max-w-md">
+            Your sacrament meeting coordinator dashboard. Everything you need for this month's planning is right here.
           </p>
 
           {/* Summary pill row */}
@@ -290,20 +290,52 @@ export function DashboardPage({
       </div>
 
       {/* ── Spiritual Thought ── */}
-      <div className="quote-card animate-fade-in-up stagger-5">
+      <div className="quote-card animate-fade-in-up stagger-5 shadow-sm hover:shadow-md transition-shadow">
         <div className="relative z-10">
-          <div className="mb-3 text-xs font-bold uppercase tracking-widest text-[color:var(--primary)]/70">
-            ✦ Spiritual Thought
+          <div className="mb-4 flex items-center justify-between">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-blue-600/80">
+              ✦ Spiritual Thought
+            </div>
+            <div className="h-2 w-2 rounded-full bg-blue-400/30" />
           </div>
-          <blockquote className="text-base font-medium leading-relaxed text-slate-700 sm:text-lg">
+          <blockquote className="text-lg font-medium leading-relaxed text-slate-700 italic">
             "{quote.text}"
           </blockquote>
-          <div className="mt-3 flex items-center gap-2">
-            <div className="h-px flex-1 bg-[color:var(--primary)]/10" />
-            <cite className="text-xs font-bold not-italic text-[color:var(--primary)]">
+          <div className="mt-4 flex items-center gap-3">
+            <div className="h-px flex-1 bg-gradient-to-r from-blue-100 to-transparent" />
+            <cite className="text-sm font-bold not-italic text-blue-600">
               {quote.ref}
             </cite>
           </div>
+        </div>
+      </div>
+
+      {/* ── Recent Activity ── */}
+      <div className="animate-fade-in-up stagger-6">
+        <div className="mb-4 flex items-center justify-between">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+            Recent Activity
+          </div>
+        </div>
+        <div className="space-y-3">
+          {db.PLANNERS.slice(0, 3).map((p, idx) => (
+            <div key={p.planner_id} className="flex items-center gap-4 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm transition-all hover:scale-[1.01] hover:shadow-md">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                <span className="text-lg font-bold">{p.month}</span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-bold text-slate-800">
+                  {yyyyMmToLabel(p.month, p.year)} Plan
+                </div>
+                <div className="text-xs text-slate-500">
+                  Status: <span className={cn("font-semibold", p.state === "SUBMITTED" ? "text-emerald-600" : "text-amber-600")}>{p.state}</span> · Updated {new Date(p.updated_date).toLocaleDateString()}
+                </div>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => onNavigate("planner")}>
+                View
+              </Button>
+            </div>
+          ))}
         </div>
       </div>
 

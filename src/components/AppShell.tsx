@@ -54,7 +54,7 @@ function Initials({ name }: { name: string }) {
     ? parts[0][0] + parts[parts.length - 1][0]
     : parts[0].slice(0, 2);
   return (
-    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#00c6fb] to-[#005bea] text-sm font-bold text-white shadow-sm">
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-sm font-bold text-white shadow-sm ring-2 ring-white/20">
       {letters.toUpperCase()}
     </div>
   );
@@ -110,7 +110,19 @@ export function AppShell({
                   background: "linear-gradient(135deg, #00c6fb 0%, #005bea 100%)",
                 }}
               >
-                ✝
+                <svg
+                  className="h-5 w-5 text-white"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2.5}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+                  />
+                </svg>
               </div>
               <div>
                 <div className="text-xs font-bold uppercase tracking-widest text-white/50">

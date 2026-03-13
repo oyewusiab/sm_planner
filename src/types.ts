@@ -4,13 +4,21 @@ export type Organisation = "Bishopric" | "Clerk" | "Secretary" | "Music" | "Othe
 
 export type UnitType = "Ward" | "Branch";
 
+export type Venue = {
+  venue_id: string;
+  name: string;
+  address?: string;
+  is_default?: boolean;
+};
+
 export type UnitSettings = {
   unit_name: string;
   stake_name?: string;
   unit_type: UnitType;
   leader_name: string;
   phone: string;
-  venue: string;
+  venue: string; // Deprecated, use venues
+  venues?: Venue[];
   meeting_time: string;
   created_date: string;
   prefs?: {
@@ -30,6 +38,10 @@ export type UnitSettings = {
 
     /** Locale */
     default_country?: "NG";
+
+    /** Feature Flags */
+    enable_music_toolkit?: boolean;
+    enable_member_analytics?: boolean;
   };
 };
 
@@ -149,6 +161,28 @@ export type WeekPlan = {
 
   /** Optional notes for the week (printed on the Back Page). */
   note?: string;
+
+  /** Venue override for this specific week */
+  venue_id?: string;
+  meeting_time_override?: string;
+  meeting_type?: "Normal" | "Fast & Testimony" | "Combined" | "Stake Conference" | "Special";
+};
+
+export type Hymn = {
+  number: number;
+  title: string;
+  category?: string;
+  last_used?: string; // ISO date
+  usage_count?: number;
+  tags?: string[];
+};
+
+export type MemberAnalytics = {
+  member_id: string;
+  assignment_count_12m: number;
+  last_assignment_date?: string;
+  unconfirmed_rate: number; // 0-1
+  avg_completion_time_days?: number;
 };
 
 export type PlannerState = "DRAFT" | "SUBMITTED" | "ARCHIVED";

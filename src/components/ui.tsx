@@ -171,3 +171,50 @@ export function EmptyState({
     </div>
   );
 }
+
+export function Tabs({ children }: { children: React.ReactNode }) {
+  return <div className="space-y-4">{children}</div>;
+}
+
+export function TabsList({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex gap-1 rounded-xl bg-slate-100 p-1 w-fit">
+      {children}
+    </div>
+  );
+}
+
+export function TabsTrigger({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "px-4 py-1.5 text-xs font-bold rounded-lg transition-all duration-200",
+        active
+          ? "bg-white text-blue-600 shadow-sm"
+          : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+export function TabsContent({
+  active,
+  children,
+}: {
+  active: boolean;
+  children: React.ReactNode;
+}) {
+  if (!active) return null;
+  return <div className="animate-fade-in">{children}</div>;
+}
