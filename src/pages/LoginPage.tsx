@@ -287,7 +287,9 @@ export function LoginPage({
                   ? "Connecting..."
                   : backendStatus === "error"
                     ? "Connection Error"
-                    : "Offline Mode"}
+                    : import.meta.env.PROD
+                      ? "Offline (Check VITE_ environment variables)"
+                      : "Offline Mode"}
             </span>
           </div>
         </div>
