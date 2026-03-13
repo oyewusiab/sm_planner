@@ -515,7 +515,9 @@ export function SettingsPage({
                       ? "Connecting to backend"
                       : backendStatus === "error"
                         ? "Backend error"
-                        : "Backend disabled"}
+                        : import.meta.env.PROD
+                          ? "Backend disabled (Check VITE_ environment variables)"
+                          : "Backend disabled"}
                 </span>
               </div>
               <Button
