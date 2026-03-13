@@ -33,6 +33,7 @@ export function getUserByEmail(email: string): User | null {
   const db = getDB();
   return db.USERS.find((u) => norm(u.email) === norm(email)) || null;
 }
+// ensureSeedUserIfEmpty removed - users are now provided via backend USERS sheet.
 
 export function getUserByUsername(username: string): User | null {
   const db = getDB();

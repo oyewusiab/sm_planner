@@ -16,6 +16,7 @@ export function LoginPage({
   syncError?: string | null;
   onRetrySync?: () => void;
 }) {
+  const seededHint = null; // Removed seeded admin hint.
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
