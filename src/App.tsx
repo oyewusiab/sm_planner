@@ -181,7 +181,6 @@ export function App() {
                   {(user.role === "ADMIN" || user.role === "BISHOPRIC" || user.role === "CLERK") && (
                     <Button
                       variant="outline"
-                      size="sm"
                       className="mt-2"
                       onClick={() => setRoute("settings")}
                     >
