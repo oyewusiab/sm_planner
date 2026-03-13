@@ -152,11 +152,18 @@ export function App() {
   }
 
   // Content rendering - allow navigation even without unit settings
-  const effectiveUnit = unit || ({
-    unit_name: "Unit Not Configured",
-    stake_name: "",
-    prefs: {}
-  } as UnitSettings);
+  const effectiveUnit: UnitSettings =
+    unit || ({
+      unit_name: "Unit Not Configured",
+      stake_name: "",
+      unit_type: "Ward",
+      leader_name: "",
+      phone: "",
+      venue: "",
+      meeting_time: "",
+      created_date: "",
+      prefs: {},
+    } as UnitSettings);
 
   const content = (() => {
     if (route === "dashboard") {
@@ -213,13 +220,7 @@ export function App() {
   })();
 
   return (
-    <AppShell
-      user={user}
-      unit={unit || ({ unit_name: "Configure Unit" } as any)}
-      route={route}
-      setRoute={setRoute}
-      onLogout={logout}
-    >
+    <AppShell user={user} unit={effectiveUnit} route={route} setRoute={setRoute} onLogout={logout}>
       {content}
       <div className="hidden">{dbSnapshot.UNIT_SETTINGS?.unit_name}</div>
     </AppShell>

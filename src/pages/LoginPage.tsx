@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState, type KeyboardEvent } from "react";
 import type { User } from "../types";
 import { Button, Card, CardBody, CardHeader, CardTitle, Input, Label } from "../components/ui";
 import * as auth from "../auth/authService";
@@ -100,7 +100,7 @@ export function LoginPage({
     setPassword("");
   }
 
-  function handleKeyDown(e: React.KeyboardEvent) {
+  function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Enter" && !loading) {
       if (needsReset) {
         doReset();
