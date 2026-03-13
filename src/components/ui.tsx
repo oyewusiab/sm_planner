@@ -46,7 +46,7 @@ export function Button({
   className,
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "secondary" | "ghost" | "danger";
+  variant?: "primary" | "secondary" | "ghost" | "danger" | "outline";
 }) {
   const base =
     "inline-flex items-center justify-center gap-2 rounded-[10px] px-4 py-2 text-sm font-semibold transition-all duration-200 disabled:opacity-50 active:scale-[0.97]";
@@ -57,6 +57,7 @@ export function Button({
       "bg-white text-slate-700 border border-[color:var(--border)] hover:bg-slate-50 shadow-sm",
     ghost: "bg-transparent text-slate-600 hover:bg-slate-100",
     danger: "bg-gradient-to-r from-rose-600 to-rose-500 text-white shadow-sm hover:brightness-110",
+    outline: "bg-transparent text-slate-700 border border-[color:var(--border)] hover:bg-slate-50",
   };
   return <button className={cn(base, styles[variant], className)} {...props} />;
 }

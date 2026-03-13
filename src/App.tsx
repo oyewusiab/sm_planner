@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { UnitSettings, User } from "./types";
 import { AppShell, type RouteKey } from "./components/AppShell";
 import { LoginPage } from "./pages/LoginPage";
-import { SetupWizard } from "./pages/SetupWizard";
 import { DashboardPage } from "./pages/DashboardPage";
 import { PlannerPage } from "./pages/PlannerPage";
 import { PlannerArchivePage } from "./pages/PlannerArchivePage";
@@ -16,6 +15,7 @@ import * as auth from "./auth/authService";
 import { clearSession, getSession, newSessionForUser, setSession } from "./auth/session";
 import { syncNow, syncFromBackend, getDB } from "./utils/storage";
 import { backendEnabled, pingBackend } from "./utils/backend";
+import { Button } from "./components/ui";
 
 function LoadingScreen({ label = "Loading…" }: { label?: string }) {
   return (
@@ -41,9 +41,9 @@ export function App() {
     backendEnabled() ? "connecting" : "disabled"
   );
   const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   const dbSnapshot = useMemo(() => {
-    // Read current DB (localStorage) whenever tick changes
     void dbTick;
     return getDB();
   }, [dbTick]);
@@ -83,9 +83,13 @@ export function App() {
   async function handleSyncNow() {
     if (!backendEnabled()) return;
     setSyncing(true);
+    setSyncError(null);
     try {
       await syncNow();
       await refreshBackendStatus();
+      refresh();
+    } catch (err: any) {
+      setSyncError(err?.message || "Sync failed");
     } finally {
       setSyncing(false);
     }
@@ -93,19 +97,28 @@ export function App() {
 
   useEffect(() => {
     (async () => {
-      await syncFromBackend();
-
-      // Ensure a seed user exists so you can get into the app on first run.
-      await auth.ensureSeedUserIfEmpty();
+      try {
+        // Sync from backend to get USERS and other data
+        await syncFromBackend();
+        setSyncError(null);
+      } catch (err: any) {
+        console.error("Initial sync failed:", err);
+        setSyncError(err?.message || "Failed to connect to backend");
+      }
 
       const db = getDB();
       setUnit(db.UNIT_SETTINGS);
 
+      // Check for existing session
       const sess = getSession();
       if (sess) {
         const u = auth.getUserById(sess.user_id);
-        if (u) setUser(u);
-        else clearSession();
+        if (u && !u.disabled) {
+          setUser(u);
+        } else {
+          // Session invalid or user disabled
+          clearSession();
+        }
       }
 
       await refreshBackendStatus();
@@ -113,8 +126,9 @@ export function App() {
     })();
   }, []);
 
-  if (booting) return <LoadingScreen />;
+  if (booting) return <LoadingScreen label="Connecting to server..." />;
 
+  // Show login page if no authenticated user
   if (!user) {
     return (
       <LoginPage
@@ -122,22 +136,11 @@ export function App() {
           setSession(newSessionForUser(u));
           setUser(u);
           setUnit(getDB().UNIT_SETTINGS);
-        }}
-      />
-    );
-  }
-
-  if (!unit) {
-    return (
-      <SetupWizard
-        currentUser={user}
-        onComplete={(u) => {
-          setUnit(u);
-          const latest = auth.getUserById(user.user_id);
-          if (latest) setUser(latest);
           setRoute("dashboard");
-          refresh();
         }}
+        backendStatus={backendStatus}
+        syncError={syncError}
+        onRetrySync={handleSyncNow}
       />
     );
   }
@@ -148,43 +151,76 @@ export function App() {
     setRoute("dashboard");
   }
 
-  return (
-    <AppShell
-      user={user}
-      unit={unit}
-      route={route}
-      setRoute={setRoute}
-      onLogout={logout}
-    >
-      {route === "dashboard" ? (
-        <DashboardPage user={user} unit={unit} onNavigate={(r) => setRoute(r)} />
-      ) : route === "planner" ? (
-        <PlannerPage user={user} unit={unit} onChanged={refresh} />
-      ) : route === "archive" ? (
-        <PlannerArchivePage user={user} unit={unit} onChanged={refresh} />
-      ) : route === "assignments" ? (
-        <AssignmentsPage user={user} unit={unit} onChanged={refresh} />
-      ) : route === "checklist" ? (
-        <ChecklistPage user={user} unit={unit} onChanged={refresh} />
-      ) : route === "members" ? (
-        <MembersPage user={user} unit={unit} onChanged={refresh} />
-      ) : route === "music" ? (
-        <MusicPage user={user} unit={unit} onChanged={refresh} />
-      ) : route === "notifications" ? (
-        <NotificationsPage user={user} unit={unit} onChanged={refresh} />
-      ) : route === "settings" ? (
+  // Content rendering - allow navigation even without unit settings
+  const effectiveUnit = unit || ({
+    unit_name: "Unit Not Configured",
+    stake_name: "",
+    prefs: {}
+  } as UnitSettings);
+
+  const content = (() => {
+    if (route === "dashboard") {
+      return (
+        <>
+          {!unit && (
+            <div className="mx-4 mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <div className="flex items-start gap-3">
+                <div className="text-amber-600">⚠️</div>
+                <div>
+                  <div className="font-medium text-amber-900">Unit Settings Not Configured</div>
+                  <p className="mt-1 text-sm text-amber-800">
+                    Please configure your unit details in Settings to enable full functionality.
+                  </p>
+                  {(user.role === "ADMIN" || user.role === "BISHOPRIC" || user.role === "CLERK") && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-2"
+                      onClick={() => setRoute("settings")}
+                    >
+                      Go to Settings
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          <DashboardPage user={user} unit={effectiveUnit} onNavigate={(r) => setRoute(r)} />
+        </>
+      );
+    }
+
+    if (route === "planner") return <PlannerPage user={user} unit={effectiveUnit} onChanged={refresh} />;
+    if (route === "archive") return <PlannerArchivePage user={user} unit={effectiveUnit} onChanged={refresh} />;
+    if (route === "assignments") return <AssignmentsPage user={user} unit={effectiveUnit} onChanged={refresh} />;
+    if (route === "checklist") return <ChecklistPage user={user} unit={effectiveUnit} onChanged={refresh} />;
+    if (route === "members") return <MembersPage user={user} unit={effectiveUnit} onChanged={refresh} />;
+    if (route === "music") return <MusicPage user={user} unit={effectiveUnit} onChanged={refresh} />;
+    if (route === "notifications") return <NotificationsPage user={user} unit={effectiveUnit} onChanged={refresh} />;
+    if (route === "settings") {
+      return (
         <SettingsPage
           user={user}
-          unit={unit}
+          unit={effectiveUnit}
           onChanged={refresh}
           backendStatus={backendStatus}
           syncing={syncing}
           onSyncNow={handleSyncNow}
         />
-      ) : (
-        <div className="text-sm text-slate-600">Unknown route.</div>
-      )}
+      );
+    }
+    return <div className="text-sm text-slate-600">Unknown route.</div>;
+  })();
 
+  return (
+    <AppShell
+      user={user}
+      unit={unit || ({ unit_name: "Configure Unit" } as any)}
+      route={route}
+      setRoute={setRoute}
+      onLogout={logout}
+    >
+      {content}
       <div className="hidden">{dbSnapshot.UNIT_SETTINGS?.unit_name}</div>
     </AppShell>
   );

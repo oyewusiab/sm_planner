@@ -1,6 +1,6 @@
 import type { Role, User } from "../types";
 import { sha256, timingSafeEqual } from "../utils/crypto";
-import { getDB, setDB, time, updateDB, ids } from "../utils/storage";
+import { getDB, updateDB, ids, time, syncFromBackend } from "../utils/storage";
 
 function norm(s: string) {
   return (s || "").trim().toLowerCase();
@@ -8,9 +8,9 @@ function norm(s: string) {
 
 function ensureUniqueUsernameEmail(user_id: string, patch: Partial<User>) {
   const db = getDB();
-  const nextEmail = patch.email !== undefined ? patch.email : db.USERS.find((u) => u.user_id === user_id)?.email;
-  const nextUsername =
-    patch.username !== undefined ? patch.username : db.USERS.find((u) => u.user_id === user_id)?.username;
+  const currentUser = db.USERS.find((u) => u.user_id === user_id);
+  const nextEmail = patch.email !== undefined ? patch.email : currentUser?.email;
+  const nextUsername = patch.username !== undefined ? patch.username : currentUser?.username;
 
   if (nextEmail) {
     const taken = db.USERS.some((u) => u.user_id !== user_id && norm(u.email) === norm(nextEmail));
@@ -29,62 +29,121 @@ export function getUserById(user_id: string): User | null {
   return db.USERS.find((u) => u.user_id === user_id) || null;
 }
 
-export async function ensureSeedUserIfEmpty() {
+export function getUserByEmail(email: string): User | null {
   const db = getDB();
-  if (db.USERS.length > 0) return;
-  // Seed a default Bishop (Admin) for first-time evaluation.
-  // Real deployments would preload USERS sheet.
-  const password_hash = await sha256("admin");
-  const bishop: User = {
-    user_id: ids.uid("user"),
-    name: "Bishop (Default)",
-    email: "admin@local",
-    role: "ADMIN",
-    organisation: "Bishopric",
-    calling: "Bishop",
-    password_hash,
-    created_date: time.nowISO(),
-    must_reset_password: true,
-  };
-  setDB({ ...db, USERS: [bishop] });
+  return db.USERS.find((u) => norm(u.email) === norm(email)) || null;
 }
 
-export async function login(identifier: string, password: string): Promise<User | null> {
+export function getUserByUsername(username: string): User | null {
   const db = getDB();
+  return db.USERS.find((u) => u.username && norm(u.username) === norm(username)) || null;
+}
+
+/**
+ * Authenticate user with email/username and password.
+ * Users are loaded from the backend USERS sheet.
+ */
+export async function login(identifier: string, password: string): Promise<User | null> {
+  let db = getDB();
+
+  // If no users in local DB, attempt to sync from backend
+  if (!db.USERS || db.USERS.length === 0) {
+    try {
+      await syncFromBackend();
+      db = getDB();
+    } catch (err) {
+      console.error("Failed to sync users from backend:", err);
+      throw new Error("Unable to connect to server. Please try again.");
+    }
+  }
+
+  // Still no users after sync
+  if (!db.USERS || db.USERS.length === 0) {
+    throw new Error("No users configured. Please contact your administrator.");
+  }
+
   const id = identifier.trim().toLowerCase();
+
+  // Find user by email or username
   const user = db.USERS.find(
-    (u) => u.email.toLowerCase() === id || (u.username ? u.username.toLowerCase() === id : false)
+    (u) =>
+      (u.email && u.email.toLowerCase() === id) ||
+      (u.username && u.username.toLowerCase() === id)
   );
-  if (!user) return null;
-  if (user.disabled) return null;
+
+  if (!user) {
+    return null; // User not found
+  }
+
+  if (user.disabled) {
+    return null; // User is disabled
+  }
+
+  // Verify password
   const hash = await sha256(password);
-  const ok = timingSafeEqual(hash, user.password_hash);
-  if (!ok) return null;
+  const storedHash = (user.password_hash || "").trim().toLowerCase();
+  const inputHash = hash.trim().toLowerCase();
 
-  // Record last login (non-blocking).
-  updateDB((db0) => ({
-    ...db0,
-    USERS: db0.USERS.map((u) => (u.user_id === user.user_id ? { ...u, last_login_date: time.nowISO() } : u)),
-  }));
+  // Use timing-safe comparison
+  const ok = timingSafeEqual(inputHash, storedHash);
+  if (!ok) {
+    return null; // Password mismatch
+  }
 
+  // Record last login (non-blocking update)
+  try {
+    updateDB((db0) => ({
+      ...db0,
+      USERS: db0.USERS.map((u) =>
+        u.user_id === user.user_id
+          ? { ...u, last_login_date: time.nowISO() }
+          : u
+      ),
+    }));
+  } catch (err) {
+    console.warn("Failed to update last login date:", err);
+  }
+
+  // Return fresh user data
   return getUserById(user.user_id);
 }
 
+/**
+ * Set a new password for a user.
+ * This also clears the must_reset_password flag.
+ */
 export async function setUserPassword(user_id: string, newPassword: string) {
+  if (!newPassword || newPassword.length < 6) {
+    throw new Error("Password must be at least 6 characters.");
+  }
+
   const hash = await sha256(newPassword);
+
   updateDB((db) => {
     const USERS = db.USERS.map((u) =>
-      u.user_id === user_id ? { ...u, password_hash: hash, must_reset_password: false } : u
+      u.user_id === user_id
+        ? {
+          ...u,
+          password_hash: hash,
+          must_reset_password: false,
+        }
+        : u
     );
     return { ...db, USERS };
   });
 }
 
+/**
+ * Reset a user's password to a default value and require reset on next login.
+ * Admin function.
+ */
 export async function resetUserPasswordToDefault(user_id: string, password = "changeme") {
   const hash = await sha256(password);
   updateDB((db) => {
     const USERS = db.USERS.map((u) =>
-      u.user_id === user_id ? { ...u, password_hash: hash, must_reset_password: true } : u
+      u.user_id === user_id
+        ? { ...u, password_hash: hash, must_reset_password: true }
+        : u
     );
     return { ...db, USERS };
   });
@@ -94,7 +153,6 @@ function defaultOrgCallingForRole(
   role: Role,
   prev?: { organisation?: User["organisation"]; calling?: User["calling"] }
 ) {
-  // Preserve calling when it is still valid for the chosen role.
   const prevCalling = prev?.calling;
   const prevOrg = prev?.organisation;
 
@@ -141,16 +199,11 @@ export function setUserRole(user_id: string, role: Role) {
   });
 }
 
-/**
- * Update a user's calling/title.
- * PART 1: focuses on Bishopric callings (1st/2nd Counsellor).
- */
 export function setUserCalling(user_id: string, calling: string) {
   updateDB((db) => {
     const USERS = db.USERS.map((u) => {
       if (u.user_id !== user_id) return u;
 
-      // Enforce Bishop = ADMIN.
       if (u.role === "ADMIN") {
         return { ...u, organisation: "Bishopric" as const, calling: "Bishop" };
       }
@@ -179,7 +232,6 @@ export function setUserCalling(user_id: string, calling: string) {
         return { ...u, organisation: "Music" as const, calling: nextCalling };
       }
 
-      // Other orgs/callings will be handled in later parts.
       return { ...u, calling };
     });
     return { ...db, USERS };
@@ -187,7 +239,6 @@ export function setUserCalling(user_id: string, calling: string) {
 }
 
 export function updateUserProfile(user_id: string, patch: Partial<User>) {
-  // Prevent accidental role/calling changes through profile edit.
   const safePatch: Partial<User> = { ...patch };
   delete (safePatch as any).role;
   delete (safePatch as any).organisation;
