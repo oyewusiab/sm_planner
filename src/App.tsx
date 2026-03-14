@@ -36,7 +36,14 @@ export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [unit, setUnit] = useState<UnitSettings | null>(() => getDB().UNIT_SETTINGS);
 
-  const [route, setRoute] = useState<RouteKey>("dashboard");
+  const [route, setRoute] = useState<RouteKey>(() => {
+    const saved = localStorage.getItem("sac_meeting_planner_route_v1");
+    return (saved as RouteKey) || "dashboard";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("sac_meeting_planner_route_v1", route);
+  }, [route]);
   const [backendStatus, setBackendStatus] = useState<BackendStatus>(() =>
     backendEnabled() ? "connecting" : "disabled"
   );
@@ -130,10 +137,14 @@ export function App() {
         if (sess) {
           const u = auth.getUserById(sess.user_id);
           if (u && !u.disabled) {
+            console.log(`[Session] Restored session for ${u.name} (${u.role})`);
             setUser(u);
           } else {
+            console.warn("[Session] Session found but user is invalid or disabled. Clearing.");
             clearSession();
           }
+        } else {
+          console.log("[Session] No session found on boot.");
         }
 
         await refreshBackendStatus();
@@ -213,14 +224,43 @@ export function App() {
       );
     }
 
-    if (route === "planner") return <PlannerPage user={user} unit={effectiveUnit} onChanged={refresh} />;
-    if (route === "archive") return <PlannerArchivePage user={user} unit={effectiveUnit} onChanged={refresh} />;
+    if (route === "planner") {
+      if (user.role === "MUSIC") {
+        setRoute("dashboard");
+        return null;
+      }
+      return <PlannerPage user={user} unit={effectiveUnit} onChanged={refresh} />;
+    }
+    if (route === "archive") {
+      if (user.role === "MUSIC" || user.role === "SECRETARY") {
+        setRoute("dashboard");
+        return null;
+      }
+      return <PlannerArchivePage user={user} unit={effectiveUnit} onChanged={refresh} />;
+    }
     if (route === "assignments") return <AssignmentsPage user={user} unit={effectiveUnit} onChanged={refresh} />;
-    if (route === "checklist") return <ChecklistPage user={user} unit={effectiveUnit} onChanged={refresh} />;
-    if (route === "members") return <MembersPage user={user} unit={effectiveUnit} onChanged={refresh} />;
+    if (route === "checklist") {
+      if (user.role === "MUSIC") {
+        setRoute("dashboard");
+        return null;
+      }
+      return <ChecklistPage user={user} unit={effectiveUnit} onChanged={refresh} />;
+    }
+    if (route === "members") {
+      if (user.role === "MUSIC" || user.role === "SECRETARY") {
+        setRoute("dashboard");
+        return null;
+      }
+      return <MembersPage user={user} unit={effectiveUnit} onChanged={refresh} />;
+    }
     if (route === "music") return <MusicPage user={user} unit={effectiveUnit} onChanged={refresh} />;
     if (route === "notifications") return <NotificationsPage user={user} unit={effectiveUnit} onChanged={refresh} />;
     if (route === "settings") {
+      if (user.role === "MUSIC" || user.role === "SECRETARY" || user.role === "BISHOPRIC") {
+        // Bishopric Counsellors don't have settings access in permissions.ts
+        setRoute("dashboard");
+        return null;
+      }
       return (
         <SettingsPage
           user={user}

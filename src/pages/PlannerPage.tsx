@@ -123,7 +123,37 @@ export function PlannerPage({
 
 
 
-  const [draft, setDraft] = useState<Planner | null>(null);
+  const [draft, setDraft] = useState<Planner | null>(() => {
+    const saved = localStorage.getItem("sac_meeting_planner_draft_v1");
+    if (saved) {
+      try {
+        const p = JSON.parse(saved) as Planner;
+        if (p.created_by === user.user_id && p.unit_name === unit.unit_name) {
+          console.log("[Planner] Recovered draft from localStorage:", p.planner_id);
+          return p;
+        }
+      } catch (e) {
+        console.error("Failed to load saved draft:", e);
+      }
+    }
+    return null;
+  });
+
+  // Automatically enter edit mode if a pending draft is found on mount
+  useEffect(() => {
+    if (draft && mode === "list") {
+      setMode("edit");
+    }
+  }, []);
+
+  // Persist draft to localStorage
+  useEffect(() => {
+    if (draft) {
+      localStorage.setItem("sac_meeting_planner_draft_v1", JSON.stringify(draft));
+    } else {
+      localStorage.removeItem("sac_meeting_planner_draft_v1");
+    }
+  }, [draft]);
 
   function startCreate() {
     const now = new Date();
@@ -172,6 +202,10 @@ export function PlannerPage({
     });
     onChanged();
     setDraft(next);
+    // Remove local persistence if no longer a local-only draft (submitted or explicitly archived)
+    if (state !== "DRAFT") {
+      localStorage.removeItem("sac_meeting_planner_draft_v1");
+    }
     return next;
   }
 
@@ -179,13 +213,22 @@ export function PlannerPage({
     if (!draft) return;
     if (draft.weeks.length === 0) return;
     const p = save("SUBMITTED");
-    if (p) {
+      // Notify Admin / Bishopric
+      [...auth.getUsersByRole("ADMIN"), ...auth.getUsersByRole("BISHOPRIC")].forEach((u: User) => {
+        notifyUser({
+          to_user_id: u.user_id,
+          type: "PLANNER_SUBMITTED",
+          title: "Planner Submitted",
+          body: `A new plan for ${monthName(p.month)} ${p.year} has been submitted by ${formatUserDisplayName(user)}.`,
+          meta: { planner_id: p.planner_id },
+        });
+      });
       // Notify Music Coordinator
       auth.getUsersByRole("MUSIC").forEach((u: User) => {
         notifyUser({
           to_user_id: u.user_id,
           type: "MUSIC_INPUT_REQUEST",
-          title: "New Planner Submitted",
+          title: "Music Input Needed",
           body: `A new plan for ${monthName(p.month)} ${p.year} has been submitted. Please input music details.`,
           meta: { planner_id: p.planner_id },
         });
@@ -195,12 +238,21 @@ export function PlannerPage({
         notifyUser({
           to_user_id: u.user_id,
           type: "PLANNER_SUBMITTED",
-          title: "Planner Ready for Review",
+          title: "Planner Ready (Secretary)",
           body: `The plan for ${monthName(p.month)} ${p.year} is ready. Please review and distribute assignments.`,
           meta: { planner_id: p.planner_id },
         });
       });
-    }
+      // Notify Clerks
+      auth.getUsersByRole("CLERK").forEach((u: User) => {
+        notifyUser({
+          to_user_id: u.user_id,
+          type: "PLANNER_SUBMITTED",
+          title: "Planner Submitted",
+          body: `The plan for ${monthName(p.month)} ${p.year} is ready.`,
+          meta: { planner_id: p.planner_id },
+        });
+      });
   }
 
   function archive(planner_id: string) {
@@ -418,7 +470,7 @@ export function PlannerPage({
               setDraft(null);
             }}
           >
-            Continue Later
+            Save & Close
           </Button>
         </div>
       </div>

@@ -173,9 +173,11 @@ async function pushAllToBackend() {
   notifySyncListeners(true);
   try {
     const db = getDB();
+    console.log(`[Sync] Pushing local changes to backend... (${db.PLANNERS.length} planners, ${db.USERS.length} users)`);
     await importRemoteDB(db, "merge");
+    console.log("[Sync] Push successful.");
   } catch (err) {
-    console.warn("Remote sync failed", err);
+    console.warn("[Sync] Push failed:", err);
   } finally {
     remoteSyncInFlight = false;
     notifySyncListeners(false);
@@ -193,33 +195,49 @@ export async function syncFromBackend(): Promise<boolean> {
   notifySyncListeners(true);
   try {
     const remote = await exportRemoteDB();
-    if (!remote) return false;
+    if (!remote) {
+      console.warn("[Sync] Remote DB export returned null/empty.");
+      return false;
+    }
 
     const local = getDB();
     const normalizedRemote = normalizeDB(remote);
 
+    console.log(`[Sync] Remote data: ${normalizedRemote.USERS.length} users, ${normalizedRemote.PLANNERS.length} planners`);
+
     // Guard against remote data missing UNIT_SETTINGS (common misconfig / empty sheet).
     // Keep local settings and seed the backend instead of forcing re-setup.
     if (!normalizedRemote.UNIT_SETTINGS && local.UNIT_SETTINGS) {
+      console.log("[Sync] Remote missing UNIT_SETTINGS. Merging local to remote.");
       await importRemoteDB(local, "merge");
       return true;
     }
 
     if (isEmptyDB(normalizedRemote) && !isEmptyDB(local)) {
+      console.log("[Sync] Remote is empty but local is not. Merging local to remote.");
       await importRemoteDB(local, "merge");
       return true;
+    }
+
+    // CRITICAL: Ensure we don't accidentally lose the current user from USERS list
+    // if they exist locally but not remotely (e.g. sync delay or partial sheet).
+    // However, if the sheet is the source of truth, we must be careful.
+    // For now, let's just log it if the local user list is significantly larger.
+    if (local.USERS.length > normalizedRemote.USERS.length) {
+      console.warn(`[Sync] Local has ${local.USERS.length} users, remote has ${normalizedRemote.USERS.length}. Possible data loss?`);
     }
 
     suppressRemoteSync += 1;
     try {
       setDBInternal(normalizedRemote, true);
+      console.log("[Sync] Local DB updated from remote.");
     } finally {
       suppressRemoteSync -= 1;
     }
 
     return true;
   } catch (err) {
-    console.warn("Failed to sync from backend", err);
+    console.warn("[Sync] Sync from backend failed:", err);
     return false;
   } finally {
     notifySyncListeners(false);

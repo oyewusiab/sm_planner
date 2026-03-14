@@ -40,6 +40,10 @@ export function getUserByUsername(username: string): User | null {
   return db.USERS.find((u) => u.username && norm(u.username) === norm(username)) || null;
 }
 
+export function getUsersByRole(role: Role): User[] {
+  return getDB().USERS.filter((u) => u.role === role);
+}
+
 /**
  * Authenticate user with email/username and password.
  * Users are loaded from the backend USERS sheet.
