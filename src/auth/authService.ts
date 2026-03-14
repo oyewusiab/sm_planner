@@ -257,7 +257,7 @@ export function updateUserProfile(user_id: string, patch: Partial<User>) {
   });
 }
 
-export function addUser(name: string, email: string, role: Role, password_hash: string, calling?: string) {
+export function addUser(name: string, email: string, role: Role, password_hash: string, calling?: string, gender?: "M" | "F") {
   updateDB((db) => {
     const { organisation, calling: calling0 } = defaultOrgCallingForRole(role, calling ? { calling } : undefined);
     const user: User = {
@@ -267,6 +267,7 @@ export function addUser(name: string, email: string, role: Role, password_hash: 
       role,
       organisation,
       calling: calling0,
+      gender,
       password_hash,
       created_date: time.nowISO(),
       must_reset_password: true,

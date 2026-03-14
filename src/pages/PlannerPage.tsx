@@ -213,46 +213,48 @@ export function PlannerPage({
     if (!draft) return;
     if (draft.weeks.length === 0) return;
     const p = save("SUBMITTED");
-      // Notify Admin / Bishopric
-      [...auth.getUsersByRole("ADMIN"), ...auth.getUsersByRole("BISHOPRIC")].forEach((u: User) => {
-        notifyUser({
-          to_user_id: u.user_id,
-          type: "PLANNER_SUBMITTED",
-          title: "Planner Submitted",
-          body: `A new plan for ${monthName(p.month)} ${p.year} has been submitted by ${formatUserDisplayName(user)}.`,
-          meta: { planner_id: p.planner_id },
+      if (p) {
+        // Notify Admin / Bishopric
+        [...auth.getUsersByRole("ADMIN"), ...auth.getUsersByRole("BISHOPRIC")].forEach((u: User) => {
+          notifyUser({
+            to_user_id: u.user_id,
+            type: "PLANNER_SUBMITTED",
+            title: "Planner Submitted",
+            body: `A new plan for ${monthName(p.month)} ${p.year} has been submitted by ${formatUserDisplayName(user)}.`,
+            meta: { planner_id: p.planner_id },
+          });
         });
-      });
-      // Notify Music Coordinator
-      auth.getUsersByRole("MUSIC").forEach((u: User) => {
-        notifyUser({
-          to_user_id: u.user_id,
-          type: "MUSIC_INPUT_REQUEST",
-          title: "Music Input Needed",
-          body: `A new plan for ${monthName(p.month)} ${p.year} has been submitted. Please input music details.`,
-          meta: { planner_id: p.planner_id },
+        // Notify Music Coordinator
+        auth.getUsersByRole("MUSIC").forEach((u: User) => {
+          notifyUser({
+            to_user_id: u.user_id,
+            type: "MUSIC_INPUT_REQUEST",
+            title: "Music Input Needed",
+            body: `A new plan for ${monthName(p.month)} ${p.year} has been submitted. Please input music details.`,
+            meta: { planner_id: p.planner_id },
+          });
         });
-      });
-      // Notify Secretary / Assistants
-      auth.getUsersByRole("SECRETARY").forEach((u: User) => {
-        notifyUser({
-          to_user_id: u.user_id,
-          type: "PLANNER_SUBMITTED",
-          title: "Planner Ready (Secretary)",
-          body: `The plan for ${monthName(p.month)} ${p.year} is ready. Please review and distribute assignments.`,
-          meta: { planner_id: p.planner_id },
+        // Notify Secretary / Assistants
+        auth.getUsersByRole("SECRETARY").forEach((u: User) => {
+          notifyUser({
+            to_user_id: u.user_id,
+            type: "PLANNER_SUBMITTED",
+            title: "Planner Ready (Secretary)",
+            body: `The plan for ${monthName(p.month)} ${p.year} is ready. Please review and distribute assignments.`,
+            meta: { planner_id: p.planner_id },
+          });
         });
-      });
-      // Notify Clerks
-      auth.getUsersByRole("CLERK").forEach((u: User) => {
-        notifyUser({
-          to_user_id: u.user_id,
-          type: "PLANNER_SUBMITTED",
-          title: "Planner Submitted",
-          body: `The plan for ${monthName(p.month)} ${p.year} is ready.`,
-          meta: { planner_id: p.planner_id },
+        // Notify Clerks
+        auth.getUsersByRole("CLERK").forEach((u: User) => {
+          notifyUser({
+            to_user_id: u.user_id,
+            type: "PLANNER_SUBMITTED",
+            title: "Planner Submitted",
+            body: `The plan for ${monthName(p.month)} ${p.year} is ready.`,
+            meta: { planner_id: p.planner_id },
+          });
         });
-      });
+      }
   }
 
   function archive(planner_id: string) {

@@ -231,6 +231,7 @@ export type Member = {
   status?: string;
   email?: string;
   notes?: string;
+  created_date?: string;
 };
 
 export type ChecklistTask = {

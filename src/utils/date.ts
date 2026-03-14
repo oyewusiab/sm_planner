@@ -12,11 +12,18 @@ export function toISODateLocal(d: Date) {
 }
 
 export function formatDateShort(isoDate: string) {
-  if (!isoDate) return "";
+  if (!isoDate) return "None";
+  // Detect Google Sheets zero-date (1899-12-30)
+  if (isoDate.startsWith("1899-12-30")) return "Not set";
+  
   // Always format as dd-MMM-yyyy regardless of browser locale input.
   const parts = isoDate.split("-");
-  if (parts.length !== 3) return isoDate;
-  const [yyyy, mm, dd] = parts;
+  if (parts.length < 3) return isoDate;
+  
+  const [yyyy, mm, ddFull] = parts;
+  // Handle ISO strings with time-parts
+  const dd = ddFull.split("T")[0];
+  
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const mIdx = Math.max(1, Math.min(12, Number(mm || 1))) - 1;
   return `${dd}-${months[mIdx]}-${yyyy}`;

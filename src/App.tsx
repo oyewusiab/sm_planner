@@ -110,6 +110,40 @@ export function App() {
     });
   }, [user]);
 
+  // Inactivity & Auto-logout
+  useEffect(() => {
+    if (!user) return;
+
+    const handleActivity = () => {
+      const sess = getSession();
+      if (sess) {
+        setSession({ ...sess, last_activity: Date.now() });
+      }
+    };
+
+    window.addEventListener("mousedown", handleActivity);
+    window.addEventListener("keydown", handleActivity);
+    window.addEventListener("scroll", handleActivity);
+
+    const checkInterval = setInterval(() => {
+      const sess = getSession();
+      if (sess && user) {
+        const inactiveMs = Date.now() - sess.last_activity;
+        if (inactiveMs > 30 * 60 * 1000) {
+          console.log("[Session] Auto-logout due to inactivity.");
+          logout();
+        }
+      }
+    }, 60000); // Check every minute
+
+    return () => {
+      window.removeEventListener("mousedown", handleActivity);
+      window.removeEventListener("keydown", handleActivity);
+      window.removeEventListener("scroll", handleActivity);
+      clearInterval(checkInterval);
+    };
+  }, [user]);
+
   useEffect(() => {
     (async () => {
       try {
@@ -136,11 +170,16 @@ export function App() {
         const sess = getSession();
         if (sess) {
           const u = auth.getUserById(sess.user_id);
-          if (u && !u.disabled) {
+          const now = Date.now();
+          const inactiveMs = now - (sess.last_activity || 0);
+
+          if (u && !u.disabled && inactiveMs < 30 * 60 * 1000) {
             console.log(`[Session] Restored session for ${u.name} (${u.role})`);
             setUser(u);
+            // Refresh activity immediately
+            setSession({ ...sess, last_activity: now });
           } else {
-            console.warn("[Session] Session found but user is invalid or disabled. Clearing.");
+            console.warn("[Session] Session expired, locked, or invalid. Clearing.");
             clearSession();
           }
         } else {

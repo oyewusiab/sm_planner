@@ -26,3 +26,24 @@ export function formatUserDisplayName(user: User | { name: string; calling?: str
   // 3. Last fallback
   return user.name;
 }
+
+/**
+ * Extracts the surname (last word) from a name string.
+ */
+export function getSurname(name: string): string {
+  if (!name) return "Unknown";
+  const parts = name.trim().split(/\s+/);
+  return parts[parts.length - 1] || "Unknown";
+}
+
+/**
+ * Normalizes a name by removing common titles and extra whitespace.
+ * Useful for matching names between various sources.
+ */
+export function normalizeMemberName(name: string): string {
+  if (!name) return "";
+  return name
+    .replace(/^(Bishop|Brother|Sister|Elder|President)\s+/i, "")
+    .trim()
+    .toLowerCase();
+}

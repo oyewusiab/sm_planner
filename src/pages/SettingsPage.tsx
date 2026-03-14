@@ -58,6 +58,7 @@ export function SettingsPage({
     email: "",
     role: "CLERK" as Role,
     calling: "Clerk (Co-admin)",
+    gender: "M" as "M" | "F",
   });
   const [busy, setBusy] = useState<string | null>(null);
   const [syncUrl, setSyncUrl] = useState(() => localStorage.getItem("sm_sync_url") || "");
@@ -157,9 +158,9 @@ export function SettingsPage({
     setBusy("create");
     try {
       const hash = await sha256("changeme");
-      auth.addUser(newUser.name.trim(), newUser.email.trim(), newUser.role, hash, newUser.calling);
+      auth.addUser(newUser.name.trim(), newUser.email.trim(), newUser.role, hash, newUser.calling, newUser.gender);
       onChanged();
-      setNewUser({ name: "", email: "", role: "CLERK", calling: "Clerk (Co-admin)" });
+      setNewUser({ name: "", email: "", role: "CLERK", calling: "Clerk (Co-admin)", gender: "M" });
     } finally {
       setBusy(null);
     }
@@ -182,6 +183,11 @@ export function SettingsPage({
 
   function setCalling(user_id: string, calling: string) {
     auth.setUserCalling(user_id, calling);
+    onChanged();
+  }
+
+  function setGender(user_id: string, gender: "M" | "F") {
+    auth.updateUserProfile(user_id, { gender });
     onChanged();
   }
 
@@ -419,6 +425,7 @@ export function SettingsPage({
                 <tr>
                   <th className="p-3 font-medium text-slate-600">User ID</th>
                   <th className="p-3 font-medium text-slate-600">Name</th>
+                  <th className="p-3 font-medium text-slate-600">Gender</th>
                   <th className="p-3 font-medium text-slate-600">Email</th>
                   <th className="p-3 font-medium text-slate-600">Role</th>
                   <th className="p-3 font-medium text-slate-600">Calling</th>
@@ -432,6 +439,16 @@ export function SettingsPage({
                     <td className="p-3 text-xs font-mono text-slate-500">{u.user_id}</td>
                     <td className="p-3 font-medium">
                       {u.name} {u.user_id === user.user_id ? <Badge tone="blue">You</Badge> : null}
+                    </td>
+                    <td className="p-3">
+                      {u.role === "ADMIN" ? (
+                        <div className="text-xs text-slate-500">—</div>
+                      ) : (
+                        <Select value={u.gender || "M"} onChange={(e) => setGender(u.user_id, e.target.value as "M" | "F")}>
+                          <option value="M">Male</option>
+                          <option value="F">Female</option>
+                        </Select>
+                      )}
                     </td>
                     <td className="p-3">{u.email}</td>
                     <td className="p-3">
@@ -577,6 +594,14 @@ export function SettingsPage({
               ) : (
                 <Input value="(auto)" disabled />
               )}
+            </div>
+
+            <div className="space-y-1">
+              <Label>Gender</Label>
+              <Select value={newUser.gender} onChange={(e) => setNewUser((s) => ({ ...s, gender: e.target.value as "M" | "F" }))}>
+                <option value="M">Male</option>
+                <option value="F">Female</option>
+              </Select>
             </div>
           </div>
           <div className="flex justify-end">
