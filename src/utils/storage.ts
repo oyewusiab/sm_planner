@@ -1,6 +1,7 @@
 import type {
   Assignment,
   ChecklistTask,
+  Hymn,
   Member,
   Notification,
   Planner,
@@ -25,6 +26,7 @@ export type DB = {
   SETTINGS_REQUESTS: SettingsChangeRequest[];
   TODOS: TodoItem[];
   REMINDERS: ReminderJob[];
+  HYMNS: Hymn[];
 };
 
 const nowISO = () => new Date().toISOString();
@@ -139,6 +141,7 @@ function normalizeDB(raw: any): DB {
     SETTINGS_REQUESTS: Array.isArray(raw?.SETTINGS_REQUESTS) ? raw.SETTINGS_REQUESTS : [],
     TODOS: Array.isArray(raw?.TODOS) ? raw.TODOS : [],
     REMINDERS: Array.isArray(raw?.REMINDERS) ? raw.REMINDERS : [],
+    HYMNS: Array.isArray(raw?.HYMNS) ? raw.HYMNS : [],
   };
   return base;
 }
@@ -154,7 +157,8 @@ function isEmptyDB(db: DB): boolean {
     db.NOTIFICATIONS.length === 0 &&
     db.SETTINGS_REQUESTS.length === 0 &&
     db.TODOS.length === 0 &&
-    db.REMINDERS.length === 0
+    db.REMINDERS.length === 0 &&
+    db.HYMNS.length === 0
   );
 }
 
@@ -287,6 +291,7 @@ export function getDB(): DB {
     SETTINGS_REQUESTS: [],
     TODOS: [],
     REMINDERS: [],
+    HYMNS: [],
   };
   localStorage.setItem(APP_KEY, JSON.stringify(fresh));
   cachedDB = fresh;

@@ -68,6 +68,7 @@ export function AppShell({
   setRoute,
   onLogout,
   onProfileChanged,
+  dbTick = 0,
   children,
 }: {
   user: User;
@@ -76,6 +77,7 @@ export function AppShell({
   setRoute: (r: RouteKey) => void;
   onLogout: () => void;
   onProfileChanged?: () => void;
+  dbTick?: number;
   children: React.ReactNode;
 }) {
   const [notifOpen, setNotifOpen] = useState(false);
@@ -84,9 +86,10 @@ export function AppShell({
 
   const { notifs, unread } = useMemo(() => {
     void notifTick;
+    void dbTick;
     const notifs0 = listNotificationsForUser(user.user_id);
     return { notifs: notifs0, unread: unreadCount(user.user_id) };
-  }, [user.user_id, notifTick]);
+  }, [user.user_id, notifTick, dbTick]);
 
   return (
     <div className="min-h-screen" style={{ background: "var(--bg)" }}>

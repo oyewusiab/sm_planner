@@ -17,9 +17,8 @@ import {
 import { Modal } from "../components/Modal";
 import { can } from "../utils/permissions";
 import { formatDateShort, monthName, toISODateLocal } from "../utils/date";
-import { formatDateLong, parseISO } from "../utils/date";
 import { formatUserDisplayName } from "../utils/format";
-import { getDB, ids, updateDB } from "../utils/storage";
+import { getDB, ids, updateDB, time } from "../utils/storage";
 
 type Gender = "M" | "F";
 
@@ -361,125 +360,125 @@ export function AssignmentsPage({
         />
 
         <Card>
-        <CardHeader>
-          <CardTitle>1) Choose a submitted planner</CardTitle>
-        </CardHeader>
-        <CardBody className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <div className="space-y-1 md:col-span-2">
-              <Label>Planner</Label>
-              <Select
-                value={plannerId}
-                onChange={(e) => {
-                  setPlannerId(e.target.value);
-                  setSelected({});
-                }}
-              >
-                {submitted.map((p) => (
-                  <option key={p.planner_id} value={p.planner_id}>
-                    {monthName(p.month)} {p.year} — {p.unit_name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label>Venue</Label>
-              <Input value={unit.venue} disabled />
-            </div>
-          </div>
-
-          <Divider />
-
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <div className="space-y-1 md:col-span-3">
-              <Label>Search</Label>
-              <Input placeholder="Search name, role, topic, date…" value={query} onChange={(e) => setQuery(e.target.value)} />
-            </div>
-          </div>
-
-          <Divider />
-
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-sm text-slate-600">2) Select who to generate notifications for</div>
-            <div className="flex items-center gap-2">
-              <Button variant="secondary" onClick={() => toggleAll(true)}>
-                Select all
-              </Button>
-              <Button variant="secondary" onClick={() => toggleAll(false)}>
-                Select none
-              </Button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-2">
-            {extracted.map((x) => {
-              const checked = selected[x.key] ?? true;
-              const kind = roleKind(x.role);
-              const tone = kind === "TALK" ? "blue" : kind === "OPENING_PRAYER" || kind === "CLOSING_PRAYER" ? "green" : "gray";
-              const minutes = minutesByKey[x.key] ?? x.minutes ?? defaultMinutesFor(x.role);
-              const canEditMinutes = kind === "TALK" || kind === "OPENING_PRAYER" || kind === "CLOSING_PRAYER" || kind === "TESTIMONY";
-              return (
-                <div
-                  key={x.key}
-                  className="flex items-start justify-between gap-3 rounded-lg border border-[color:var(--border)] bg-white p-3 hover:bg-slate-50"
+          <CardHeader>
+            <CardTitle>1) Choose a submitted planner</CardTitle>
+          </CardHeader>
+          <CardBody className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="space-y-1 md:col-span-2">
+                <Label>Planner</Label>
+                <Select
+                  value={plannerId}
+                  onChange={(e) => {
+                    setPlannerId(e.target.value);
+                    setSelected({});
+                  }}
                 >
-                  <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
-                    <input
-                      className="mt-1"
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) => setSelected((s) => ({ ...s, [x.key]: e.target.checked }))}
-                    />
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="text-sm font-medium text-slate-900">
-                          {formatUserDisplayName({ name: x.person, gender: x.gender as any })}
-                        </div>
-                        <Badge tone={tone as any}>{roleAsText(x.role)}</Badge>
-                      </div>
-                      <div className="mt-0.5 text-xs text-slate-600">
-                        {formatDateShort(x.date)}
-                        {x.topic ? ` • ${x.topic}` : ""}
-                      </div>
-                    </div>
-                  </label>
-
-                  <div className="flex items-center gap-2">
-                    <div className="text-[11px] text-slate-500">Minutes</div>
-                    <input
-                      className="w-[76px] rounded-md border border-[color:var(--border)] px-2 py-1 text-sm"
-                      type="number"
-                      min={0}
-                      value={minutes ?? ""}
-                      disabled={!canEditMinutes}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setMinutesByKey((m) => ({ ...m, [x.key]: v === "" ? undefined : Math.max(0, Number(v)) }));
-                      }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-xs text-slate-500">Preview and print in A4 format. Cut and distribute to members.</div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  generateRecords();
-                  setPrintOpen(true);
-                }}
-                disabled={selectedItems.length === 0}
-              >
-                Preview / Print
-              </Button>
+                  {submitted.map((p) => (
+                    <option key={p.planner_id} value={p.planner_id}>
+                      {monthName(p.month)} {p.year} — {p.unit_name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label>Venue</Label>
+                <Input value={unit.venue} disabled />
+              </div>
             </div>
-          </div>
-        </CardBody>
-      </Card>
+
+            <Divider />
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="space-y-1 md:col-span-3">
+                <Label>Search</Label>
+                <Input placeholder="Search name, role, topic, date…" value={query} onChange={(e) => setQuery(e.target.value)} />
+              </div>
+            </div>
+
+            <Divider />
+
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm text-slate-600">2) Select who to generate notifications for</div>
+              <div className="flex items-center gap-2">
+                <Button variant="secondary" onClick={() => toggleAll(true)}>
+                  Select all
+                </Button>
+                <Button variant="secondary" onClick={() => toggleAll(false)}>
+                  Select none
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2">
+              {extracted.map((x) => {
+                const checked = selected[x.key] ?? true;
+                const kind = roleKind(x.role);
+                const tone = kind === "TALK" ? "blue" : kind === "OPENING_PRAYER" || kind === "CLOSING_PRAYER" ? "green" : "gray";
+                const minutes = minutesByKey[x.key] ?? x.minutes ?? defaultMinutesFor(x.role);
+                const canEditMinutes = kind === "TALK" || kind === "OPENING_PRAYER" || kind === "CLOSING_PRAYER" || kind === "TESTIMONY";
+                return (
+                  <div
+                    key={x.key}
+                    className="flex items-start justify-between gap-3 rounded-lg border border-[color:var(--border)] bg-white p-3 hover:bg-slate-50"
+                  >
+                    <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
+                      <input
+                        className="mt-1"
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => setSelected((s) => ({ ...s, [x.key]: e.target.checked }))}
+                      />
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="text-sm font-medium text-slate-900">
+                            {formatUserDisplayName({ name: x.person, gender: x.gender as any })}
+                          </div>
+                          <Badge tone={tone as any}>{roleAsText(x.role)}</Badge>
+                        </div>
+                        <div className="mt-0.5 text-xs text-slate-600">
+                          {formatDateShort(x.date)}
+                          {x.topic ? ` • ${x.topic}` : ""}
+                        </div>
+                      </div>
+                    </label>
+
+                    <div className="flex items-center gap-2">
+                      <div className="text-[11px] text-slate-500">Minutes</div>
+                      <input
+                        className="w-[76px] rounded-md border border-[color:var(--border)] px-2 py-1 text-sm"
+                        type="number"
+                        min={0}
+                        value={minutes ?? ""}
+                        disabled={!canEditMinutes}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setMinutesByKey((m) => ({ ...m, [x.key]: v === "" ? undefined : Math.max(0, Number(v)) }));
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs text-slate-500">Preview and print. Cut and distribute to members.</div>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    generateRecords();
+                    setPrintOpen(true);
+                  }}
+                  disabled={selectedItems.length === 0}
+                >
+                  Preview / Print
+                </Button>
+              </div>
+            </div>
+          </CardBody>
+        </Card>
       </div>
 
       <Modal
@@ -488,7 +487,12 @@ export function AssignmentsPage({
         onClose={() => setPrintOpen(false)}
         footer={
           <>
-            <Button variant="secondary" onClick={() => window.print()}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                window.print();
+              }}
+            >
               Print / Save as PDF
             </Button>
             <Button variant="ghost" onClick={() => setPrintOpen(false)}>
@@ -521,6 +525,36 @@ export function AssignmentsPage({
           )}
         </div>
       </Modal>
+
+      {/* Print portal for browser window.print() */}
+      {printOpen &&
+        (() => {
+          const host = document.getElementById("planner-print-portal");
+          if (!host) return null;
+          return createPortal(
+            <div className="print-portrait p-8">
+              <div className="space-y-4">
+                {pages.map((page, idx) => (
+                  <div key={idx} className="notif-page">
+                    <div className="notif-grid">
+                      {page.map((n) => (
+                        <NotificationCard
+                          key={n.key}
+                          unit={unit}
+                          signatory={signatory}
+                          item={n}
+                          issuedDate={issuedDate}
+                        />
+                      ))}
+                    </div>
+                    {idx < pages.length - 1 ? <div className="print-page-break" /> : null}
+                  </div>
+                ))}
+              </div>
+            </div>,
+            host
+          );
+        })()}
     </div>
   );
 }

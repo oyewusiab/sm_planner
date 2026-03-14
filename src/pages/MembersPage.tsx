@@ -205,6 +205,21 @@ export function MembersPage({
       .filter(([_, dates]) => dates.filter(d => new Date(d) > twoMonthsAgo).length >= 3)
       .map(([topic]) => topic);
 
+    // 6. Reliability Index (Last 4 Planners)
+    const recentPlanners = db.PLANNERS
+      .filter(p => p.state === "SUBMITTED")
+      .sort((a, b) => b.updated_date.localeCompare(a.updated_date))
+      .slice(0, 4);
+    
+    let totalTasks = 0;
+    let completedTasks = 0;
+    for (const p of recentPlanners) {
+      const pChecklists = db.CHECKLISTS.filter(c => c.planner_id === p.planner_id);
+      totalTasks += pChecklists.length;
+      completedTasks += pChecklists.filter(c => c.status).length;
+    }
+    const reliabilityIndex = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 100;
+
     return {
       members: processedMembers,
       orgMetrics,
@@ -214,13 +229,14 @@ export function MembersPage({
       staleTopics,
       trendTimeline,
       forgottenFamilies,
+      reliabilityIndex,
       readySpeakers: processedMembers
         .filter(m => m.status === "ACTIVE" && m.readiness > 60)
         .sort((a, b) => b.readiness - a.readiness)
         .slice(0, 8),
       totalAssignments: processedMembers.reduce((a, b) => a + b.total, 0)
     };
-  }, [db.MEMBERS, db.PLANNERS]);
+  }, [db.MEMBERS, db.PLANNERS, db.CHECKLISTS]);
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -448,14 +464,13 @@ export function MembersPage({
             </div>
 
             <div 
-              onClick={() => { setTab("directory"); setFilterMode("IDLE"); }}
-              className="stat-card p-5 animate-scale-in stagger-4 cursor-pointer hover:border-amber-200 group transition-all"
+              className="stat-card p-5 animate-scale-in stagger-4 cursor-pointer hover:border-sky-200 group transition-all"
             >
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 group-hover:text-amber-600 transition-colors">Untapped Potential</div>
-              <div className="mt-2 text-3xl font-black text-amber-500">
-                {analyticsData.members.filter(m => m.total === 0).length}
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 group-hover:text-sky-600 transition-colors">Meeting Reliability</div>
+              <div className="mt-2 text-3xl font-black text-sky-500">
+                {analyticsData.reliabilityIndex}%
               </div>
-              <div className="mt-1 text-xs font-semibold text-slate-400">Members with 0 roles</div>
+              <div className="mt-1 text-xs font-semibold text-slate-400">Checklist Completion</div>
             </div>
           </div>
 

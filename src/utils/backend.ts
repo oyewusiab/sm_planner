@@ -72,3 +72,10 @@ export async function pingBackend() {
   if (!res.ok) throw new Error(res.error || "ping_failed");
   return res.data || null;
 }
+
+export async function syncMusic() {
+  if (!backendEnabled()) return null;
+  const res = await apiGet<any>({ action: "syncHymns" });
+  if (!res.ok) throw new Error(res.error || "sync_failed");
+  return res.data || null;
+}

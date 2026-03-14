@@ -173,10 +173,12 @@ export type WeekPlan = {
 export type Hymn = {
   number: number;
   title: string;
-  category?: string;
+  type?: string; // "Classic" or "New"
+  theme?: string;
   last_used?: string; // ISO date
   usage_count?: number;
   tags?: string[];
+  updated_date?: string;
 };
 
 export type MemberAnalytics = {

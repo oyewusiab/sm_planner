@@ -116,10 +116,15 @@ export function PlannerPage({
     const list = [...db.PLANNERS]
       .filter((p) => p.state !== "ARCHIVED")
       .sort((a, b) => b.updated_date.localeCompare(a.updated_date));
-    // Non-creators can still view submitted plans; drafts are hidden from them.
-    if (!canCreate) return list.filter((p) => p.state !== "DRAFT");
-    return list;
-  }, [db.PLANNERS, canCreate]);
+    
+    // Privacy: Drafts are only visible to the person who created them.
+    // However, ADMINs (Bishop) can always see everything.
+    return list.filter((p) => {
+      if (p.state !== "DRAFT") return true; // Submitted/Archived are public
+      if (user.role === "ADMIN") return true; // Bishop sees all
+      return p.created_by === user.user_id; // Drafts only to creator
+    });
+  }, [db.PLANNERS, user]);
 
 
 
@@ -362,7 +367,12 @@ export function PlannerPage({
                       variant="secondary"
                       onClick={() => {
                         setPreviewPlanner(p);
-                        setTimeout(() => window.print(), 400);
+                        // Ensure portal is mounted before printing
+                        setTimeout(() => {
+                          if (document.getElementById("planner-print-portal")) {
+                            window.print();
+                          }
+                        }, 500);
                       }}
                     >
                       Print
@@ -371,7 +381,11 @@ export function PlannerPage({
                       variant="secondary"
                       onClick={() => {
                         setPreviewPlanner(p);
-                        setTimeout(() => window.print(), 400);
+                        setTimeout(() => {
+                          if (document.getElementById("planner-print-portal")) {
+                            window.print();
+                          }
+                        }, 500);
                       }}
                     >
                       Download PDF
@@ -442,7 +456,11 @@ export function PlannerPage({
             variant="secondary"
             onClick={() => {
               setPreviewPlanner(draft);
-              setTimeout(() => window.print(), 400);
+              setTimeout(() => {
+                if (document.getElementById("planner-print-portal")) {
+                  window.print();
+                }
+              }, 500);
             }}
           >
             Print
@@ -451,7 +469,11 @@ export function PlannerPage({
             variant="secondary"
             onClick={() => {
               setPreviewPlanner(draft);
-              setTimeout(() => window.print(), 400);
+              setTimeout(() => {
+                if (document.getElementById("planner-print-portal")) {
+                  window.print();
+                }
+              }, 500);
             }}
           >
             Download PDF
@@ -1211,7 +1233,9 @@ export function PlannerPage({
           const host = document.getElementById("planner-print-portal");
           return host
             ? createPortal(
-              <PlannerPreviewTable planner={previewPlanner} unit={unit} />,
+              <div className="print-landscape">
+                <PlannerPreviewTable planner={previewPlanner} unit={unit} />
+              </div>,
               host
             )
             : null;

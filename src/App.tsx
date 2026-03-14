@@ -144,6 +144,21 @@ export function App() {
     };
   }, [user]);
 
+  // Polling Sync: Every 2 minutes to ensure real-time reflect for all users
+  useEffect(() => {
+    if (!user || !backendEnabled()) return;
+    
+    console.log("[Sync] Polling started (2m interval)");
+    const interval = setInterval(() => {
+      console.log("[Sync] Periodic poll for updates...");
+      syncFromBackend().then((ok) => {
+        if (ok) refresh();
+      });
+    }, 120000); // 120,000ms = 2 minutes
+
+    return () => clearInterval(interval);
+  }, [user]);
+
   useEffect(() => {
     (async () => {
       try {
@@ -315,7 +330,14 @@ export function App() {
   })();
 
   return (
-    <AppShell user={user} unit={effectiveUnit} route={route} setRoute={setRoute} onLogout={logout}>
+    <AppShell
+      user={user}
+      unit={effectiveUnit}
+      route={route}
+      setRoute={setRoute}
+      onLogout={logout}
+      dbTick={dbTick}
+    >
       {isSyncing && (
         <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 text-xs font-medium text-white shadow-lg animate-pulse">
           <span className="h-2 w-2 rounded-full bg-sky-400"></span>

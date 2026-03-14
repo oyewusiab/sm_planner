@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Planner, UnitSettings, User, WeekPlan } from "../types";
 import {
   Badge,
@@ -13,15 +14,16 @@ import {
   Label,
   SectionTitle,
   Select,
-  Textarea,
   Tabs,
   TabsList,
   TabsTrigger,
   TabsContent,
 } from "../components/ui";
 import { formatDateShort, monthName } from "../utils/date";
-import { getDB, time, updateDB } from "../utils/storage";
+import { getDB, syncNow, time, updateDB } from "../utils/storage";
+import { syncMusic } from "../utils/backend";
 import { MemberAutocomplete, normalizeGender } from "../components/MemberAutocomplete";
+import { HymnAutocomplete } from "../components/HymnAutocomplete";
 
 function plannerLabel(p: Planner) {
   return `${monthName(p.month)} ${p.year}`;
@@ -33,6 +35,86 @@ function weekTopicsOnly(w: WeekPlan) {
     .filter(Boolean);
   if (topics.length === 0) return "(No topics yet)";
   return topics.map((t, i) => `${i + 1}. ${t}`).join("\n");
+}
+
+function MusicPrintView({ planner, unit }: { planner: Planner; unit: UnitSettings }) {
+  return (
+    <div className="music-print-view space-y-8 bg-white p-8">
+      <div className="border-b-2 border-slate-900 pb-4 text-center">
+        <h1 className="text-2xl font-black uppercase tracking-tight text-slate-900">
+          Sacrament Meeting Music Plan
+        </h1>
+        <p className="mt-1 text-sm font-bold text-slate-600">
+          {unit.unit_name} • {monthName(planner.month)} {planner.year}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6">
+        {planner.weeks.map((w, idx) => (
+          <div key={w.week_id} className="rounded-xl border border-slate-200 p-6 break-inside-avoid">
+            <div className="mb-4 flex items-center justify-between border-b pb-2">
+              <h2 className="text-lg font-black text-slate-800">
+                Week {idx + 1} — {formatDateShort(w.date)}
+              </h2>
+              {w.is_canceled && <Badge tone="amber">No Meeting: {w.cancel_reason}</Badge>}
+            </div>
+
+            {!w.is_canceled && (
+              <div className="grid grid-cols-2 gap-8">
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Weekly Hymns</div>
+                    <div className="mt-2 space-y-2">
+                      <div className="flex justify-between border-b border-slate-100 py-1">
+                        <span className="text-xs font-bold text-slate-600">Opening:</span>
+                        <span className="text-xs font-black text-slate-900">{w.hymns.opening || "—"}</span>
+                      </div>
+                      <div className="flex justify-between border-b border-slate-100 py-1">
+                        <span className="text-xs font-bold text-slate-600">Sacrament:</span>
+                        <span className="text-xs font-black text-slate-900">{w.hymns.sacrament || "—"}</span>
+                      </div>
+                      <div className="flex justify-between border-b border-slate-100 py-1">
+                        <span className="text-xs font-bold text-slate-600">Closing:</span>
+                        <span className="text-xs font-black text-slate-900">{w.hymns.closing || "—"}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Music Service</div>
+                    <div className="mt-2 space-y-2">
+                      <div className="flex justify-between border-b border-slate-100 py-1">
+                        <span className="text-xs font-bold text-slate-600">Director:</span>
+                        <span className="text-xs font-black text-slate-900">{w.music?.director || "—"}</span>
+                      </div>
+                      <div className="flex justify-between border-b border-slate-100 py-1">
+                        <span className="text-xs font-bold text-slate-600">Accompanist:</span>
+                        <span className="text-xs font-black text-slate-900">{w.music?.accompanist || "—"}</span>
+                      </div>
+                    </div>
+                  </div>
+                  {w.note && (
+                    <div className="rounded-lg bg-slate-50 p-2">
+                      <div className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1">Notes</div>
+                      <div className="text-[10px] text-slate-700 leading-tight">{w.note}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-8 border-t pt-4 text-center">
+        <p className="text-[10px] text-slate-400 italic">
+          Generated via Sacrament Meeting Planner Platform • {new Date().toLocaleDateString()}
+        </p>
+      </div>
+    </div>
+  );
 }
 
 export function MusicPage({
@@ -137,17 +219,10 @@ export function MusicPage({
 
   const [tab, setTab] = useState<"plans" | "toolkit">("plans");
   const [hymnQuery, setHymnQuery] = useState("");
+  const [printOpen, setPrintOpen] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
-  const hymnLibrary = useMemo(() => [
-    { number: 1, title: "The Morning Breaks", theme: "Restoration" },
-    { number: 2, title: "The Spirit of God", theme: "Restoration, Holy Ghost" },
-    { number: 5, title: "High on the Mountain Top", theme: "Restoration" },
-    { number: 19, title: "We Thank Thee, O God, for a Prophet", theme: "Prophets" },
-    { number: 169, title: "As Now We Take the Sacrament", theme: "Sacrament" },
-    { number: 181, title: "Jesus of Nazareth, Savior and King", theme: "Sacrament" },
-    { number: 193, title: "I Stand All Amazed", theme: "Sacrament, Savior" },
-    // Simplified for now
-  ], []);
+  const hymnLibrary = db.HYMNS || [];
 
   const filteredHymns = useMemo(() => {
     return hymnLibrary.filter(h => 
@@ -242,15 +317,30 @@ export function MusicPage({
                           <div className="text-[10px] font-bold uppercase tracking-widest text-blue-600">Weekly Hymns</div>
                           <div className="space-y-1.5">
                             <Label>Opening</Label>
-                            <Input value={w.hymns.opening} onChange={(e) => setHymn(w.week_id, "opening", e.target.value)} placeholder="e.g., Hymn 2" className="h-9" />
+                            <HymnAutocomplete
+                              hymns={hymnLibrary}
+                              value={w.hymns.opening}
+                              onChange={(val) => setHymn(w.week_id, "opening", val)}
+                              className="h-9"
+                            />
                           </div>
                           <div className="space-y-1.5">
                             <Label>Sacrament</Label>
-                            <Input value={w.hymns.sacrament} onChange={(e) => setHymn(w.week_id, "sacrament", e.target.value)} placeholder="e.g., Hymn 169" className="h-9" />
+                            <HymnAutocomplete
+                              hymns={hymnLibrary}
+                              value={w.hymns.sacrament}
+                              onChange={(val) => setHymn(w.week_id, "sacrament", val)}
+                              className="h-9"
+                            />
                           </div>
                           <div className="space-y-1.5">
                             <Label>Closing</Label>
-                            <Input value={w.hymns.closing} onChange={(e) => setHymn(w.week_id, "closing", e.target.value)} placeholder="e.g., Hymn 124" className="h-9" />
+                            <HymnAutocomplete
+                              hymns={hymnLibrary}
+                              value={w.hymns.closing}
+                              onChange={(val) => setHymn(w.week_id, "closing", val)}
+                              className="h-9"
+                            />
                           </div>
                         </div>
 
@@ -324,7 +414,15 @@ export function MusicPage({
               <Button
                 variant="outline"
                 onClick={() => {
-                  setTimeout(() => window.print(), 50);
+                  setPrintOpen(true);
+                  setTimeout(() => {
+                    const host = document.getElementById("planner-print-portal");
+                    if (host) {
+                      window.print();
+                    }
+                    // Keep printOpen for a bit to ensure browser renders
+                    setTimeout(() => setPrintOpen(false), 2000);
+                  }, 500);
                 }}
               >
                 Print Full Music Plan
@@ -336,17 +434,36 @@ export function MusicPage({
         <TabsContent active={tab === "toolkit"}>
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <Card>
-              <CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Hymn Library & Search</CardTitle>
+                <Button
+                  variant="ghost"
+                  disabled={syncing}
+                  onClick={async () => {
+                    setSyncing(true);
+                    try {
+                      await syncMusic();
+                      await syncNow();
+                      onChanged();
+                    } catch (e) {
+                      console.error("Sync failed", e);
+                    } finally {
+                      setSyncing(false);
+                    }
+                  }}
+                >
+                  {syncing ? "Syncing..." : "Sync LDS List"}
+                </Button>
               </CardHeader>
               <CardBody className="space-y-4">
-                <Input value={hymnQuery} onChange={(e) => setHymnQuery(e.target.value)} placeholder="Search title or number..." className="h-10" />
+                <Input value={hymnQuery} onChange={(e) => setHymnQuery(e.target.value)} placeholder="Search title, number, or theme..." className="h-10" />
                 <div className="max-h-[400px] overflow-y-auto rounded-xl border border-slate-100">
                   <table className="w-full text-left text-xs">
                     <thead className="sticky top-0 bg-slate-50">
                       <tr>
                         <th className="p-3 font-bold text-slate-600">#</th>
                         <th className="p-3 font-bold text-slate-600">Title</th>
+                        <th className="p-3 font-bold text-slate-600">Type</th>
                         <th className="p-3 font-bold text-slate-600">Theme</th>
                       </tr>
                     </thead>
@@ -355,6 +472,9 @@ export function MusicPage({
                         <tr key={h.number} className="hover:bg-slate-50 transition-colors">
                           <td className="p-3 font-bold text-blue-600">{h.number}</td>
                           <td className="p-3 font-medium text-slate-800">{h.title}</td>
+                          <td className="p-3">
+                            <Badge tone={h.type === "New" ? "green" : (h.type === "Sacrament" ? "blue" : "gray")}>{h.type || "Classic"}</Badge>
+                          </td>
                           <td className="p-3 text-slate-500 italic">{h.theme}</td>
                         </tr>
                       ))}
@@ -405,6 +525,19 @@ export function MusicPage({
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Print portal for browser window.print() */}
+      {printOpen && local &&
+        (() => {
+          const host = document.getElementById("planner-print-portal");
+          if (!host) return null;
+          return createPortal(
+            <div className="print-portrait">
+              <MusicPrintView planner={local} unit={unit} />
+            </div>,
+            host
+          );
+        })()}
     </div>
   );
 }

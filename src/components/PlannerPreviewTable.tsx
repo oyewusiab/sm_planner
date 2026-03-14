@@ -22,7 +22,7 @@ function names(arr: string[] | undefined) {
 const S = {
   // Page containers – 281mm = 297mm A4 landscape minus 2×8mm margins
   page: {
-    width: "281mm",
+    width: "100%",
     minHeight: "190mm",
     fontFamily: "'Inter', Arial, sans-serif",
     fontSize: "12px",
@@ -168,7 +168,14 @@ export function PlannerPreviewTable({ planner, unit }: { planner: Planner; unit:
                 <td style={S.tdCenter}>{idx + 1}</td>
                 <td style={{ ...S.td, textAlign: "center" }}>{formatDateShort(w.date)}</td>
 
-                {w.fast_testimony ? (
+                {w.is_canceled ? (
+                  <td
+                    style={{ ...S.td, fontStyle: "italic", color: "#b45309", background: "#fffbeb", fontWeight: 700, textAlign: "center" }}
+                    colSpan={maxSpeakers}
+                  >
+                    NO SACRAMENT MEETING — {w.cancel_reason || "Scheduled Break"}
+                  </td>
+                ) : w.fast_testimony ? (
                   <td
                     style={{ ...S.td, fontStyle: "italic", color: "#666" }}
                     colSpan={maxSpeakers}
@@ -244,34 +251,45 @@ export function PlannerPreviewTable({ planner, unit }: { planner: Planner; unit:
                     </div>
                   </td>
 
-                  <td style={S.td}>
-                    <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Opening: </span>
-                    {w.hymns.opening || "—"}{"\n"}
-                    <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Sacrament: </span>
-                    {w.hymns.sacrament || "—"}{"\n"}
-                    <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Closing: </span>
-                    {w.hymns.closing || "—"}
-                  </td>
+                  {w.is_canceled ? (
+                    <td
+                      style={{ ...S.td, fontStyle: "italic", color: "#b45309", background: "#fffbeb", fontWeight: 700, textAlign: "center" }}
+                      colSpan={4}
+                    >
+                      NO SACRAMENT MEETING — {w.cancel_reason || "Scheduled Break"}
+                    </td>
+                  ) : (
+                    <>
+                      <td style={S.td}>
+                        <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Opening: </span>
+                        {w.hymns.opening || "—"}{"\n"}
+                        <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Sacrament: </span>
+                        {w.hymns.sacrament || "—"}{"\n"}
+                        <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Closing: </span>
+                        {w.hymns.closing || "—"}
+                      </td>
 
-                  <td style={S.td}>
-                    <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Preparing: </span>
-                    {names(w.sacrament.preparing)}{"\n"}
-                    <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Blessing: </span>
-                    {names(w.sacrament.blessing)}{"\n"}
-                    <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Passing: </span>
-                    {names(w.sacrament.passing)}
-                  </td>
+                      <td style={S.td}>
+                        <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Preparing: </span>
+                        {names(w.sacrament.preparing)}{"\n"}
+                        <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Blessing: </span>
+                        {names(w.sacrament.blessing)}{"\n"}
+                        <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Passing: </span>
+                        {names(w.sacrament.passing)}
+                      </td>
 
-                  <td style={S.td}>
-                    <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Invocation: </span>
-                    {inv || "—"}{"\n"}
-                    <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Benediction: </span>
-                    {ben || "—"}
-                  </td>
+                      <td style={S.td}>
+                        <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Invocation: </span>
+                        {inv || "—"}{"\n"}
+                        <span style={{ fontWeight: 600, fontSize: "10px", color: "#555" }}>Benediction: </span>
+                        {ben || "—"}
+                      </td>
 
-                  <td style={{ ...S.td, fontSize: "9px", color: "#444" }}>
-                    {(w.note || "").trim() || "—"}
-                  </td>
+                      <td style={{ ...S.td, fontSize: "9px", color: "#444" }}>
+                        {(w.note || "").trim() || "—"}
+                      </td>
+                    </>
+                  )}
                 </tr>
               );
             })}
