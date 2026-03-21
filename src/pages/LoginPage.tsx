@@ -16,7 +16,6 @@ export function LoginPage({
   syncError?: string | null;
   onRetrySync?: () => void;
 }) {
-  const seededHint = null; // Removed seeded admin hint.
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -41,10 +40,6 @@ export function LoginPage({
     setLoading(true);
     try {
       const user = await auth.login(identifier.trim(), password);
-      if (!user) {
-        setError("Invalid email/username or password.");
-        return;
-      }
 
       // Check if user needs to reset their password
       if (user.must_reset_password) {

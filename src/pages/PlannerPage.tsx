@@ -8,9 +8,10 @@ import { MemberAutocomplete, normalizeGender } from "../components/MemberAutocom
 import { can } from "../utils/permissions";
 import { formatUserDisplayName } from "../utils/format";
 import { formatDateShort, monthName, nextSundaysInMonth, yyyyMmToLabel } from "../utils/date";
-import { getDB, ids, updateDB, time } from "../utils/storage";
+import { getDB, ids, updateDB, useTable, useUpsertMutation, time } from "../utils/storage";
 import * as auth from "../auth/authService";
 import { notifyUser } from "../utils/notifications";
+import { generatePDF } from "../utils/pdf";
 
 type Gender = "M" | "F";
 
@@ -62,8 +63,14 @@ export function PlannerPage({
   unit: UnitSettings;
   onChanged: () => void;
 }) {
-  const db = getDB();
-  const members = db.MEMBERS;
+  const { data: plannersData = [] } = useTable("PLANNERS");
+  const { data: members = [] } = useTable("MEMBERS");
+  const { data: users = [] } = useTable("USERS");
+  const { data: approvalRequests = [] } = useTable("PLANNER_APPROVAL_REQUESTS");
+
+  const plannerMutation = useUpsertMutation("PLANNERS");
+  const approvalMutation = useUpsertMutation("PLANNER_APPROVAL_REQUESTS");
+  const notificationMutation = useUpsertMutation("NOTIFICATIONS");
 
   const canCreate = can(user.role, "CREATE_PLANNER");
   const canEditSubmitted = can(user.role, "EDIT_SUBMITTED");
@@ -71,52 +78,13 @@ export function PlannerPage({
   const [mode, setMode] = useState<"list" | "edit">("list");
   const [previewPlanner, setPreviewPlanner] = useState<Planner | null>(null);
 
-  // Print portal: renders table directly in body so modal chrome is bypassed during printing.
-  useEffect(() => {
-    const styleId = "planner-print-page";
-    const portalId = "planner-print-portal";
-
-    if (previewPlanner) {
-      // Landscape A4 page rule + hide everything except the portal during print
-      if (!document.getElementById(styleId)) {
-        const el = document.createElement("style");
-        el.id = styleId;
-        el.textContent = [
-          "@media print {",
-          "  @page { size: A4 landscape; margin: 8mm; }",
-          "  body > *:not(#planner-print-portal) { display: none !important; }",
-          "  #planner-print-portal { display: block !important; }",
-          "}",
-        ].join("\n");
-        document.head.appendChild(el);
-      }
-      // Create portal host
-      if (!document.getElementById(portalId)) {
-        const host = document.createElement("div");
-        host.id = portalId;
-        host.style.display = "none"; // hidden on screen; shown by print CSS
-        document.body.appendChild(host);
-      }
-    } else {
-      const styleEl = document.getElementById(styleId);
-      if (styleEl) styleEl.remove();
-      const portalEl = document.getElementById(portalId);
-      if (portalEl) portalEl.remove();
-    }
-
-    return () => {
-      const styleEl = document.getElementById(styleId);
-      if (styleEl) styleEl.remove();
-      const portalEl = document.getElementById(portalId);
-      if (portalEl) portalEl.remove();
-    };
-  }, [previewPlanner]);
+  const [downloadingPlannerId, setDownloadingPlannerId] = useState<string | null>(null);
 
   const planners = useMemo(() => {
-    const list = [...db.PLANNERS]
+    const list = [...plannersData]
       .filter((p) => p.state !== "ARCHIVED")
       .sort((a, b) => b.updated_date.localeCompare(a.updated_date));
-    
+
     // Privacy: Drafts are only visible to the person who created them.
     // However, ADMINs (Bishop) can always see everything.
     return list.filter((p) => {
@@ -124,7 +92,7 @@ export function PlannerPage({
       if (user.role === "ADMIN") return true; // Bishop sees all
       return p.created_by === user.user_id; // Drafts only to creator
     });
-  }, [db.PLANNERS, user]);
+  }, [plannersData, user]);
 
 
 
@@ -144,12 +112,7 @@ export function PlannerPage({
     return null;
   });
 
-  // Automatically enter edit mode if a pending draft is found on mount
-  useEffect(() => {
-    if (draft && mode === "list") {
-      setMode("edit");
-    }
-  }, []);
+
 
   // Persist draft to localStorage
   useEffect(() => {
@@ -198,13 +161,7 @@ export function PlannerPage({
       updated_date: time.nowISO(),
       weeks: draft.weeks.slice(0, 5),
     };
-    updateDB((db0) => {
-      const exists = db0.PLANNERS.some((p) => p.planner_id === next.planner_id);
-      const PLANNERS = exists
-        ? db0.PLANNERS.map((p) => (p.planner_id === next.planner_id ? next : p))
-        : [next, ...db0.PLANNERS];
-      return { ...db0, PLANNERS };
-    });
+    plannerMutation.mutate(next);
     onChanged();
     setDraft(next);
     // Remove local persistence if no longer a local-only draft (submitted or explicitly archived)
@@ -218,57 +175,86 @@ export function PlannerPage({
     if (!draft) return;
     if (draft.weeks.length === 0) return;
     const p = save("SUBMITTED");
-      if (p) {
-        // Notify Admin / Bishopric
-        [...auth.getUsersByRole("ADMIN"), ...auth.getUsersByRole("BISHOPRIC")].forEach((u: User) => {
-          notifyUser({
-            to_user_id: u.user_id,
-            type: "PLANNER_SUBMITTED",
-            title: "Planner Submitted",
-            body: `A new plan for ${monthName(p.month)} ${p.year} has been submitted by ${formatUserDisplayName(user)}.`,
-            meta: { planner_id: p.planner_id },
-          });
+    if (p) {
+      // Notify Admin / Bishopric
+      [...auth.getUsersByRole("ADMIN"), ...auth.getUsersByRole("BISHOPRIC")].forEach((u: User) => {
+        notifyUser({
+          to_user_id: u.user_id,
+          type: "PLANNER_SUBMITTED",
+          title: "Planner Submitted",
+          body: `A new plan for ${monthName(p.month)} ${p.year} has been submitted by ${formatUserDisplayName(user)}.`,
+          meta: { planner_id: p.planner_id },
         });
-        // Notify Music Coordinator
-        auth.getUsersByRole("MUSIC").forEach((u: User) => {
-          notifyUser({
-            to_user_id: u.user_id,
-            type: "MUSIC_INPUT_REQUEST",
-            title: "Music Input Needed",
-            body: `A new plan for ${monthName(p.month)} ${p.year} has been submitted. Please input music details.`,
-            meta: { planner_id: p.planner_id },
-          });
+      });
+      // Notify Music Coordinator
+      auth.getUsersByRole("MUSIC").forEach((u: User) => {
+        notifyUser({
+          to_user_id: u.user_id,
+          type: "MUSIC_INPUT_REQUEST",
+          title: "Music Input Needed",
+          body: `A new plan for ${monthName(p.month)} ${p.year} has been submitted. Please input music details.`,
+          meta: { planner_id: p.planner_id },
         });
-        // Notify Secretary / Assistants
-        auth.getUsersByRole("SECRETARY").forEach((u: User) => {
-          notifyUser({
-            to_user_id: u.user_id,
-            type: "PLANNER_SUBMITTED",
-            title: "Planner Ready (Secretary)",
-            body: `The plan for ${monthName(p.month)} ${p.year} is ready. Please review and distribute assignments.`,
-            meta: { planner_id: p.planner_id },
-          });
+      });
+      // Notify Secretary / Assistants
+      auth.getUsersByRole("SECRETARY").forEach((u: User) => {
+        notifyUser({
+          to_user_id: u.user_id,
+          type: "PLANNER_SUBMITTED",
+          title: "Planner Ready (Secretary)",
+          body: `The plan for ${monthName(p.month)} ${p.year} is ready. Please review and distribute assignments.`,
+          meta: { planner_id: p.planner_id },
         });
-        // Notify Clerks
-        auth.getUsersByRole("CLERK").forEach((u: User) => {
-          notifyUser({
-            to_user_id: u.user_id,
-            type: "PLANNER_SUBMITTED",
-            title: "Planner Submitted",
-            body: `The plan for ${monthName(p.month)} ${p.year} is ready.`,
-            meta: { planner_id: p.planner_id },
-          });
+      });
+      // Notify Clerks
+      auth.getUsersByRole("CLERK").forEach((u: User) => {
+        notifyUser({
+          to_user_id: u.user_id,
+          type: "PLANNER_SUBMITTED",
+          title: "Planner Submitted",
+          body: `The plan for ${monthName(p.month)} ${p.year} is ready.`,
+          meta: { planner_id: p.planner_id },
         });
-      }
+      });
+    }
   }
 
   function archive(planner_id: string) {
-    updateDB((db0) => {
-      const PLANNERS = db0.PLANNERS.map((p) =>
-        p.planner_id === planner_id ? { ...p, state: "ARCHIVED" as const, updated_date: time.nowISO() } : p
-      );
-      return { ...db0, PLANNERS };
+    if (!window.confirm("Are you sure you want to archive this planner?")) return;
+    const p = planners.find((x) => x.planner_id === planner_id);
+    if (!p) return;
+    plannerMutation.mutate({ ...p, state: "ARCHIVED" as const, updated_date: time.nowISO() });
+    onChanged();
+  }
+
+  function requestEditAccess(planner_id: string) {
+    const reason = window.prompt("Reason for requesting edit access:");
+    if (reason === null) return; // Cancelled
+
+    const reqId = ids.uid("preq");
+    const request = {
+      request_id: reqId,
+      planner_id,
+      requested_by: user.user_id,
+      created_date: time.nowISO(),
+      status: "PENDING" as const,
+      type: "EDIT" as const,
+      reason,
+    };
+    approvalMutation.mutate(request);
+
+    // Notify Bishop / Admins
+    auth.getUsersByRole("ADMIN").forEach((u) => {
+      notifyUser({
+        to_user_id: u.user_id,
+        type: "PLANNER_APPROVAL_REQUEST",
+        title: "Edit Access Requested",
+        body: `${user.name} requested edit access for a submitted planner.\nReason: ${reason}`,
+        meta: { request_id: reqId, planner_id },
+      });
     });
+
+    alert("Your request for edit access has been sent to the Bishop.");
     onChanged();
   }
 
@@ -360,14 +346,32 @@ export function PlannerPage({
                       {p.state === "SUBMITTED" && !canEditSubmitted ? "View" : "Open"}
                     </Button>
 
+                    {p.state === "SUBMITTED" && !canEditSubmitted && (
+                      <Button variant="secondary" onClick={() => requestEditAccess(p.planner_id)}>
+                        Request Edit
+                      </Button>
+                    )}
+
                     <Button variant="secondary" onClick={() => setPreviewPlanner(p)}>
                       Preview
                     </Button>
                     <Button
                       variant="secondary"
+                      onClick={async () => {
+                        setDownloadingPlannerId(p.planner_id);
+                        // Wait for render
+                        setTimeout(() => {
+                          generatePDF(`planner-download-${p.planner_id}`, `Planner_${plannerLabel(p)}`);
+                          setDownloadingPlannerId(null);
+                        }, 100);
+                      }}
+                    >
+                      Download PDF
+                    </Button>
+                    <Button
+                      variant="secondary"
                       onClick={() => {
                         setPreviewPlanner(p);
-                        // Ensure portal is mounted before printing
                         setTimeout(() => {
                           if (document.getElementById("planner-print-portal")) {
                             window.print();
@@ -377,25 +381,25 @@ export function PlannerPage({
                     >
                       Print
                     </Button>
-                    <Button
-                      variant="secondary"
-                      onClick={() => {
-                        setPreviewPlanner(p);
-                        setTimeout(() => {
-                          if (document.getElementById("planner-print-portal")) {
-                            window.print();
-                          }
-                        }, 500);
-                      }}
-                    >
-                      Download PDF
-                    </Button>
 
                     {p.state === "SUBMITTED" && canEditSubmitted ? (
                       <Button variant="ghost" onClick={() => archive(p.planner_id)}>
                         Archive
                       </Button>
                     ) : null}
+
+                    <div style={{ display: "none" }}>
+                      {previewPlanner?.planner_id === p.planner_id && (
+                         <div id={`planner-preview-${p.planner_id}`}>
+                           <PlannerPreviewTable planner={p} unit={unit} />
+                         </div>
+                      )}
+                      {downloadingPlannerId === p.planner_id && (
+                        <div id={`planner-download-${p.planner_id}`}>
+                           <PlannerPreviewTable planner={p} unit={unit} />
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </CardHeader>
                 <CardBody>
@@ -470,10 +474,9 @@ export function PlannerPage({
             onClick={() => {
               setPreviewPlanner(draft);
               setTimeout(() => {
-                if (document.getElementById("planner-print-portal")) {
-                  window.print();
-                }
-              }, 500);
+                generatePDF("planner-preview-area", `Planner_${yyyyMmToLabel(draft.month, draft.year)}`);
+                setPreviewPlanner(null);
+              }, 300);
             }}
           >
             Download PDF
@@ -771,8 +774,11 @@ export function PlannerPage({
                     </div>
 
                     {w.fast_testimony ? (
-                      <div className="rounded-lg border border-[color:var(--border)] bg-slate-50 p-3 text-sm text-slate-700">
-                        Speakers are disabled for this week.
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                        <div className="font-semibold flex items-center gap-2 mb-1">
+                          <span>Fast & Testimony Sunday</span>
+                        </div>
+                        Speakers are disabled for this week. All other participants (Hymns, Sacrament, Prayers) remain active below.
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -1223,7 +1229,9 @@ export function PlannerPage({
           }
           className="max-w-6xl"
         >
-          {previewPlanner ? <PlannerPreviewTable planner={previewPlanner} unit={unit} /> : null}
+          <div id="planner-preview-area">
+            {previewPlanner ? <PlannerPreviewTable planner={previewPlanner} unit={unit} /> : null}
+          </div>
         </Modal>
       </div>
 

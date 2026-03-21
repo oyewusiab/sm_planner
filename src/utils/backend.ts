@@ -26,7 +26,7 @@ function buildUrl(params: Record<string, string>) {
 
 async function apiGet<T>(params: Record<string, string>): Promise<ApiResponse<T>> {
   const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), 10000); // 10s timeout
+  const id = setTimeout(() => controller.abort(), 25000); // 25s timeout
   try {
     const res = await fetch(buildUrl(params), { signal: controller.signal });
     return await res.json();
@@ -37,7 +37,7 @@ async function apiGet<T>(params: Record<string, string>): Promise<ApiResponse<T>
 
 async function apiPost<T>(body: any): Promise<ApiResponse<T>> {
   const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), 10000); // 10s timeout
+  const id = setTimeout(() => controller.abort(), 25000); // 25s timeout
   try {
     const res = await fetch(BASE_URL, {
       method: "POST",

@@ -62,6 +62,8 @@ export function MembersPage({
       music: { director: number; accompanist: number };
       monthlyAssignments: Record<string, number>; // year-month -> count
       topics: { topic: string; date: string }[];
+      roleHistory: { date: string; type: string; label: string; topic?: string }[];
+      roleDatesByType: Record<string, string[]>; // type -> sorted dates
     }> = {};
 
     const orgMetrics: Record<string, { total: number; idleCount: number }> = {};
@@ -71,70 +73,135 @@ export function MembersPage({
     const genderStats: Record<string, number> = { "M": 0, "F": 0 };
     const globalMonthlyTrend: Record<string, number> = {}; // year-month -> total roles
     const surnameLastDate: Record<string, string | null> = {};
+    const genderByRole: Record<string, { M: number; F: number }> = {};
     
-    // Member id lookup map for O(1) performance
-    const nameMap = new Map<string, string>();
+    // Member id lookup map
+    const nameToId = new Map<string, string>();
+    const memberGenderMap = new Map<string, string>(); // member_id -> gender
     for (const m of db.MEMBERS) {
-      nameMap.set(normalizeMemberName(m.name), m.member_id);
+      const norm = normalizeMemberName(m.name);
+      if (norm) nameToId.set(norm, m.member_id);
+      memberGenderMap.set(m.member_id, (m.gender || "").toUpperCase());
       memberStats[m.member_id] = {
         total: 0, speakers: 0, invocation: 0, benediction: 0, lastDate: null,
         sacrament: { preparing: 0, blessing: 0, passing: 0 },
         music: { director: 0, accompanist: 0 },
         monthlyAssignments: {},
-        topics: []
+        topics: [],
+        roleHistory: [],
+        roleDatesByType: {},
       };
     }
 
-    // 2. Process all planners
-    for (const p of db.PLANNERS) {
-      const pMonth = `${p.year}-${String(p.month).padStart(2, "0")}`;
-      for (const w of p.weeks) {
-        const wDate = w.date || `${p.year}-${String(p.month).padStart(2, "0")}-01`;
+    // Helper to find member by name (exact or partial)
+    const findMid = (rawName: string): string | null => {
+      if (!rawName) return null;
+      const norm = normalizeMemberName(rawName);
+      if (!norm) return null;
+      // 1. Exact match
+      if (nameToId.has(norm)) return nameToId.get(norm)!;
+      // 2. Partial match (if planner has shorter name)
+      for (const [mNorm, mid] of nameToId.entries()) {
+        if (mNorm.includes(norm) || norm.includes(mNorm)) return mid;
+      }
+      return null;
+    };
+
+    const ROLE_LABELS: Record<string, string> = {
+      speaker: "Speaker", invocation: "Invocation", benediction: "Benediction",
+      director: "Music Director", accompanist: "Accompanist",
+      preparing: "Sacr. Preparing", blessing: "Sacr. Blessing", passing: "Sacr. Passing",
+      other: "Other",
+    };
+
+    const processItem = (ra: { n: string; t: string; topic?: string; date: string }) => {
+      if (!ra.n) return;
+      const mid = findMid(ra.n);
+      if (mid) {
+        const s = memberStats[mid];
+        const dateStr = ra.date;
+        const pMonth = dateStr.slice(0, 7); // yyyy-mm
+
+        s.total++;
+        s.monthlyAssignments[pMonth] = (s.monthlyAssignments[pMonth] || 0) + 1;
+        s.roleHistory.push({ date: dateStr, type: ra.t, label: ROLE_LABELS[ra.t] || ra.t, topic: ra.topic });
+        if (!s.roleDatesByType[ra.t]) s.roleDatesByType[ra.t] = [];
+        s.roleDatesByType[ra.t].push(dateStr);
+
+        if (ra.t === "speaker") {
+           s.speakers++;
+           if (ra.topic) {
+             s.topics.push({ topic: ra.topic, date: dateStr });
+             topicUsageByDate[ra.topic] = [...(topicUsageByDate[ra.topic] || []), dateStr];
+           }
+        }
+        if (ra.t === "invocation") s.invocation++;
+        if (ra.t === "benediction") s.benediction++;
+        if (ra.t === "director") s.music.director++;
+        if (ra.t === "accompanist") s.music.accompanist++;
+        if (ra.t === "preparing") s.sacrament.preparing++;
+        if (ra.t === "blessing") s.sacrament.blessing++;
+        if (ra.t === "passing") s.sacrament.passing++;
+        if (!s.lastDate || dateStr > s.lastDate) s.lastDate = dateStr;
         
-        const rawAssignments = [
-          { n: w.conducting_officer, t: "other" },
-          { n: w.presiding, t: "other" },
-          ...w.speakers.map(s => ({ n: s.name, t: "speaker", topic: s.topic })),
-          { n: w.prayers.invocation, t: "invocation" },
-          { n: w.prayers.benediction, t: "benediction" },
-          { n: w.music?.director, t: "director" },
-          { n: w.music?.accompanist, t: "accompanist" },
-          ...w.sacrament.preparing.map(n => ({ n, t: "preparing" })),
-          ...w.sacrament.blessing.map(n => ({ n, t: "blessing" })),
-          ...w.sacrament.passing.map(n => ({ n, t: "passing" })),
+        globalMonthlyTrend[pMonth] = (globalMonthlyTrend[pMonth] || 0) + 1;
+
+        // Track gender per role type
+        if (ra.t !== "other") {
+          const g = memberGenderMap.get(mid) || "";
+          if (!genderByRole[ra.t]) genderByRole[ra.t] = { M: 0, F: 0 };
+          if (g === "M") genderByRole[ra.t].M++;
+          else if (g === "F") genderByRole[ra.t].F++;
+        }
+      }
+    };
+
+    // 2. Process all official assignments (Historical source 1)
+    for (const a of db.ASSIGNMENTS) {
+      const type = a.role.toLowerCase().includes("speaker") ? "speaker" :
+                   a.role === "Invocation" ? "invocation" :
+                   a.role === "Benediction" ? "benediction" :
+                   a.role === "Director" ? "director" :
+                   a.role === "Accompanist" ? "accompanist" :
+                   a.role === "Sacrament: Preparing" ? "preparing" :
+                   a.role === "Sacrament: Blessing" ? "blessing" :
+                   a.role === "Sacrament: Passing" ? "passing" : "other";
+
+      processItem({ n: a.person, t: type, topic: a.topic, date: a.date });
+    }
+
+    // 3. Process Planners (Source 2 - only if not already captured in ASSIGNMENTS)
+    const trackedKeys = new Set(db.ASSIGNMENTS.map(a => `${a.planner_id}.${a.week_id}.${a.role}.${a.person}`));
+
+    for (const p of db.PLANNERS) {
+      if (p.state === "DRAFT") continue;
+      
+      for (const w of p.weeks) {
+        const wDate = w.date;
+        const items = [
+          { n: w.conducting_officer, t: "other", r: "Conducting Officer" },
+          { n: w.presiding, t: "other", r: "Presiding" },
+          ...w.speakers.map((s, i) => ({ n: s.name, t: "speaker", topic: s.topic, r: `Speaker ${i+1}` })),
+          { n: w.prayers.invocation, t: "invocation", r: "Invocation" },
+          { n: w.prayers.benediction, t: "benediction", r: "Benediction" },
+          { n: w.music?.director, t: "director", r: "Director" },
+          { n: w.music?.accompanist, t: "accompanist", r: "Accompanist" },
+          ...w.sacrament.preparing.map(n => ({ n, t: "preparing", r: "Sacrament: Preparing" })),
+          ...w.sacrament.blessing.map(n => ({ n, t: "blessing", r: "Sacrament: Blessing" })),
+          ...w.sacrament.passing.map(n => ({ n, t: "passing", r: "Sacrament: Passing" })),
         ];
 
-        for (const ra of rawAssignments) {
-          if (!ra.n) continue;
-          const mid = nameMap.get(normalizeMemberName(ra.n));
-          if (mid) {
-            const s = memberStats[mid];
-            s.total++;
-            s.monthlyAssignments[pMonth] = (s.monthlyAssignments[pMonth] || 0) + 1;
-            if (ra.t === "speaker") {
-               s.speakers++;
-               if (ra.topic) {
-                 s.topics.push({ topic: ra.topic, date: wDate });
-                 topicUsageByDate[ra.topic] = [...(topicUsageByDate[ra.topic] || []), wDate];
-               }
-            }
-            if (ra.t === "invocation") s.invocation++;
-            if (ra.t === "benediction") s.benediction++;
-            if (ra.t === "director") s.music.director++;
-            if (ra.t === "accompanist") s.music.accompanist++;
-            if (ra.t === "preparing") s.sacrament.preparing++;
-            if (ra.t === "blessing") s.sacrament.blessing++;
-            if (ra.t === "passing") s.passing++;
-            if (!s.lastDate || wDate > s.lastDate) s.lastDate = wDate;
-            
-            // Global trend
-            globalMonthlyTrend[pMonth] = (globalMonthlyTrend[pMonth] || 0) + 1;
+        for (const it of items) {
+          if (!it.n) continue;
+          const key = `${p.planner_id}.${w.week_id}.${it.r}.${it.n}`;
+          if (!trackedKeys.has(key)) {
+            processItem({ n: it.n, t: it.t, topic: (it as any).topic, date: wDate });
           }
         }
       }
     }
 
-    // 3. Finalize analytics
+    // 4. Finalize analytics
     const processedMembers = db.MEMBERS.map(m => {
       const s = memberStats[m.member_id];
       const status = (m.status || "").toUpperCase();
@@ -142,7 +209,6 @@ export function MembersPage({
       const orgs = (m.organisation || "").split(",").map(o => o.trim()).filter(Boolean);
       const surname = getSurname(m.name);
       
-      // Update global metrics
       if (status === "ACTIVE" || status === "LESS-ACTIVE") statusStats[status] += s.total;
       if (gender === "M" || gender === "F") genderStats[gender] += s.total;
       surnameStats[surname] = (surnameStats[surname] || 0) + s.total;
@@ -157,8 +223,6 @@ export function MembersPage({
       const monthsSinceLast = s.lastDate ? Math.floor((now.getTime() - new Date(s.lastDate).getTime()) / (1000 * 60 * 60 * 24 * 30)) : 99;
       const isDoubleDipped = Object.values(s.monthlyAssignments).some(count => count > 1);
 
-      // Speaker Readiness Score (0-100)
-      // Factors: Active status, no assignment in 3m, not a newcomer (more than 1m), has spoken < 3 times in 1y
       let readiness = 0;
       if (status === "ACTIVE") {
         readiness += 40;
@@ -184,7 +248,7 @@ export function MembersPage({
       };
     });
 
-    // 4. Trend Timeline (Last 12 months)
+    // 5. Trend Timeline (Last 12 months)
     const trendTimeline = [];
     for (let i = 11; i >= 0; i--) {
       const d = new Date();
@@ -193,21 +257,9 @@ export function MembersPage({
       trendTimeline.push({ month: key, count: globalMonthlyTrend[key] || 0 });
     }
 
-    // 5. Forgotten Families (No assignment in 6 months)
-    const forgottenFamilies = Object.entries(surnameLastDate)
-      .filter(([_, last]) => !last || Math.floor((now.getTime() - new Date(last).getTime()) / (1000 * 60 * 60 * 24 * 30)) >= 6)
-      .map(([name]) => name);
-
-    // Topic staleness detection (used 3x in last 2 months)
-    const twoMonthsAgo = new Date();
-    twoMonthsAgo.setMonth(now.getMonth() - 2);
-    const staleTopics = Object.entries(topicUsageByDate)
-      .filter(([_, dates]) => dates.filter(d => new Date(d) > twoMonthsAgo).length >= 3)
-      .map(([topic]) => topic);
-
     // 6. Reliability Index (Last 4 Planners)
     const recentPlanners = db.PLANNERS
-      .filter(p => p.state === "SUBMITTED")
+      .filter(p => p.state !== "DRAFT")
       .sort((a, b) => b.updated_date.localeCompare(a.updated_date))
       .slice(0, 4);
     
@@ -220,23 +272,191 @@ export function MembersPage({
     }
     const reliabilityIndex = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 100;
 
+    // 7. Inactive Individuals (No assignment in 6 months)
+    const inactiveMembers = processedMembers
+      .filter(m => m.monthsSinceLast >= 6 && m.status === "ACTIVE")
+      .sort((a, b) => b.monthsSinceLast - a.monthsSinceLast)
+      .slice(0, 10);
+
+    // 8. Topic staleness detection (used 3x in last 2 months)
+    const twoMonthsAgo = new Date();
+    twoMonthsAgo.setMonth(now.getMonth() - 2);
+    const staleTopics = Object.entries(topicUsageByDate)
+      .filter(([_, dates]) => dates.filter(d => new Date(d) > twoMonthsAgo).length >= 3)
+      .map(([topic]) => topic);
+
+    // 9. ROLE DIVERSITY INDEX — breadth of role participation per member
+    const ROLE_CATEGORIES = [
+      { key: "speaker", label: "Speaking" },
+      { key: "prayer", label: "Prayer" },
+      { key: "sacrament", label: "Sacrament" },
+      { key: "music", label: "Music" },
+    ];
+    const processedMembersWithDiversity = processedMembers.map(m => {
+      const s = memberStats[m.member_id];
+      const prayerCount = s.invocation + s.benediction;
+      const sacramentCount = s.sacrament.preparing + s.sacrament.blessing + s.sacrament.passing;
+      const musicCount = s.music.director + s.music.accompanist;
+      const roleBreadth = [
+        { category: "Speaking", count: s.speakers },
+        { category: "Prayer", count: prayerCount },
+        { category: "Sacrament", count: sacramentCount },
+        { category: "Music", count: musicCount },
+      ];
+      const categoriesUsed = roleBreadth.filter(r => r.count > 0).length;
+      const diversityScore = Math.round((categoriesUsed / ROLE_CATEGORIES.length) * 100);
+      const sortedHistory = [...s.roleHistory].sort((a, b) => b.date.localeCompare(a.date));
+      return { ...m, diversityScore, roleBreadth, roleHistory: sortedHistory };
+    });
+
+    // 10. ASSIGNMENT PREDICTION ENGINE
+    const PREDICT_ROLES = ["speaker", "invocation", "benediction", "director", "accompanist", "preparing", "blessing", "passing"];
+    const predictions = PREDICT_ROLES.map(role => {
+      const activeMembers = processedMembers.filter(m => m.status === "ACTIVE");
+      const candidates = activeMembers
+        .map(m => {
+          const s = memberStats[m.member_id];
+          const dates = (s.roleDatesByType[role] || []).sort();
+          const lastDate = dates[dates.length - 1] || null;
+          const daysSinceLast = lastDate
+            ? Math.floor((now.getTime() - new Date(lastDate).getTime()) / 86400000)
+            : 9999;
+          let avgInterval = 30;
+          if (dates.length >= 2) {
+            const intervals = dates.slice(1).map((d, i) =>
+              Math.floor((new Date(d).getTime() - new Date(dates[i]).getTime()) / 86400000)
+            );
+            avgInterval = Math.round(intervals.reduce((a, b) => a + b, 0) / intervals.length);
+          }
+          const overdueDays = daysSinceLast - avgInterval;
+          const confidence = dates.length >= 3 ? "High" : dates.length >= 1 ? "Medium" : "Low";
+          return { member_id: m.member_id, name: m.name, daysSinceLast, avgInterval, overdueDays, confidence, totalForRole: dates.length };
+        })
+        .filter(c => c.daysSinceLast > 0)
+        .sort((a, b) => b.overdueDays - a.overdueDays)
+        .slice(0, 5);
+      return { role, label: ROLE_LABELS[role] || role, candidates };
+    });
+
+    // 11. AGE GROUP ENGAGEMENT
+    const ageGroups = [
+      { label: "Under 11", min: 0, max: 10 },
+      { label: "11–17", min: 11, max: 17 },
+      { label: "18–30", min: 18, max: 30 },
+      { label: "31–50", min: 31, max: 50 },
+      { label: "50+", min: 51, max: 200 },
+    ].map(band => {
+      const inBand = processedMembers.filter(m => m.age != null && m.age >= band.min && m.age <= band.max);
+      const assignedCount = inBand.filter(m => m.total > 0).length;
+      const totalAssignmentsInBand = inBand.reduce((sum, m) => sum + m.total, 0);
+      const rate = inBand.length > 0 ? Math.round((assignedCount / inBand.length) * 100) : 0;
+      return { ...band, memberCount: inBand.length, assignedCount, totalAssignments: totalAssignmentsInBand, rate };
+    });
+
+    // 12. NEVER BEEN ASKED — active, joined 3+ months ago, ZERO assignments ever
+    const threeMonthsAgo2 = new Date();
+    threeMonthsAgo2.setMonth(now.getMonth() - 3);
+    const neverAsked = processedMembers
+      .filter(m => m.total === 0 && m.status === "ACTIVE" && m.created_date && new Date(m.created_date) <= threeMonthsAgo2)
+      .sort((a, b) => (a.created_date || "").localeCompare(b.created_date || ""))
+      .slice(0, 15);
+
+    // 13. CONFLICT DETECTOR — family conflicts and double assignments
+    const conflicts: { date: string; type: string; members: string[]; detail: string }[] = [];
+    for (const p of db.PLANNERS) {
+      if (p.state === "DRAFT") continue;
+      for (const w of p.weeks) {
+        if (!w.date) continue;
+        // Gather all names in this week
+        const weekAssignees: { name: string; role: string }[] = [
+          ...w.speakers.map(s => ({ name: s.name, role: "Speaker" })),
+          { name: w.prayers.invocation, role: "Invocation" },
+          { name: w.prayers.benediction, role: "Benediction" },
+          ...w.sacrament.preparing.map(n => ({ name: n, role: "Sacr. Preparing" })),
+          ...w.sacrament.blessing.map(n => ({ name: n, role: "Sacr. Blessing" })),
+          ...w.sacrament.passing.map(n => ({ name: n, role: "Sacr. Passing" })),
+        ].filter(a => !!a.name);
+
+        // Family conflict: same surname, different people, both assigned
+        const surnameBuckets: Record<string, { name: string; role: string }[]> = {};
+        for (const a of weekAssignees) {
+          const sn = getSurname(a.name);
+          if (!surnameBuckets[sn]) surnameBuckets[sn] = [];
+          surnameBuckets[sn].push(a);
+        }
+        for (const [sn, members] of Object.entries(surnameBuckets)) {
+          if (members.length >= 2) {
+            const uniqueNames = [...new Set(members.map(m => m.name))];
+            if (uniqueNames.length >= 2) {
+              conflicts.push({
+                date: w.date, type: "FAMILY_CONFLICT",
+                members: uniqueNames,
+                detail: `${sn} family: ${members.map(m => `${m.name} (${m.role})`).join(", ")}`,
+              });
+            }
+          }
+        }
+
+        // Same person assigned twice in same meeting
+        const nameCounts: Record<string, string[]> = {};
+        for (const a of weekAssignees) {
+          if (!nameCounts[a.name]) nameCounts[a.name] = [];
+          nameCounts[a.name].push(a.role);
+        }
+        for (const [name, roles] of Object.entries(nameCounts)) {
+          if (roles.length >= 2) {
+            conflicts.push({
+              date: w.date, type: "DOUBLE_ASSIGNED",
+              members: [name],
+              detail: `${name} assigned ${roles.length}× in same meeting: ${roles.join(", ")}`,
+            });
+          }
+        }
+      }
+    }
+
+    // 14. Extended org participation rate
+    const membersByOrg: Record<string, number> = {};
+    for (const m of db.MEMBERS) {
+      const orgs2 = (m.organisation || "").split(",").map(o => o.trim()).filter(Boolean);
+      for (const o of orgs2) {
+        membersByOrg[o] = (membersByOrg[o] || 0) + 1;
+      }
+    }
+    const orgParticipation = Object.entries(orgMetrics).map(([org, metrics]) => ({
+      org,
+      memberCount: membersByOrg[org] || 0,
+      assignedCount: (membersByOrg[org] || 0) - metrics.idleCount,
+      idleCount: metrics.idleCount,
+      totalAssignments: metrics.total,
+      participationRate: membersByOrg[org] > 0
+        ? Math.round(((membersByOrg[org] - metrics.idleCount) / membersByOrg[org]) * 100)
+        : 0,
+    })).sort((a, b) => b.participationRate - a.participationRate);
+
     return {
-      members: processedMembers,
+      members: processedMembersWithDiversity,
       orgMetrics,
+      orgParticipation,
       statusStats,
       genderStats,
+      genderByRole,
       surnameStats: Object.entries(surnameStats).sort((a, b) => b[1] - a[1]).slice(0, 10),
-      staleTopics,
       trendTimeline,
-      forgottenFamilies,
       reliabilityIndex,
-      readySpeakers: processedMembers
+      staleTopics,
+      inactiveMembers,
+      predictions,
+      ageGroups,
+      neverAsked,
+      conflicts: conflicts.slice(0, 20),
+      readySpeakers: processedMembersWithDiversity
         .filter(m => m.status === "ACTIVE" && m.readiness > 60)
         .sort((a, b) => b.readiness - a.readiness)
         .slice(0, 8),
       totalAssignments: processedMembers.reduce((a, b) => a + b.total, 0)
     };
-  }, [db.MEMBERS, db.PLANNERS, db.CHECKLISTS]);
+  }, [db.MEMBERS, db.PLANNERS, db.CHECKLISTS, db.ASSIGNMENTS]);
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -267,11 +487,11 @@ export function MembersPage({
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [db.MEMBERS, q, org, filterMode, analyticsData.members]);
 
-
-  const analytics = analyticsData.members;
-
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Member | null>(null);
+  const [analyticsTab, setAnalyticsTab] = useState<"overview" | "members" | "equity" | "alerts">("overview");
+  const [expandedMember, setExpandedMember] = useState<string | null>(null);
+  const [predictRole, setPredictRole] = useState("speaker");
 
   function save(member: Member) {
     updateDB((db0) => {
@@ -395,8 +615,8 @@ export function MembersPage({
                 </td>
               </tr>
             ) : (
-              filtered.map((m, idx) => (
-                <tr key={m.member_id || `dir-${idx}`} className="border-t border-[color:var(--border)]">
+              filtered.map((m) => (
+                <tr key={m.member_id} className="border-t border-[color:var(--border)]">
                   <td className="p-3 font-medium">{m.name}</td>
                   <td className="p-3">{m.age ?? ""}</td>
                   <td className="p-3">{m.gender ?? ""}</td>
@@ -487,7 +707,7 @@ export function MembersPage({
                 </Badge>
               </div>
               <div className="flex items-end justify-between gap-1 h-32">
-                {analyticsData.trendTimeline.map((t, idx) => {
+                {analyticsData.trendTimeline.map((t) => {
                   const max = Math.max(...analyticsData.trendTimeline.map(m => m.count)) || 1;
                   const height = Math.max(5, (t.count / max) * 100);
                   return (
@@ -534,8 +754,8 @@ export function MembersPage({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {analyticsData.members.map((m, idx) => (
-                          <tr key={m.member_id || `m-${idx}`} className="hover:bg-slate-50/50 transition-colors">
+                        {analyticsData.members.map((m) => (
+                          <tr key={m.member_id} className="hover:bg-slate-50/50 transition-colors">
                             <td className="p-4">
                               <div className="font-semibold text-slate-800 truncate max-w-[150px]">{m.name}</div>
                               <div className="flex gap-1.5 mt-0.5 items-center">
@@ -604,8 +824,8 @@ export function MembersPage({
                             <span className="text-xs font-bold text-slate-700">{m.name} ({m.age})</span>
                             <div className="flex gap-1">
                               <Badge tone="blue" className="text-[8px]">P: {m.sacrament.passing}</Badge>
-                              <Badge tone="indigo" className="text-[8px]">B: {m.sacrament.blessing}</Badge>
-                              <Badge tone="purple" className="text-[8px]">Pr: {m.sacrament.preparing}</Badge>
+                              <Badge tone="blue" className="text-[8px]">B: {m.sacrament.blessing}</Badge>
+                              <Badge tone="gray" className="text-[8px]">Pr: {m.sacrament.preparing}</Badge>
                             </div>
                           </div>
                           <div className="h-1.5 w-full bg-slate-100 rounded-full flex overflow-hidden">
@@ -716,7 +936,7 @@ export function MembersPage({
                   </CardHeader>
                   <CardBody className="py-2">
                     <div className="flex flex-wrap gap-2">
-                      {analyticsData.staleTopics.map(topic => (
+                      {analyticsData.staleTopics.map((topic: string) => (
                         <Badge key={topic} tone="amber" className="capitalize">{topic}</Badge>
                       ))}
                     </div>
@@ -753,28 +973,33 @@ export function MembersPage({
                 </CardBody>
               </Card>
 
-               {/* Forgotten Families Alert */}
-               {analyticsData.forgottenFamilies.length > 0 && (
+               {/* Inactive Members Alert */}
+               {analyticsData.inactiveMembers.length > 0 && (
                 <Card className="border-rose-100 bg-rose-50/30">
                   <CardHeader>
                     <CardTitle className="text-rose-800 text-sm flex items-center gap-2">
-                       <span>🏠</span> Forgotten Families Alert
+                       <span>⏳</span> Inactive Members Alert
                     </CardTitle>
                   </CardHeader>
-                  <CardBody className="py-2">
-                    <div className="flex flex-wrap gap-2">
-                      {analyticsData.forgottenFamilies.slice(0, 8).map(name => (
-                        <Badge 
-                          key={name} 
-                          onClick={() => { setTab("directory"); setFilterMode(`SURNAME_${name}`); }}
-                          tone="rose" 
-                          className="capitalize cursor-pointer hover:scale-105 transition-transform"
+                  <CardBody className="p-0">
+                    <div className="divide-y divide-rose-50">
+                      {analyticsData.inactiveMembers.map((m) => (
+                        <div
+                          key={m.member_id}
+                          className="p-3 flex items-center justify-between hover:bg-rose-50 transition-colors cursor-pointer"
+                          onClick={() => { setTab("directory"); setQ(m.name); }}
                         >
-                          {name}
-                        </Badge>
+                          <div className="min-w-0">
+                            <div className="font-bold text-rose-900 truncate">{m.name}</div>
+                            <div className="text-[10px] text-rose-500 uppercase font-bold tracking-tight">
+                              {m.monthsSinceLast === 99 ? "Never assigned" : `${m.monthsSinceLast} months since last role`}
+                            </div>
+                          </div>
+                          <Badge tone="rose" className="shrink-0 ml-2">Follow up</Badge>
+                        </div>
                       ))}
                     </div>
-                    <p className="text-[10px] text-rose-600 mt-2 font-bold italic underline">No assignments in 6+ months</p>
+                    <p className="text-[10px] text-rose-500 px-3 pb-2 font-bold italic">Active members with no assignments in 6+ months. Click to find in directory.</p>
                   </CardBody>
                 </Card>
                )}

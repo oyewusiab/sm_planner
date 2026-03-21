@@ -1,5 +1,5 @@
 import type { Planner, UnitSettings } from "../types";
-import { formatDateShort, monthName } from "../utils/date";
+import { formatDateShort, formatTime12h, monthName } from "../utils/date";
 
 type Gender = "M" | "F";
 
@@ -114,7 +114,7 @@ export function PlannerPreviewTable({ planner, unit }: { planner: Planner; unit:
   );
 
   const planLabel = `${monthName(planner.month)} ${planner.year}`;
-  const headerInfo = `Venue: ${unit.venue || "—"}  |  Time: ${unit.meeting_time || "—"}  |  Conducting: ${planner.conducting_officer || "—"}`;
+  const headerInfo = `Venue: ${unit.venue || "—"}  |  Time: ${formatTime12h(unit.meeting_time || "")}  |  Conducting: ${planner.conducting_officer || "—"}`;
 
   // Speaker column width – share remaining space evenly
   const wkW = "38px";
@@ -127,6 +127,21 @@ export function PlannerPreviewTable({ planner, unit }: { planner: Planner; unit:
   const bsac = "22%";
   const bpray = "18%";
   // note column fills remaining
+  const frontCols = [
+    <col key="wk" style={{ width: wkW }} />,
+    <col key="date" style={{ width: dateW }} />,
+    ...Array.from({ length: maxSpeakers }).map((_, i) => (
+      <col key={`spk-${i}`} style={{ width: spkW }} />
+    )),
+  ];
+
+  const backCols = [
+    <col key="bwk" style={{ width: bwk }} />,
+    <col key="bhymns" style={{ width: bhymns }} />,
+    <col key="bsac" style={{ width: bsac }} />,
+    <col key="bpray" style={{ width: bpray }} />,
+    <col key="bnote" />,
+  ];
 
   return (
     <div>
@@ -141,13 +156,7 @@ export function PlannerPreviewTable({ planner, unit }: { planner: Planner; unit:
         <div style={S.pageLabel}>Page 1 — Speakers (Front)</div>
 
         <table style={{ ...S.table }}>
-          <colgroup>
-            <col style={{ width: wkW }} />
-            <col style={{ width: dateW }} />
-            {Array.from({ length: maxSpeakers }).map((_, i) => (
-              <col key={i} style={{ width: spkW }} />
-            ))}
-          </colgroup>
+          <colgroup>{frontCols}</colgroup>
           <thead>
             <tr>
               <th style={{ ...S.th, width: wkW }} rowSpan={2}>WK</th>
@@ -215,13 +224,7 @@ export function PlannerPreviewTable({ planner, unit }: { planner: Planner; unit:
         <div style={S.pageLabel}>Page 2 — Hymns / Sacrament / Prayers (Back)</div>
 
         <table style={S.table}>
-          <colgroup>
-            <col style={{ width: bwk }} />
-            <col style={{ width: bhymns }} />
-            <col style={{ width: bsac }} />
-            <col style={{ width: bpray }} />
-            <col /> {/* Note fills remaining */}
-          </colgroup>
+          <colgroup>{backCols}</colgroup>
           <thead>
             {/* Top header row – group labels */}
             <tr>

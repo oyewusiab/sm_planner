@@ -345,7 +345,7 @@ export function DashboardPage({
                   {yyyyMmToLabel(p.month, p.year)} Plan
                 </div>
                 <div className="text-xs text-slate-500">
-                  Status: <span className={cn("font-semibold", p.state === "SUBMITTED" ? "text-emerald-600" : "text-amber-600")}>{p.state}</span> · Updated {new Date(p.updated_date).toLocaleDateString()}
+                  Status: <span className={cn("font-semibold", p.state === "SUBMITTED" ? "text-emerald-600" : "text-amber-600")}>{p.state}</span> · Updated {formatDateShort(p.updated_date)}
                 </div>
               </div>
               <Button variant="ghost" onClick={() => onNavigate("planner")}>

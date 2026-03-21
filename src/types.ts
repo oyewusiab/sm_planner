@@ -252,6 +252,8 @@ export type NotificationType =
   | "SETTINGS_APPROVAL_REQUEST"
   | "SETTINGS_APPROVAL_DECISION"
   | "PLANNER_SUBMITTED"
+  | "PLANNER_APPROVAL_REQUEST"
+  | "PLANNER_APPROVAL_DECISION"
   | "MUSIC_INPUT_REQUEST"
   | "REMINDER"
   | "TODO_ASSIGNED"
@@ -305,4 +307,18 @@ export type TodoItem = {
   created_date: string;
   updated_date: string;
   completed_date?: string;
+};
+
+export type PlannerApprovalType = "EDIT" | "SUBMIT";
+
+export type PlannerApprovalRequest = {
+  request_id: string;
+  planner_id: string;
+  requested_by: string;
+  created_date: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  type: PlannerApprovalType;
+  reason?: string;
+  decided_by?: string;
+  decided_date?: string;
 };

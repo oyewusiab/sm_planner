@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { SettingsChangeRequest, TodoItem, TodoPriority, UnitSettings, User } from "../types";
+import type { PlannerApprovalRequest, SettingsChangeRequest, TodoItem, TodoPriority, UnitSettings, User } from "../types";
 import {
   Badge,
   Button,
@@ -15,7 +15,7 @@ import {
   Select,
   Textarea,
 } from "../components/ui";
-import { formatDateShort, getTodayPartsInTimeZone } from "../utils/date";
+import { formatDateShort, formatTime12h, getTodayPartsInTimeZone, monthName } from "../utils/date";
 import { getDB, ids, time, updateDB } from "../utils/storage";
 import { listNotificationsForUser, markAllRead, markRead, notifyUser } from "../utils/notifications";
 
@@ -100,9 +100,10 @@ export function NotificationsPage({
   }, [db.TODOS, user.user_id]);
 
   const pendingApprovals = useMemo(() => {
-    const all = [...db.SETTINGS_REQUESTS].filter((r) => r.status === "PENDING");
-    return all.sort((a, b) => b.created_date.localeCompare(a.created_date));
-  }, [db.SETTINGS_REQUESTS]);
+    const settings = [...db.SETTINGS_REQUESTS].filter((r) => r.status === "PENDING");
+    const planners = [...db.PLANNER_APPROVAL_REQUESTS].filter((r) => r.status === "PENDING");
+    return { settings, planners };
+  }, [db.SETTINGS_REQUESTS, db.PLANNER_APPROVAL_REQUESTS]);
 
   const [todoDraft, setTodoDraft] = useState<{
     title: string;
@@ -242,11 +243,63 @@ export function NotificationsPage({
     onChanged();
   }
 
+  function approvePlannerRequest(req: PlannerApprovalRequest) {
+    if (user.role !== "ADMIN") return;
+    updateDB((db0) => {
+      const PLANNER_APPROVAL_REQUESTS = db0.PLANNER_APPROVAL_REQUESTS.map((r) =>
+        r.request_id === req.request_id
+          ? { ...r, status: "APPROVED" as const, decided_by: user.user_id, decided_date: time.nowISO() }
+          : r
+      );
+
+      const PLANNERS = db0.PLANNERS.map((p) => {
+        if (p.planner_id !== req.planner_id) return p;
+        if (req.type === "EDIT") return { ...p, state: "DRAFT" as const, updated_date: time.nowISO() };
+        if (req.type === "SUBMIT") return { ...p, state: "SUBMITTED" as const, updated_date: time.nowISO() };
+        return p;
+      });
+
+      return { ...db0, PLANNER_APPROVAL_REQUESTS, PLANNERS };
+    });
+
+    notifyUser({
+      to_user_id: req.requested_by,
+      type: "PLANNER_APPROVAL_DECISION",
+      title: `Planner ${req.type === "EDIT" ? "edit" : "submission"} request approved`,
+      body: `Your request was approved. The planner is now ${req.type === "EDIT" ? "back in DRAFT mode" : "SUBMITTED"}.`,
+      meta: { request_id: req.request_id, planner_id: req.planner_id },
+    });
+
+    onChanged();
+  }
+
+  function rejectPlannerRequest(req: PlannerApprovalRequest) {
+    if (user.role !== "ADMIN") return;
+    updateDB((db0) => {
+      const PLANNER_APPROVAL_REQUESTS = db0.PLANNER_APPROVAL_REQUESTS.map((r) =>
+        r.request_id === req.request_id
+          ? { ...r, status: "REJECTED" as const, decided_by: user.user_id, decided_date: time.nowISO() }
+          : r
+      );
+      return { ...db0, PLANNER_APPROVAL_REQUESTS };
+    });
+
+    notifyUser({
+      to_user_id: req.requested_by,
+      type: "PLANNER_APPROVAL_DECISION",
+      title: `Planner ${req.type === "EDIT" ? "edit" : "submission"} request rejected`,
+      body: "Your request was not approved.",
+      meta: { request_id: req.request_id },
+    });
+
+    onChanged();
+  }
+
   const tabs: { key: TabKey; label: string; badge?: number; show?: boolean }[] = [
     { key: "inbox", label: "Inbox", badge: notifs.filter((n) => !n.read).length },
     { key: "due", label: "Due Assignments", badge: dueAssignments.length },
     { key: "todos", label: "To‑Dos", badge: todos.filter((t) => t.status === "OPEN").length },
-    { key: "approvals", label: "Approvals", badge: pendingApprovals.length, show: user.role === "ADMIN" },
+    { key: "approvals", label: "Approvals", badge: pendingApprovals.settings.length + pendingApprovals.planners.length, show: user.role === "ADMIN" },
   ];
 
   return (
@@ -413,7 +466,7 @@ export function NotificationsPage({
                           `Assignment: ${a.role}\n` +
                           `Date: ${formatDateShort(a.date)}\n` +
                           `Venue: ${a.venue}\n` +
-                          `Time: ${a.meeting_time}` +
+                          `Time: ${formatTime12h(a.meeting_time)}` +
                           (a.topic ? `\nTopic: ${a.topic}` : "");
                         return (
                           <tr key={a.assignment_id} className="border-t border-[color:var(--border)]">
@@ -563,55 +616,105 @@ export function NotificationsPage({
       {tab === "approvals" ? (
         user.role !== "ADMIN" ? (
           <EmptyState title="Approvals" body="Bishop (Admin) only." />
-        ) : pendingApprovals.length === 0 ? (
+        ) : pendingApprovals.settings.length === 0 && pendingApprovals.planners.length === 0 ? (
           <EmptyState title="Approvals" body="No pending approval requests." />
         ) : (
-          <Card>
-            <CardHeader>
-              <CardTitle>Pending Settings Requests</CardTitle>
-            </CardHeader>
-            <CardBody className="space-y-4">
-              {pendingApprovals.map((r) => {
-                const requester = db.USERS.find((u) => u.user_id === r.requested_by);
-                return (
-                  <div key={r.request_id} className="rounded-xl border border-[color:var(--border)] bg-white p-4">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <div className="text-sm font-semibold text-slate-900">Settings change request</div>
-                          <Badge tone="amber">Pending</Badge>
-                        </div>
-                        <div className="mt-1 text-sm text-slate-700">
-                          Requested by: <span className="font-medium">{requester?.name || r.requested_by}</span>
-                        </div>
-                        <div className="mt-1 text-xs text-slate-500">{new Date(r.created_date).toLocaleString()}</div>
-
-                        <Divider className="my-3" />
-
-                        <div className="text-xs font-medium text-slate-600">Patch</div>
-                        <pre className="mt-1 overflow-auto rounded-lg border border-[color:var(--border)] bg-slate-50 p-3 text-xs text-slate-800">
-                          {JSON.stringify(clampPatch(r.patch), null, 2)}
-                        </pre>
-
-                        {r.reason ? (
-                          <div className="mt-2 text-sm text-slate-700">
-                            Reason: <span className="font-medium">{r.reason}</span>
+          <div className="space-y-6">
+            {pendingApprovals.planners.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Planner Requests</CardTitle>
+                </CardHeader>
+                <CardBody className="space-y-4">
+                  {pendingApprovals.planners.map((r) => {
+                    const requester = db.USERS.find((u) => u.user_id === r.requested_by);
+                    const p = db.PLANNERS.find(x => x.planner_id === r.planner_id);
+                    return (
+                      <div key={r.request_id} className="rounded-xl border border-[color:var(--border)] bg-white p-4">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="text-sm font-semibold text-slate-900">
+                                Planner {r.type === "EDIT" ? "Edit" : "Submission"} Requested
+                              </div>
+                              <Badge tone="amber">Pending</Badge>
+                            </div>
+                            <div className="mt-1 text-sm text-slate-700">
+                              Planner: <span className="font-medium">{p ? `${monthName(p.month)} ${p.year}` : r.planner_id}</span>
+                            </div>
+                            <div className="mt-1 text-sm text-slate-700">
+                              Requested by: <span className="font-medium">{requester?.name || r.requested_by}</span>
+                            </div>
+                            {r.reason && (
+                              <div className="mt-2 rounded-lg bg-slate-50 p-2 text-sm text-slate-600 border border-slate-100 italic">
+                                "{r.reason}"
+                              </div>
+                            )}
+                            <div className="mt-2 text-xs text-slate-500">{new Date(r.created_date).toLocaleString()}</div>
                           </div>
-                        ) : null}
+                          <div className="shrink-0 flex gap-2">
+                            <Button onClick={() => approvePlannerRequest(r)}>Approve</Button>
+                            <Button variant="secondary" onClick={() => rejectPlannerRequest(r)}>
+                              Reject
+                            </Button>
+                          </div>
+                        </div>
                       </div>
+                    );
+                  })}
+                </CardBody>
+              </Card>
+            )}
 
-                      <div className="shrink-0 space-y-2">
-                        <Button onClick={() => approveRequest(r)}>Approve & Apply</Button>
-                        <Button variant="secondary" onClick={() => rejectRequest(r)}>
-                          Reject
-                        </Button>
+            {pendingApprovals.settings.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Settings Requests</CardTitle>
+                </CardHeader>
+                <CardBody className="space-y-4">
+                  {pendingApprovals.settings.map((r) => {
+                    const requester = db.USERS.find((u) => u.user_id === r.requested_by);
+                    return (
+                      <div key={r.request_id} className="rounded-xl border border-[color:var(--border)] bg-white p-4">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="text-sm font-semibold text-slate-900">Settings change request</div>
+                              <Badge tone="amber">Pending</Badge>
+                            </div>
+                            <div className="mt-1 text-sm text-slate-700">
+                              Requested by: <span className="font-medium">{requester?.name || r.requested_by}</span>
+                            </div>
+                            <div className="mt-1 text-xs text-slate-500">{new Date(r.created_date).toLocaleString()}</div>
+
+                            <Divider className="my-3" />
+
+                            <div className="text-xs font-medium text-slate-600">Patch</div>
+                            <pre className="mt-1 overflow-auto rounded-lg border border-[color:var(--border)] bg-slate-50 p-3 text-xs text-slate-800">
+                              {JSON.stringify(clampPatch(r.patch), null, 2)}
+                            </pre>
+
+                            {r.reason ? (
+                              <div className="mt-2 text-sm text-slate-700">
+                                Reason: <span className="font-medium">{r.reason}</span>
+                              </div>
+                            ) : null}
+                          </div>
+
+                          <div className="shrink-0 space-y-2">
+                            <Button onClick={() => approveRequest(r)}>Approve & Apply</Button>
+                            <Button variant="secondary" onClick={() => rejectRequest(r)}>
+                              Reject
+                            </Button>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </CardBody>
-          </Card>
+                    );
+                  })}
+                </CardBody>
+              </Card>
+            )}
+          </div>
         )
       ) : null}
 

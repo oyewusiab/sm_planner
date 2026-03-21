@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Planner, UnitSettings, User, WeekPlan } from "../types";
 import {
@@ -19,7 +19,7 @@ import {
   TabsTrigger,
   TabsContent,
 } from "../components/ui";
-import { formatDateShort, monthName } from "../utils/date";
+import { formatDateShort, formatTime12h, monthName } from "../utils/date";
 import { getDB, syncNow, time, updateDB } from "../utils/storage";
 import { syncMusic } from "../utils/backend";
 import { MemberAutocomplete, normalizeGender } from "../components/MemberAutocomplete";
@@ -233,6 +233,13 @@ export function MusicPage({
 
   const musicStatus = (local?.music_status || "PENDING") as "PENDING" | "COMPLETE";
 
+  useEffect(() => {
+    if (!printOpen) return;
+    const handleAfterPrint = () => setPrintOpen(false);
+    window.addEventListener("afterprint", handleAfterPrint);
+    return () => window.removeEventListener("afterprint", handleAfterPrint);
+  }, [printOpen]);
+
   return (
     <div className="space-y-6">
       <SectionTitle
@@ -281,7 +288,7 @@ export function MusicPage({
 
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="text-sm text-slate-600 italic">
-                    {unit.unit_name} • {unit.venue} • {unit.meeting_time}
+                    {unit.unit_name} • {unit.venue} • {formatTime12h(unit.meeting_time)}
                   </div>
                   <div className="flex items-center gap-2">
                     <Button variant="secondary" onClick={() => saveMusic("PENDING")}>
@@ -294,7 +301,7 @@ export function MusicPage({
             </Card>
 
             {!local ? null : (
-              <div className="space-y-4">
+              <div className="max-h-[72vh] space-y-4 overflow-y-auto rounded-2xl border border-slate-100 bg-white/40 p-3">
                 {local.weeks.map((w, idx) => (
                   <Card key={w.week_id} className="animate-fade-in-up" style={{ animationDelay: `${idx * 0.1}s` }}>
                     <CardHeader>
@@ -414,15 +421,17 @@ export function MusicPage({
               <Button
                 variant="outline"
                 onClick={() => {
+                  const host = document.getElementById("planner-print-portal");
+                  if (!host) {
+                    alert("Print portal not found. Please refresh the page.");
+                    return;
+                  }
                   setPrintOpen(true);
+                  // Small delay to ensure React portal is rendered before print dialog opens
                   setTimeout(() => {
-                    const host = document.getElementById("planner-print-portal");
-                    if (host) {
-                      window.print();
-                    }
-                    // Keep printOpen for a bit to ensure browser renders
-                    setTimeout(() => setPrintOpen(false), 2000);
-                  }, 500);
+                    window.print();
+                    setPrintOpen(false);
+                  }, 300);
                 }}
               >
                 Print Full Music Plan

@@ -16,17 +16,46 @@ export function formatDateShort(isoDate: string) {
   // Detect Google Sheets zero-date (1899-12-30)
   if (isoDate.startsWith("1899-12-30")) return "Not set";
   
-  // Always format as dd-MMM-yyyy regardless of browser locale input.
-  const parts = isoDate.split("-");
-  if (parts.length < 3) return isoDate;
-  
-  const [yyyy, mm, ddFull] = parts;
-  // Handle ISO strings with time-parts
-  const dd = ddFull.split("T")[0];
-  
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const mIdx = Math.max(1, Math.min(12, Number(mm || 1))) - 1;
-  return `${dd}-${months[mIdx]}-${yyyy}`;
+  // Format as dd-MMM-yyyy
+  try {
+    const parts = isoDate.split("T")[0].split("-");
+    if (parts.length < 3) return isoDate;
+    const [yyyy, mm, dd] = parts;
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const mIdx = Math.max(1, Math.min(12, Number(mm || 1))) - 1;
+    return `${dd}-${months[mIdx]}-${yyyy}`;
+  } catch {
+    return isoDate;
+  }
+}
+
+export function formatTime12h(isoDate: string) {
+  if (!isoDate) return "Not set";
+  // Detect Google Sheets zero-date (1899-12-30)
+  if (isoDate.startsWith("1899-12-30")) return "Not set";
+  try {
+    const date = new Date(isoDate);
+    if (isNaN(date.getTime())) {
+      // Try to parse HH:mm if it's not a full ISO
+      if (/^\d{1,2}:\d{2}/.test(isoDate)) {
+        const [h, m] = isoDate.split(":");
+        let hour = Number(h);
+        const ampm = hour >= 12 ? "PM" : "AM";
+        hour = hour % 12;
+        if (hour === 0) hour = 12;
+        return `${hour}:${m.slice(0, 2)} ${ampm}`;
+      }
+      return isoDate;
+    }
+    return date.toLocaleString(APP_LOCALE, {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZone: APP_TIME_ZONE,
+    });
+  } catch {
+    return isoDate;
+  }
 }
 
 export function yyyyMmToLabel(month: number, year: number) {

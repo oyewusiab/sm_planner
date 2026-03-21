@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { Notification, Role, UnitSettings, User } from "../types";
 import { cn } from "../utils/cn";
 import { listNotificationsForUser, markAllRead, markRead, unreadCount } from "../utils/notifications";
+import { formatTime12h } from "../utils/date";
 import { Modal } from "./Modal";
 import { ProfileModal } from "./ProfileModal";
 import { Badge, Button } from "./ui";
@@ -91,12 +92,40 @@ export function AppShell({
     return { notifs: notifs0, unread: unreadCount(user.user_id) };
   }, [user.user_id, notifTick, dbTick]);
 
+  // Global print portal setup
+  useEffect(() => {
+    const styleId = "global-print-styles";
+    const portalId = "planner-print-portal";
+
+    if (!document.getElementById(styleId)) {
+      const el = document.createElement("style");
+      el.id = styleId;
+      el.textContent = `
+        @media print {
+          @page { margin: 8mm; }
+          body > *:not(#planner-print-portal) { display: none !important; }
+          #planner-print-portal { display: block !important; }
+          .print-landscape { width: 100%; height: 100%; }
+          .print-portrait { width: 100%; height: 100%; }
+        }
+        #planner-print-portal { display: none; }
+      `;
+      document.head.appendChild(el);
+    }
+
+    if (!document.getElementById(portalId)) {
+      const host = document.createElement("div");
+      host.id = portalId;
+      document.body.appendChild(host);
+    }
+  }, []);
+
   return (
     <div className="min-h-screen" style={{ background: "var(--bg)" }}>
       <div className="grid min-h-screen grid-cols-1 md:grid-cols-[268px_1fr]">
         {/* ── Sidebar ── */}
         <aside
-          className="no-print flex flex-col text-white"
+          className="no-print sticky top-0 hidden h-screen flex-col text-white md:flex"
           style={{
             background: "linear-gradient(180deg, #003459 0%, #001f35 80%, #00171f 100%)",
           }}
@@ -166,7 +195,7 @@ export function AppShell({
                 {unit.unit_name}
               </div>
               <div className="mt-0.5 truncate text-xs text-white/50">
-                {unit.unit_type} · {unit.meeting_time}
+                {unit.unit_type} · {formatTime12h(unit.meeting_time)}
               </div>
             </div>
           </div>

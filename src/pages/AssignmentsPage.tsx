@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Planner, UnitSettings, User } from "../types";
 import {
   Badge,
@@ -16,9 +17,10 @@ import {
 } from "../components/ui";
 import { Modal } from "../components/Modal";
 import { can } from "../utils/permissions";
-import { formatDateShort, monthName, toISODateLocal } from "../utils/date";
+import { formatDateShort, monthName } from "../utils/date";
 import { formatUserDisplayName } from "../utils/format";
-import { getDB, ids, updateDB, time } from "../utils/storage";
+import { ids, updateDB, useTable, time } from "../utils/storage";
+import { generatePDF } from "../utils/pdf";
 
 type Gender = "M" | "F";
 
@@ -136,17 +138,24 @@ function NotificationCard({
   issuedDate: string;
 }) {
   const kind = roleKind(item.role);
+  // Use Serif font for a more formal, printed look
+  const fontHeader = "font-serif";
 
-  const headerUnit = (unit.unit_name || "").toUpperCase();
+  const headerUnit = (unit.unit_name || "");
   const churchLine = "The Church of Jesus Christ of Latter-day Saints";
 
   const personName = withBrotherSister(item.person, item.gender);
   const meetingName = "Sacrament Meeting";
-  const allotted = item.minutes ?? defaultMinutesFor(item.role);
+
+  // Logic to handle 0 minutes or undefined nicely
+  const defaultMins = defaultMinutesFor(item.role);
+  const minVal = item.minutes ?? defaultMins;
+  const allotted = minVal ? `${minVal} min` : "";
 
   const subject = item.topic || "";
 
-  const fromName = ((signatory?.name || "").trim() || "______________________________").trim();
+  // If no signatory, provide a blank line
+  const fromName = ((signatory?.name || "").trim() || "");
   const fromPos = (signatory?.calling || "Secretary").trim() || "Secretary";
   const signature = (signatory?.signature_data_url || "").trim();
 
@@ -159,83 +168,75 @@ function NotificationCard({
   })();
 
   return (
-    <div className="notif-card bg-white p-4 text-[11.5px] leading-[1.32] text-slate-900">
-      <div className="text-center">
-        <div className="text-[12.5px] font-semibold tracking-wide">{headerUnit}</div>
-        <div className="text-[11px] text-slate-700">{churchLine}</div>
-        <div className="mt-1 text-[12px] font-semibold">ASSIGNMENT NOTIFICATION</div>
-      </div>
-
-      <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
-        <div>
-          <span className="font-medium">Date:</span> {formatDateShort(issuedDate)}
+    <div className="notif-card bg-white p-2 text-[10px] leading-tight text-black font-sans border border-black rounded-none">
+      {/* Header Section */}
+      <div className="flex items-start justify-between border-b border-black pb-2 mb-2">
+        <div className="space-y-0.5">
+          <div className={`${fontHeader} text-[10px] text-black uppercase tracking-wide`}>{churchLine}</div>
+          <div className={`${fontHeader} text-[14px] font-bold text-black uppercase`}>{headerUnit}</div>
         </div>
         <div className="text-right">
-          <span className="font-medium">Meeting Date:</span> {formatDateShort(item.date)}
+          <div className="text-[10px] font-bold uppercase border border-black px-2 py-0.5 inline-block">Assignment</div>
         </div>
       </div>
 
-      <div className="mt-2">
+      {/* Date & Recipient Line */}
+      <div className="flex justify-between items-end mb-3 text-[11px]">
         <div>
-          Dear {dearPrefix(item.gender)} <span className="font-medium">{personName.replace(/^Brother\s+|^Sister\s+/i, "")}</span>,
+          <span className="font-bold">Date:</span> {formatDateShort(issuedDate)}
         </div>
-        <div className="mt-1">
-          On behalf of the Bishopric of the {unit.unit_name}, I am pleased to inform you that you have been assigned to:
-        </div>
-      </div>
-
-      <div className="mt-2">
-        <div className="font-semibold">{assignmentLine}</div>
-      </div>
-
-      <div className="mt-2">
-        <div className="font-medium">Subject/Topic:</div>
-        <div className="min-h-[18px] border-b border-dotted border-slate-400 text-slate-800">
-          {subject || ""}
+        <div>
+          Dear {dearPrefix(item.gender)} <span className="font-bold text-[12px]">{personName.replace(/^Brother\s+|^Sister\s+/i, "")}</span>,
         </div>
       </div>
 
-      <div className="mt-2 text-[11px]">
-        for (Time Allotted): <span className="font-medium">{allotted ? `${allotted}` : ""}</span>
-        {allotted ? " minutes" : ""} as the: <span className="font-medium">{roleAsText(item.role)}</span> In (Meeting/Activity):
-        <span className="font-medium"> {meetingName}</span> on (Date): <span className="font-medium">{formatDateShort(item.date)}</span> at (Venue):
-        <span className="font-medium"> {unit.venue || ""}</span>.
+      {/* Assignment Body */}
+      <div className="mb-3">
+        <div className="mb-1.5">
+          On behalf of the Bishopric, you are assigned to:
+        </div>
+        <div className="font-bold text-[12px] pl-4 border-l-2 border-black py-0.5 my-1">
+          {assignmentLine}
+        </div>
+        <div className="mt-1.5">
+          in <span className="font-bold">{meetingName}</span> on <span className="font-bold text-[11px] bg-gray-100 px-1 border border-gray-300 print:border-black print:bg-transparent">{formatDateShort(item.date)}</span>
+          {allotted && <span> (Time: <span className="font-bold">{allotted}</span>)</span>}.
+        </div>
       </div>
 
-      <div className="mt-2 text-[11px]">
-        We kindly invite you to join the Bishopric 15 minutes before the meeting in preparation for the activity.
-      </div>
-      <div className="mt-1 text-[11px]">
-        We appreciate your willingness to serve and contribute to the spiritual growth of the ward.
+      {/* Subject Line (if applicable) */}
+      {(kind === "TALK" || subject) && (
+        <div className="mb-3 flex items-baseline gap-2">
+          <div className="font-bold whitespace-nowrap">Topic / Subject:</div>
+          <div className="flex-1 border-b border-dotted border-black text-black font-medium px-1">
+            {subject || "______________________________________________________"}
+          </div>
+        </div>
+      )}
+
+      {/* Instructions */}
+      <div className="mb-4 text-[9px] italic text-black">
+        Please join the Bishopric 15 minutes before the meeting. If you cannot fulfill this assignment, please contact a member of the Bishopric immediately.
       </div>
 
-      <div className="mt-3 grid grid-cols-4 gap-2 text-[10.5px]">
+      {/* Signature Area */}
+      <div className="flex items-end justify-between mt-auto pt-2">
+        <div className="w-1/2">
+          {/* Left blank or could be Bishop's line */}
+        </div>
         <div className="col-span-2">
-          <div className="text-slate-600">Name</div>
-          <div className="border-b border-dotted border-slate-400 py-1 font-medium">{fromName}</div>
-        </div>
-        <div>
-          <div className="text-slate-600">Position</div>
-          <div className="border-b border-dotted border-slate-400 py-1 font-medium">{fromPos}</div>
-        </div>
-        <div>
-          <div className="text-slate-600">Date</div>
-          <div className="border-b border-dotted border-slate-400 py-1 font-medium">{formatDateShort(issuedDate)}</div>
-        </div>
-        <div className="col-span-4">
-          <div className="text-slate-600">Signature</div>
-          <div className="h-[30px] border-b border-dotted border-slate-400">
+          <div className="h-[25px] flex items-end justify-center relative">
             {signature ? (
-              <img src={signature} alt="Signature" className="h-full w-auto object-contain" />
+              <img src={signature} alt="Sig" className="h-full max-h-[40px] w-auto object-contain absolute bottom-0" />
             ) : (
               <div className="h-full" />
             )}
           </div>
+          <div className="border-t border-black pt-1 text-center">
+            <div className="font-bold text-[10px]">{fromName || "__________________________"}</div>
+            <div className="text-[9px] uppercase tracking-wide">{fromPos}</div>
+          </div>
         </div>
-      </div>
-
-      <div className="mt-2 text-[10.5px] text-slate-700">
-        Please prepare prayerfully and feel free to contact us if you have any questions. Your contribution is deeply appreciated.
       </div>
     </div>
   );
@@ -251,11 +252,12 @@ export function AssignmentsPage({
   onChanged: () => void;
 }) {
   const allowed = can(user.role, "GENERATE_ASSIGNMENTS");
-  const db = getDB();
+  const { data: planners = [] } = useTable("PLANNERS");
+  const { data: users = [] } = useTable("USERS");
 
   const submitted = useMemo(
-    () => [...db.PLANNERS].filter((p) => p.state === "SUBMITTED").sort((a, b) => b.updated_date.localeCompare(a.updated_date)),
-    [db.PLANNERS]
+    () => [...planners].filter((p) => p.state === "SUBMITTED").sort((a, b) => b.updated_date.localeCompare(a.updated_date)),
+    [planners]
   );
 
   const [plannerId, setPlannerId] = useState(submitted[0]?.planner_id || "");
@@ -289,29 +291,50 @@ export function AssignmentsPage({
   }, [extractedAll, minutesByKey, query]);
 
   const [selected, setSelected] = useState<Record<string, boolean>>({});
-  const [printOpen, setPrintOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [printStatus, setPrintStatus] = useState<"idle" | "preparing" | "ready">("idle");
+
+  useEffect(() => {
+    if (printStatus === "ready") {
+      const timer = setTimeout(() => {
+        window.print();
+        setPrintStatus("idle");
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [printStatus]);
+
+  function triggerPrint() {
+    setPrintStatus("preparing");
+    // Small delay to let React render the portal
+    setTimeout(() => setPrintStatus("ready"), 100);
+  }
 
   useEffect(() => {
     const cls = "printing-assignments";
-    if (printOpen) document.body.classList.add(cls);
-    else document.body.classList.remove(cls);
+    if (printStatus !== "idle") {
+      document.body.classList.add(cls);
+    } else {
+      document.body.classList.remove(cls);
+    }
     return () => document.body.classList.remove(cls);
-  }, [printOpen]);
+  }, [printStatus]);
 
   const selectedItems = useMemo(
     () => extracted.filter((x) => selected[x.key] ?? true).map((x) => ({ ...x, minutes: minutesByKey[x.key] ?? x.minutes })),
     [extracted, minutesByKey, selected]
   );
 
-  const issuedDate = useMemo(() => toISODateLocal(new Date()), []);
+  // Use simple ISO date string for today
+  const issuedDate = useMemo(() => new Date().toISOString().split("T")[0], []);
 
   const signatory = useMemo(() => {
-    const secretary = db.USERS.find((u) => u.role === "SECRETARY" && u.calling === "Secretary");
-    const assistant = db.USERS.find((u) => u.role === "SECRETARY" && u.calling === "Assistant Secretary");
+    const secretary = users.find((u) => u.role === "SECRETARY" && u.calling === "Secretary");
+    const assistant = users.find((u) => u.role === "SECRETARY" && u.calling === "Assistant Secretary");
     // Assignment notifications must be signed by the Secretary.
     // If no Secretary is configured yet, print blank signature/name lines (do not fall back to Bishop/other roles).
     return secretary || assistant || null;
-  }, [db.USERS]);
+  }, [users]);
 
   function toggleAll(value: boolean) {
     const next: Record<string, boolean> = {};
@@ -469,7 +492,7 @@ export function AssignmentsPage({
                   variant="secondary"
                   onClick={() => {
                     generateRecords();
-                    setPrintOpen(true);
+                    setPreviewOpen(true);
                   }}
                   disabled={selectedItems.length === 0}
                 >
@@ -482,44 +505,52 @@ export function AssignmentsPage({
       </div>
 
       <Modal
-        open={printOpen}
+        open={previewOpen}
         title="Printable Notifications"
-        onClose={() => setPrintOpen(false)}
+        onClose={() => setPreviewOpen(false)}
         footer={
           <>
             <Button
               variant="secondary"
-              onClick={() => {
-                window.print();
-              }}
+              onClick={triggerPrint}
+              disabled={printStatus !== "idle"}
             >
-              Print / Save as PDF
+              Print
             </Button>
-            <Button variant="ghost" onClick={() => setPrintOpen(false)}>
+            <Button
+              variant="outline"
+              disabled={printStatus !== "idle"}
+              onClick={() => generatePDF("assignments-print-area", `Assignments_${new Date().toISOString().split('T')[0]}`)}
+            >
+              Download Notifications PDF
+            </Button>
+            <Button variant="ghost" onClick={() => {
+              setPreviewOpen(false);
+              setPrintStatus("idle");
+            }}>
               Close
             </Button>
           </>
         }
         className="max-w-5xl"
       >
-        <div className="space-y-4">
+        <div id="assignments-print-area" className="space-y-6">
           {pages.length === 0 ? (
             <div className="no-print text-sm text-slate-500">Nothing selected.</div>
           ) : (
             pages.map((page, idx) => (
-              <div key={idx} className="notif-page">
-                <div className="notif-grid">
-                  {page.map((n) => (
+              <div key={idx} className="notif-page space-y-4">
+                {page.map((n) => (
+                  <div key={n.key} className="border border-slate-200 overflow-hidden print:border-black">
                     <NotificationCard
-                      key={n.key}
                       unit={unit}
                       signatory={signatory}
                       item={n}
                       issuedDate={issuedDate}
                     />
-                  ))}
-                </div>
-                {idx < pages.length - 1 ? <div className="print-page-break" /> : null}
+                  </div>
+                ))}
+                {idx < pages.length - 1 ? <div className="print-page-break" style={{ pageBreakAfter: "always" }} /> : null}
               </div>
             ))
           )}
@@ -527,27 +558,29 @@ export function AssignmentsPage({
       </Modal>
 
       {/* Print portal for browser window.print() */}
-      {printOpen &&
+      {printStatus !== "idle" &&
         (() => {
           const host = document.getElementById("planner-print-portal");
           if (!host) return null;
           return createPortal(
-            <div className="print-portrait p-8">
-              <div className="space-y-4">
+            <div className="print-portrait p-0">
+              <div className="space-y-0">
                 {pages.map((page, idx) => (
-                  <div key={idx} className="notif-page">
-                    <div className="notif-grid">
-                      {page.map((n) => (
+                  // Optimized for A4 Portrait (297mm height)
+                  // Padding 10mm top/bottom leaves 277mm. 3 cards need space.
+                  // Reduced gap to 4mm to ensure they fit without spilling to next page.
+                  <div key={idx} className="notif-page" style={{ height: "297mm", padding: "10mm 15mm", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: "4mm", pageBreakAfter: "always" }}>
+                    {page.map((n) => (
+                      <div key={n.key} style={{ flex: "1", border: "1px dashed #000", overflow: "hidden", display: "flex", flexDirection: "column" }}>
                         <NotificationCard
-                          key={n.key}
                           unit={unit}
                           signatory={signatory}
                           item={n}
                           issuedDate={issuedDate}
                         />
-                      ))}
-                    </div>
-                    {idx < pages.length - 1 ? <div className="print-page-break" /> : null}
+                      </div>
+                    ))}
+                    {idx < pages.length - 1 ? <div style={{ pageBreakAfter: "always" }} /> : null}
                   </div>
                 ))}
               </div>

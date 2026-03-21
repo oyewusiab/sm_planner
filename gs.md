@@ -1,8 +1,3 @@
-# Google Apps Script (SM_PLANNER)
-
-Copy everything in the code block below into your Apps Script project (e.g., `Code.gs`).
-
-```javascript
 /**
  * Sacrament Planner - Google Sheets backend
  * Web App API for CRUD + full DB export/import
@@ -1131,4 +1126,3 @@ function syncLdsHymns() {
 
   return `Synced ${all.length} hymns including sacrament collection and new global releases.`;
 }
-```

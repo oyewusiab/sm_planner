@@ -82,6 +82,7 @@ export function App() {
     try {
       await pingBackend();
       setBackendStatus("online");
+      setSyncError(null);
     } catch {
       setBackendStatus("error");
     }

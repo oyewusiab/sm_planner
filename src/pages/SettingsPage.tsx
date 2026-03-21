@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Member, Role, UnitSettings, UnitType, User } from "../types";
+import type { Member, Role, SettingsChangeRequest, UnitSettings, UnitType, User } from "../types";
 import {
   Badge,
   Button,
@@ -112,16 +112,22 @@ export function SettingsPage({
     if (!next.meeting_time) return setFlash({ tone: "error", msg: "Meeting Time is required." });
 
     if (isClerk) {
+      const reqId = ids.uid("sreq");
+      const request: SettingsChangeRequest = {
+        request_id: reqId,
+        requested_by: user.user_id,
+        created_date: time.nowISO(),
+        status: "PENDING",
+        patch: next,
+      };
+      updateDB((db0) => ({ ...db0, SETTINGS_REQUESTS: [request, ...(db0.SETTINGS_REQUESTS || [])] }));
+
       notifyRoles({
         toRoles: ["ADMIN"],
         type: "SETTINGS_APPROVAL_REQUEST",
         title: "Settings change request",
-        body: `${user.name} (${user.calling}) has requested a change to unit ${kind === "unit" ? "information" : "preferences"}.`,
-        meta: { 
-          request_type: "SETTINGS_CHANGE",
-          request_kind: kind,
-          payload: JSON.stringify(next)
-        }
+        body: `${user.name} (${user.calling}) has submitted a settings change for approval. Please visit the Approvals tab in the Notifications Center.`,
+        meta: { request_id: reqId },
       });
       setFlash({ tone: "success", msg: "Request sent to Bishop for approval." });
       return;
@@ -130,26 +136,6 @@ export function SettingsPage({
     updateDB((db0) => ({ ...db0, UNIT_SETTINGS: next }));
     onChanged();
     setFlash({ tone: "success", msg: kind === "unit" ? "Unit settings saved." : "Preferences saved." });
-  }
-
-  function handleDecision(notif_id: string, approved: boolean, payload: string) {
-    if (!approved) {
-      updateDB(db0 => ({
-        ...db0,
-        NOTIFICATIONS: db0.NOTIFICATIONS.filter(n => n.notification_id !== notif_id)
-      }));
-      setFlash({ tone: "error", msg: "Request rejected." });
-      return;
-    }
-
-    const next = JSON.parse(payload) as UnitSettings;
-    updateDB((db0) => ({ 
-      ...db0, 
-      UNIT_SETTINGS: next,
-      NOTIFICATIONS: db0.NOTIFICATIONS.filter(n => n.notification_id !== notif_id)
-    }));
-    onChanged();
-    setFlash({ tone: "success", msg: "Settings approved and applied." });
   }
 
   async function createUser() {
@@ -253,29 +239,6 @@ export function SettingsPage({
           {flash.msg}
         </div>
       ) : null}
-
-      {isBishop && db.NOTIFICATIONS.some(n => n.type === "SETTINGS_APPROVAL_REQUEST") && (
-        <Card className="border-amber-200 bg-amber-50/30">
-          <CardHeader>
-            <CardTitle className="text-amber-900">Pending Approval Requests</CardTitle>
-          </CardHeader>
-          <CardBody className="space-y-4">
-            {db.NOTIFICATIONS.filter(n => n.type === "SETTINGS_APPROVAL_REQUEST").map(n => (
-              <div key={n.notification_id} className="flex items-center justify-between rounded-xl border border-amber-200 bg-white p-4 shadow-sm">
-                <div>
-                  <div className="font-semibold text-slate-900">{n.title}</div>
-                  <div className="text-sm text-slate-600">{n.body}</div>
-                  <div className="mt-1 text-xs text-slate-400">{new Date(n.created_date).toLocaleString()}</div>
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="secondary" onClick={() => handleDecision(n.notification_id, true, n.meta?.payload || "")}>Approve</Button>
-                  <Button variant="ghost" onClick={() => handleDecision(n.notification_id, false, "")}>Reject</Button>
-                </div>
-              </div>
-            ))}
-          </CardBody>
-        </Card>
-      )}
 
       <Card>
         <CardHeader>

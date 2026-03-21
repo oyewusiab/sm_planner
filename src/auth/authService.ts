@@ -48,7 +48,7 @@ export function getUsersByRole(role: Role): User[] {
  * Authenticate user with email/username and password.
  * Users are loaded from the backend USERS sheet.
  */
-export async function login(identifier: string, password: string): Promise<User | null> {
+export async function login(identifier: string, password: string): Promise<User> {
   let db = getDB();
 
   // If no users in local DB, attempt to sync from backend (blocking)
@@ -75,11 +75,11 @@ export async function login(identifier: string, password: string): Promise<User 
   );
 
   if (!user) {
-    return null; // User not found
+    throw new Error("User account not found. Please check your credentials or contact your Clerk.");
   }
 
   if (user.disabled) {
-    return null; // User is disabled
+    throw new Error("This account has been disabled. Please contact your Clerk for assistance.");
   }
 
   // Verify password
@@ -90,25 +90,36 @@ export async function login(identifier: string, password: string): Promise<User 
   // Use timing-safe comparison
   const ok = timingSafeEqual(inputHash, storedHash);
   if (!ok) {
-    return null; // Password mismatch
+    throw new Error("Incorrect password. Please try again.");
   }
 
+  // Passwords match!
+  
   // Record last login (non-blocking update)
   try {
-    updateDB((db0) => ({
-      ...db0,
-      USERS: db0.USERS.map((u) =>
-        u.user_id === user.user_id
-          ? { ...u, last_login_date: time.nowISO() }
-          : u
-      ),
-    }));
+    const now = time.nowISO();
+    setTimeout(() => {
+      try {
+        updateDB((db0) => ({
+          ...db0,
+          USERS: db0.USERS.map((u) =>
+            u.user_id === user.user_id ? { ...u, last_login_date: now } : u
+          ),
+        }));
+      } catch (err) {
+        console.warn("[Auth] Deferred last_login_date update failed:", err);
+      }
+    }, 100);
   } catch (err) {
-    console.warn("Failed to update last login date:", err);
+    console.warn("Failed to schedule last login date update:", err);
   }
 
   // Return fresh user data
-  return getUserById(user.user_id);
+  const fresh = getUserById(user.user_id);
+  if (!fresh) {
+    throw new Error("Login succeeded but failed to load user profile. Please refresh.");
+  }
+  return fresh;
 }
 
 /**

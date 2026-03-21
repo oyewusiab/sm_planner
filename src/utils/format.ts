@@ -43,7 +43,8 @@ export function getSurname(name: string): string {
 export function normalizeMemberName(name: string): string {
   if (!name) return "";
   return name
-    .replace(/^(Bishop|Brother|Sister|Elder|President)\s+/i, "")
-    .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/^(bishop|brother|sister|elder|president|stake|ward)\s+/g, "")
+    .replace(/[^a-z0-9]/g, "") // remove all non-alphanumeric characters for fuzzy-ish matching
+    .trim();
 }
