@@ -25,7 +25,7 @@ Update `.env` in the project root:
 
 ```
 VITE_GS_BASE_URL=https://script.google.com/macros/s/AKfycbzyWsIY8nXiPjZSDQYdbLvhY16bjMWh6IIWlL_YFPYNdauHImirABTHl0DPVRo8ldkGow/exec
-VITE_GS_API_KEY=CHANGE_ME
+VITE_GS_API_KEY=ThisIsMySecretKey123!@
 ```
 
 If `VITE_GS_BASE_URL` is empty, the app stays in local-only mode.
