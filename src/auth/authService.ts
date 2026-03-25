@@ -1,5 +1,6 @@
 import type { Role, User } from "../types";
 import { sha256, timingSafeEqual } from "../utils/crypto";
+import { backendEnabled, pingBackend } from "../utils/backend";
 import { getDB, updateDB, ids, time, syncFromBackend } from "../utils/storage";
 
 function norm(s: string) {
@@ -50,6 +51,7 @@ export function getUsersByRole(role: Role): User[] {
  */
 export async function login(identifier: string, password: string): Promise<User> {
   let db = getDB();
+  const backendOn = backendEnabled();
 
   // If no users in local DB, attempt to sync from backend (blocking)
   if (!db.USERS || db.USERS.length === 0) {
@@ -59,6 +61,20 @@ export async function login(identifier: string, password: string): Promise<User>
     } catch (err) {
       console.error("Failed to sync users from backend:", err);
       throw new Error("Unable to connect to server. Please try again.");
+    }
+
+    // If backend is configured but users are still empty, surface a clear setup/config error.
+    if (backendOn && (!db.USERS || db.USERS.length === 0)) {
+      try {
+        await pingBackend();
+      } catch {
+        throw new Error(
+          "Backend misconfigured. Check your deployed backend URL/API key and redeploy."
+        );
+      }
+      throw new Error(
+        "No users found in backend. Please verify USERS sheet data."
+      );
     }
   } else {
     // Background sync to ensure data is fresh for next time
