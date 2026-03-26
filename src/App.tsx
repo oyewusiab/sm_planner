@@ -28,6 +28,7 @@ function LoadingScreen({ label = "Loading…" }: { label?: string }) {
 }
 
 type BackendStatus = "disabled" | "connecting" | "online" | "error";
+const AUTO_SYNC_INTERVAL_MS = 20000;
 
 export function App() {
   const [booting, setBooting] = useState(true);
@@ -145,19 +146,36 @@ export function App() {
     };
   }, [user]);
 
-  // Polling Sync: Every 2 minutes to ensure real-time reflect for all users
+  // Polling Sync + foreground refresh for near-real-time multi-user visibility.
   useEffect(() => {
     if (!user || !backendEnabled()) return;
-    
-    console.log("[Sync] Polling started (2m interval)");
-    const interval = setInterval(() => {
-      console.log("[Sync] Periodic poll for updates...");
-      syncFromBackend().then((ok) => {
+
+    const pull = () => {
+      void syncFromBackend().then((ok) => {
         if (ok) refresh();
       });
-    }, 120000); // 120,000ms = 2 minutes
+    };
 
-    return () => clearInterval(interval);
+    console.log(`[Sync] Polling started (${AUTO_SYNC_INTERVAL_MS / 1000}s interval)`);
+    pull(); // Immediate check when app becomes active for the signed-in user
+
+    const interval = setInterval(pull, AUTO_SYNC_INTERVAL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") pull();
+    };
+    const onFocus = () => pull();
+    const onOnline = () => pull();
+
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("online", onOnline);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("online", onOnline);
+    };
   }, [user]);
 
   useEffect(() => {

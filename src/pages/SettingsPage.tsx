@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import type { Member, Role, SettingsChangeRequest, UnitSettings, UnitType, User } from "../types";
 import {
   Badge,
@@ -13,15 +13,27 @@ import {
   Label,
   SectionTitle,
   Select,
+  Textarea,
 } from "../components/ui";
 import { can } from "../utils/permissions";
-import { getDB, ids, updateDB } from "../utils/storage";
+import { getDB, ids, time, updateDB } from "../utils/storage";
 import { sha256 } from "../utils/crypto";
 import { notifyRoles, notifyUser } from "../utils/notifications";
+import * as auth from "../auth/authService";
 
 const bishopricCallings = ["1st Counsellor", "2nd Counsellor"] as const;
 const clerkCallings = ["Clerk (Co-admin)", "Assistant Clerk"] as const;
 const secretaryCallings = ["Secretary", "Assistant Secretary"] as const;
+
+type BroadcastRole = "ALL" | "ADMIN" | "BISHOPRIC" | "CLERK" | "SECRETARY" | "MUSIC";
+type ImportMode = "replace" | "merge";
+
+function parseTaskTemplates(text: string): string[] {
+  return text
+    .split(/\r?\n/g)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
 export function SettingsPage({
   user,
@@ -49,8 +61,14 @@ export function SettingsPage({
       default_speakers: unit.prefs?.default_speakers ?? 3,
       default_meeting_duration_min: unit.prefs?.default_meeting_duration_min ?? 70,
       enable_checklist: unit.prefs?.enable_checklist ?? true,
+      checklist_tasks: unit.prefs?.checklist_tasks ?? [],
+      assignment_message_template: unit.prefs?.assignment_message_template ?? "",
+      default_country: "NG",
+      enable_music_toolkit: unit.prefs?.enable_music_toolkit ?? true,
+      enable_member_analytics: unit.prefs?.enable_member_analytics ?? true,
     },
   });
+  const [checklistTaskText, setChecklistTaskText] = useState((unit.prefs?.checklist_tasks || []).join("\n"));
 
   const [flash, setFlash] = useState<{ tone: "success" | "error"; msg: string } | null>(null);
   const [newUser, setNewUser] = useState({
@@ -64,6 +82,11 @@ export function SettingsPage({
   const [syncUrl, setSyncUrl] = useState(() => localStorage.getItem("sm_sync_url") || "");
   const [syncKey, setSyncKey] = useState(() => localStorage.getItem("sm_sync_key") || "");
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [broadcastRole, setBroadcastRole] = useState<BroadcastRole>("ALL");
+  const [broadcastTitle, setBroadcastTitle] = useState("General announcement");
+  const [broadcastBody, setBroadcastBody] = useState("");
+  const [snapshot, setSnapshot] = useState("");
+  const [importMode, setImportMode] = useState<ImportMode>("merge");
 
   // Keep the form in sync if UNIT_SETTINGS changes from outside.
   useEffect(() => {
@@ -73,11 +96,26 @@ export function SettingsPage({
         default_speakers: unit.prefs?.default_speakers ?? 3,
         default_meeting_duration_min: unit.prefs?.default_meeting_duration_min ?? 70,
         enable_checklist: unit.prefs?.enable_checklist ?? true,
+        checklist_tasks: unit.prefs?.checklist_tasks ?? [],
+        assignment_message_template: unit.prefs?.assignment_message_template ?? "",
+        default_country: "NG",
+        enable_music_toolkit: unit.prefs?.enable_music_toolkit ?? true,
+        enable_member_analytics: unit.prefs?.enable_member_analytics ?? true,
       },
     });
+    setChecklistTaskText((unit.prefs?.checklist_tasks || []).join("\n"));
   }, [unit]);
 
   const users = useMemo(() => [...db.USERS].sort((a, b) => a.name.localeCompare(b.name)), [db.USERS]);
+  const systemStats = useMemo(() => {
+    const activeUsers = db.USERS.filter((u) => !u.disabled).length;
+    const disabledUsers = db.USERS.filter((u) => u.disabled).length;
+    const submittedPlanners = db.PLANNERS.filter((p) => p.state === "SUBMITTED").length;
+    const pendingApprovals =
+      db.SETTINGS_REQUESTS.filter((r) => r.status === "PENDING").length +
+      db.PLANNER_APPROVAL_REQUESTS.filter((r) => r.status === "PENDING").length;
+    return { activeUsers, disabledUsers, submittedPlanners, pendingApprovals };
+  }, [db]);
 
   if (!allowed) {
     return <EmptyState title="Settings" body="Admin access only." />;
@@ -85,6 +123,7 @@ export function SettingsPage({
 
   function saveUnit(kind: "unit" | "prefs") {
     setFlash(null);
+    const parsedChecklistTasks = parseTaskTemplates(checklistTaskText);
     const next: UnitSettings = {
       ...form,
       unit_name: form.unit_name.trim(),
@@ -97,7 +136,7 @@ export function SettingsPage({
         default_speakers: form.prefs?.default_speakers ?? 3,
         default_meeting_duration_min: form.prefs?.default_meeting_duration_min ?? 70,
         enable_checklist: form.prefs?.enable_checklist ?? true,
-        checklist_tasks: form.prefs?.checklist_tasks,
+        checklist_tasks: parsedChecklistTasks,
         assignment_message_template: form.prefs?.assignment_message_template,
         default_country: "NG",
         enable_music_toolkit: form.prefs?.enable_music_toolkit ?? true,
@@ -223,6 +262,125 @@ export function SettingsPage({
     }
   }
 
+  function sendBroadcast() {
+    if (!isBishop) return;
+    const title = broadcastTitle.trim();
+    const body = broadcastBody.trim();
+    if (!title || !body) {
+      setFlash({ tone: "error", msg: "Broadcast title and message are required." });
+      return;
+    }
+    const targets = broadcastRole === "ALL" ? db.USERS : db.USERS.filter((u) => u.role === broadcastRole);
+    if (targets.length === 0) {
+      setFlash({ tone: "error", msg: "No users matched the selected target." });
+      return;
+    }
+    for (const target of targets) {
+      notifyUser({
+        to_user_id: target.user_id,
+        type: "REMINDER",
+        title,
+        body,
+        meta: { source: "bishop_broadcast" },
+      });
+    }
+    setBroadcastBody("");
+    setFlash({ tone: "success", msg: `Broadcast sent to ${targets.length} user(s).` });
+    onChanged();
+  }
+
+  function setPasswordResetForAll(forceReset: boolean) {
+    if (!isBishop) return;
+    updateDB((db0) => ({
+      ...db0,
+      USERS: db0.USERS.map((u) => (u.role === "ADMIN" ? u : { ...u, must_reset_password: forceReset })),
+    }));
+    setFlash({
+      tone: "success",
+      msg: forceReset
+        ? "All non-admin users will reset password on next login."
+        : "Forced password reset cleared for non-admin users.",
+    });
+    onChanged();
+  }
+
+  function setDisabledForAllNonAdmin(disabled: boolean) {
+    if (!isBishop) return;
+    if (disabled && !window.confirm("Disable all non-admin users?")) return;
+    updateDB((db0) => ({
+      ...db0,
+      USERS: db0.USERS.map((u) => (u.role === "ADMIN" ? u : { ...u, disabled })),
+    }));
+    setFlash({ tone: "success", msg: disabled ? "All non-admin users disabled." : "All non-admin users enabled." });
+    onChanged();
+  }
+
+  function exportSnapshot() {
+    setSnapshot(JSON.stringify(getDB(), null, 2));
+    setFlash({ tone: "success", msg: "Snapshot generated." });
+  }
+
+  function mergeById<T extends Record<string, any>>(base: T[], incoming: T[], idKey: string): T[] {
+    const map = new Map<string, T>();
+    for (const row of base || []) map.set(String(row[idKey] || ""), row);
+    for (const row of incoming || []) {
+      const id = String(row[idKey] || "");
+      if (!id) continue;
+      map.set(id, { ...(map.get(id) || {}), ...row });
+    }
+    return [...map.values()];
+  }
+
+  function importSnapshot() {
+    if (!isBishop) return;
+    if (!snapshot.trim()) {
+      setFlash({ tone: "error", msg: "Paste snapshot JSON first." });
+      return;
+    }
+    try {
+      const raw = JSON.parse(snapshot);
+      const current = getDB() as any;
+      const incoming = {
+        UNIT_SETTINGS: raw?.UNIT_SETTINGS ?? null,
+        USERS: Array.isArray(raw?.USERS) ? raw.USERS : [],
+        PLANNERS: Array.isArray(raw?.PLANNERS) ? raw.PLANNERS : [],
+        ASSIGNMENTS: Array.isArray(raw?.ASSIGNMENTS) ? raw.ASSIGNMENTS : [],
+        MEMBERS: Array.isArray(raw?.MEMBERS) ? raw.MEMBERS : [],
+        CHECKLISTS: Array.isArray(raw?.CHECKLISTS) ? raw.CHECKLISTS : [],
+        NOTIFICATIONS: Array.isArray(raw?.NOTIFICATIONS) ? raw.NOTIFICATIONS : [],
+        SETTINGS_REQUESTS: Array.isArray(raw?.SETTINGS_REQUESTS) ? raw.SETTINGS_REQUESTS : [],
+        PLANNER_APPROVAL_REQUESTS: Array.isArray(raw?.PLANNER_APPROVAL_REQUESTS) ? raw.PLANNER_APPROVAL_REQUESTS : [],
+        TODOS: Array.isArray(raw?.TODOS) ? raw.TODOS : [],
+        REMINDERS: Array.isArray(raw?.REMINDERS) ? raw.REMINDERS : [],
+        HYMNS: Array.isArray(raw?.HYMNS) ? raw.HYMNS : [],
+      };
+
+      if (importMode === "replace") {
+        updateDB(() => incoming as any);
+      } else {
+        updateDB(() => ({
+          UNIT_SETTINGS: incoming.UNIT_SETTINGS || current.UNIT_SETTINGS,
+          USERS: mergeById(current.USERS, incoming.USERS, "user_id"),
+          PLANNERS: mergeById(current.PLANNERS, incoming.PLANNERS, "planner_id"),
+          ASSIGNMENTS: mergeById(current.ASSIGNMENTS, incoming.ASSIGNMENTS, "assignment_id"),
+          MEMBERS: mergeById(current.MEMBERS, incoming.MEMBERS, "member_id"),
+          CHECKLISTS: mergeById(current.CHECKLISTS, incoming.CHECKLISTS, "checklist_id"),
+          NOTIFICATIONS: mergeById(current.NOTIFICATIONS, incoming.NOTIFICATIONS, "notification_id"),
+          SETTINGS_REQUESTS: mergeById(current.SETTINGS_REQUESTS, incoming.SETTINGS_REQUESTS, "request_id"),
+          PLANNER_APPROVAL_REQUESTS: mergeById(current.PLANNER_APPROVAL_REQUESTS, incoming.PLANNER_APPROVAL_REQUESTS, "request_id"),
+          TODOS: mergeById(current.TODOS, incoming.TODOS, "todo_id"),
+          REMINDERS: mergeById(current.REMINDERS, incoming.REMINDERS, "reminder_id"),
+          HYMNS: mergeById(current.HYMNS, incoming.HYMNS, "number"),
+        } as any));
+      }
+
+      setFlash({ tone: "success", msg: `Snapshot ${importMode === "replace" ? "replaced" : "merged"} successfully.` });
+      onChanged();
+    } catch (err: any) {
+      setFlash({ tone: "error", msg: err?.message || "Invalid snapshot JSON." });
+    }
+  }
+
   return (
     <div className="space-y-6">
       <SectionTitle title="Settings" subtitle="Unit information, role management, and system preferences." />
@@ -239,6 +397,48 @@ export function SettingsPage({
           {flash.msg}
         </div>
       ) : null}
+
+      {isBishop && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Bishop Control Center</CardTitle>
+          </CardHeader>
+          <CardBody className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                <div className="text-xs text-slate-500">Active users</div>
+                <div className="text-xl font-bold text-slate-800">{systemStats.activeUsers}</div>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                <div className="text-xs text-slate-500">Disabled users</div>
+                <div className="text-xl font-bold text-slate-800">{systemStats.disabledUsers}</div>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                <div className="text-xs text-slate-500">Submitted planners</div>
+                <div className="text-xl font-bold text-slate-800">{systemStats.submittedPlanners}</div>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                <div className="text-xs text-slate-500">Pending approvals</div>
+                <div className="text-xl font-bold text-slate-800">{systemStats.pendingApprovals}</div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={() => setPasswordResetForAll(true)}>
+                Force Password Reset
+              </Button>
+              <Button variant="secondary" onClick={() => setPasswordResetForAll(false)}>
+                Clear Forced Reset
+              </Button>
+              <Button variant="danger" onClick={() => setDisabledForAllNonAdmin(true)}>
+                Disable All Non-admin
+              </Button>
+              <Button variant="secondary" onClick={() => setDisabledForAllNonAdmin(false)}>
+                Enable All Non-admin
+              </Button>
+            </div>
+          </CardBody>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -364,6 +564,65 @@ export function SettingsPage({
                 <option value="yes">Enabled</option>
                 <option value="no">Disabled</option>
               </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="space-y-1">
+              <Label>Checklist task templates (one per line)</Label>
+              <Textarea
+                rows={6}
+                value={checklistTaskText}
+                onChange={(e) => setChecklistTaskText(e.target.value)}
+                placeholder={"Podium prepared\nSacrament table prepared\nMicrophones tested"}
+              />
+            </div>
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <Label>Assignment message template</Label>
+                <Textarea
+                  rows={4}
+                  value={form.prefs?.assignment_message_template || ""}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      prefs: { ...f.prefs, assignment_message_template: e.target.value },
+                    }))
+                  }
+                  placeholder="Hello {{name}}, this is your reminder for {{date}}."
+                />
+              </div>
+              <div className="grid grid-cols-1 gap-3">
+                <div className="space-y-1">
+                  <Label>Enable music toolkit</Label>
+                  <Select
+                    value={(form.prefs?.enable_music_toolkit ?? true) ? "yes" : "no"}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        prefs: { ...f.prefs, enable_music_toolkit: e.target.value === "yes" },
+                      }))
+                    }
+                  >
+                    <option value="yes">Enabled</option>
+                    <option value="no">Disabled</option>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label>Enable member analytics</Label>
+                  <Select
+                    value={(form.prefs?.enable_member_analytics ?? true) ? "yes" : "no"}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        prefs: { ...f.prefs, enable_member_analytics: e.target.value === "yes" },
+                      }))
+                    }
+                  >
+                    <option value="yes">Enabled</option>
+                    <option value="no">Disabled</option>
+                  </Select>
+                </div>
+              </div>
             </div>
           </div>
           <div className="flex justify-end">
@@ -657,6 +916,79 @@ export function SettingsPage({
                 </Button>
                 {syncStatus ? <div className="text-xs text-slate-500">{syncStatus}</div> : null}
               </div>
+            </div>
+          </CardBody>
+        </Card>
+      )}
+
+      {isBishop && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Broadcast Announcement</CardTitle>
+          </CardHeader>
+          <CardBody className="space-y-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="space-y-1">
+                <Label>Target</Label>
+                <Select value={broadcastRole} onChange={(e) => setBroadcastRole(e.target.value as BroadcastRole)}>
+                  <option value="ALL">All users</option>
+                  <option value="ADMIN">Admin</option>
+                  <option value="BISHOPRIC">Bishopric</option>
+                  <option value="CLERK">Clerk</option>
+                  <option value="SECRETARY">Secretary</option>
+                  <option value="MUSIC">Music</option>
+                </Select>
+              </div>
+              <div className="space-y-1 md:col-span-2">
+                <Label>Title</Label>
+                <Input value={broadcastTitle} onChange={(e) => setBroadcastTitle(e.target.value)} />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label>Message</Label>
+              <Textarea rows={4} value={broadcastBody} onChange={(e) => setBroadcastBody(e.target.value)} />
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={sendBroadcast}>Send Broadcast</Button>
+            </div>
+          </CardBody>
+        </Card>
+      )}
+
+      {isBishop && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Backup and Restore</CardTitle>
+          </CardHeader>
+          <CardBody className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="secondary" onClick={exportSnapshot}>
+                Generate Snapshot JSON
+              </Button>
+              <Select value={importMode} onChange={(e) => setImportMode(e.target.value as ImportMode)} className="w-48">
+                <option value="merge">Import mode: Merge</option>
+                <option value="replace">Import mode: Replace</option>
+              </Select>
+              <Button variant="secondary" onClick={() => navigator.clipboard?.writeText(snapshot)} disabled={!snapshot.trim()}>
+                Copy Snapshot
+              </Button>
+            </div>
+            <div className="space-y-1">
+              <Label>Snapshot JSON</Label>
+              <Textarea
+                rows={10}
+                value={snapshot}
+                onChange={(e) => setSnapshot(e.target.value)}
+                placeholder="Paste exported JSON here for merge/restore"
+              />
+            </div>
+            <div className="flex justify-end">
+              <Button variant="danger" onClick={importSnapshot}>
+                Apply Snapshot
+              </Button>
+            </div>
+            <div className="text-xs text-slate-500">
+              Use replace only for full restore; merge will keep existing records and update by row IDs.
             </div>
           </CardBody>
         </Card>

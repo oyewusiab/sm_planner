@@ -36,6 +36,7 @@ const nowISO = () => new Date().toISOString();
 
 let remoteSyncTimer: number | null = null;
 let remoteSyncInFlight = false;
+let remotePullInFlight = false;
 let suppressRemoteSync = 0;
 let hasPendingPush = false; // Track if local changes are waiting to be sent
 
@@ -178,7 +179,7 @@ function scheduleRemoteSync() {
   if (remoteSyncTimer) window.clearTimeout(remoteSyncTimer);
   remoteSyncTimer = window.setTimeout(() => {
     void pushAllToBackend();
-  }, 800);
+  }, 250);
 }
 
 async function pushAllToBackend() {
@@ -209,10 +210,12 @@ function setDBInternal(next: DB, suppressRemote?: boolean) {
 
 export async function syncFromBackend(): Promise<boolean> {
   if (!backendEnabled()) return false;
+  if (remotePullInFlight) return false;
   if (hasPendingPush) {
     console.log("[Sync] Skipping pull: local changes are pending push.");
     return false;
   }
+  remotePullInFlight = true;
   notifySyncListeners(true);
   try {
     const remote = await exportRemoteDB();
@@ -265,6 +268,7 @@ export async function syncFromBackend(): Promise<boolean> {
     console.warn("[Sync] Sync from backend failed:", err);
     return false;
   } finally {
+    remotePullInFlight = false;
     notifySyncListeners(false);
   }
 }

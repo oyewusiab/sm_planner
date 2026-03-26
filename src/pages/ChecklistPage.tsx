@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ChecklistTask, Planner, UnitSettings, User } from "../types";
-import { Badge, Button, Card, CardBody, CardHeader, CardTitle, Divider, EmptyState, Label, SectionTitle, Select } from "../components/ui";
+import { Badge, Button, Card, CardBody, CardHeader, CardTitle, Divider, EmptyState, Input, Label, SectionTitle, Select } from "../components/ui";
 import { Modal } from "../components/Modal";
 import { formatDateShort, formatTime12h, monthName } from "../utils/date";
 import { getDB, ids, time, updateDB } from "../utils/storage";
@@ -17,11 +17,16 @@ const DEFAULT_TASKS = [
   "Presiding confirmed",
 ];
 
-function seedChecklist(planner: Planner, week_id: string, week_label: string, updated_by: string) {
+function getTaskTemplates(unit: UnitSettings) {
+  const custom = (unit.prefs?.checklist_tasks || []).map((x) => (x || "").trim()).filter(Boolean);
+  return custom.length ? custom : DEFAULT_TASKS;
+}
+
+function seedChecklist(planner: Planner, week_id: string, week_label: string, updated_by: string, templates: string[]) {
   updateDB((db0) => {
     const existing = db0.CHECKLISTS.filter((c) => c.planner_id === planner.planner_id && c.week_id === week_id);
     if (existing.length > 0) return db0;
-    const created: ChecklistTask[] = DEFAULT_TASKS.map((task) => ({
+    const created: ChecklistTask[] = templates.map((task) => ({
       checklist_id: ids.uid("chk"),
       planner_id: planner.planner_id,
       week_id,
@@ -48,6 +53,7 @@ export function ChecklistPage({
   const enabled = unit.prefs?.enable_checklist !== false;
   const db = getDB();
   const members = db.MEMBERS;
+  const taskTemplates = useMemo(() => getTaskTemplates(unit), [unit]);
 
   const planners = useMemo(
     () => [...db.PLANNERS].filter((p) => p.state !== "ARCHIVED").sort((a, b) => b.updated_date.localeCompare(a.updated_date)),
@@ -58,6 +64,11 @@ export function ChecklistPage({
   const today = new Date().toISOString().split("T")[0];
 
   const [viewMode, setViewMode] = useState<"week" | "aggregate">("week");
+  const [searchTask, setSearchTask] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "done" | "pending">("all");
+  const [responsibleFilter, setResponsibleFilter] = useState("");
+  const [quickTask, setQuickTask] = useState("");
+  const [bulkResponsible, setBulkResponsible] = useState("");
 
   const [plannerId, setPlannerId] = useState(() => {
     const next = planners.find(p => p.weeks.some(w => w.date >= today));
@@ -101,10 +112,10 @@ export function ChecklistPage({
 
   useEffect(() => {
     if (!planner || !weekId) return;
-    seedChecklist(planner, weekId, weekLabel, user.user_id);
+    seedChecklist(planner, weekId, weekLabel, user.user_id, taskTemplates);
     onChanged();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plannerId, weekId]);
+  }, [plannerId, weekId, taskTemplates]);
 
   const tasks = useMemo(() => {
     if (!planner || !weekId) return [];
@@ -112,6 +123,18 @@ export function ChecklistPage({
       .filter((c) => c.planner_id === planner.planner_id && c.week_id === weekId)
       .sort((a, b) => a.task.localeCompare(b.task));
   }, [db.CHECKLISTS, planner, weekId]);
+
+  const filteredTasks = useMemo(() => {
+    const q = searchTask.trim().toLowerCase();
+    const r = responsibleFilter.trim().toLowerCase();
+    return tasks.filter((t) => {
+      if (statusFilter === "done" && !t.status) return false;
+      if (statusFilter === "pending" && t.status) return false;
+      if (q && !`${t.task}\n${t.responsible || ""}`.toLowerCase().includes(q)) return false;
+      if (r && !(t.responsible || "").toLowerCase().includes(r)) return false;
+      return true;
+    });
+  }, [tasks, searchTask, statusFilter, responsibleFilter]);
 
   // Aggregate: completion per week across selected planner
   const aggregateData = useMemo(() => {
@@ -129,6 +152,7 @@ export function ChecklistPage({
   const [printOpen, setPrintOpen] = useState(false);
 
   const completion = tasks.length ? Math.round((tasks.filter((t) => t.status).length / tasks.length) * 100) : 0;
+  const pendingCount = tasks.filter((t) => !t.status).length;
 
   if (!enabled) {
     return <EmptyState title="Checklist disabled" body="An Admin has disabled the readiness checklist in Settings." />;
@@ -160,6 +184,66 @@ export function ChecklistPage({
       );
       return { ...db0, CHECKLISTS };
     });
+    onChanged();
+  }
+
+  function addTask() {
+    if (!planner || !weekId) return;
+    const title = quickTask.trim();
+    if (!title) return;
+    updateDB((db0) => {
+      const row: ChecklistTask = {
+        checklist_id: ids.uid("chk"),
+        planner_id: planner.planner_id,
+        week_id: weekId,
+        week_label: weekLabel || `Week ${planner.weeks.findIndex((w) => w.week_id === weekId) + 1}`,
+        task: title,
+        responsible: "",
+        status: false,
+        updated_by: user.user_id,
+        updated_date: time.nowISO(),
+      };
+      return { ...db0, CHECKLISTS: [row, ...db0.CHECKLISTS] };
+    });
+    setQuickTask("");
+    onChanged();
+  }
+
+  function deleteTask(checklist_id: string) {
+    const ok = window.confirm("Delete this checklist task?");
+    if (!ok) return;
+    updateDB((db0) => ({
+      ...db0,
+      CHECKLISTS: db0.CHECKLISTS.filter((c) => c.checklist_id !== checklist_id),
+    }));
+    onChanged();
+  }
+
+  function markAll(status: boolean) {
+    if (!planner || !weekId) return;
+    updateDB((db0) => ({
+      ...db0,
+      CHECKLISTS: db0.CHECKLISTS.map((c) =>
+        c.planner_id === planner.planner_id && c.week_id === weekId
+          ? { ...c, status, updated_by: user.user_id, updated_date: time.nowISO() }
+          : c
+      ),
+    }));
+    onChanged();
+  }
+
+  function assignPendingToResponsible() {
+    if (!planner || !weekId) return;
+    const name = bulkResponsible.trim();
+    if (!name) return;
+    updateDB((db0) => ({
+      ...db0,
+      CHECKLISTS: db0.CHECKLISTS.map((c) =>
+        c.planner_id === planner.planner_id && c.week_id === weekId && !c.status
+          ? { ...c, responsible: name, updated_by: user.user_id, updated_date: time.nowISO() }
+          : c
+      ),
+    }));
     onChanged();
   }
 
@@ -327,6 +411,7 @@ export function ChecklistPage({
                       {completion}%
                     </div>
                     <div className="text-xs text-slate-500 font-bold">Ready</div>
+                    <Badge tone={pendingCount === 0 ? "green" : "amber"}>{pendingCount} pending</Badge>
                   </div>
                 </div>
               )}
@@ -339,6 +424,56 @@ export function ChecklistPage({
                   <Button variant="secondary" onClick={resetWeek}>
                     Reset week
                   </Button>
+                  <Button variant="secondary" onClick={() => markAll(true)}>
+                    Mark all done
+                  </Button>
+                  <Button variant="secondary" onClick={() => markAll(false)}>
+                    Mark all pending
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                <div className="space-y-1 md:col-span-2">
+                  <Label>Search tasks</Label>
+                  <Input value={searchTask} onChange={(e) => setSearchTask(e.target.value)} placeholder="Search task/responsible" />
+                </div>
+                <div className="space-y-1">
+                  <Label>Status</Label>
+                  <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)}>
+                    <option value="all">All</option>
+                    <option value="pending">Pending</option>
+                    <option value="done">Done</option>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label>Responsible contains</Label>
+                  <Input value={responsibleFilter} onChange={(e) => setResponsibleFilter(e.target.value)} placeholder="Name" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
+                <div className="space-y-1 md:col-span-3">
+                  <Label>Add task to this week</Label>
+                  <Input value={quickTask} onChange={(e) => setQuickTask(e.target.value)} placeholder="Enter task and click Add" />
+                </div>
+                <div className="flex items-end">
+                  <Button onClick={addTask}>Add Task</Button>
+                </div>
+                <div className="space-y-1 md:col-span-2">
+                  <Label>Assign all pending to</Label>
+                  <MemberAutocomplete
+                    members={members}
+                    value={bulkResponsible}
+                    onChange={setBulkResponsible}
+                    onPick={(m) => setBulkResponsible(m.name)}
+                    placeholder="Select member"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <Button variant="secondary" onClick={assignPendingToResponsible}>
+                    Assign Pending
+                  </Button>
                 </div>
               </div>
 
@@ -349,10 +484,11 @@ export function ChecklistPage({
                       <th className="p-3 font-medium text-slate-600">Task</th>
                       <th className="p-3 font-medium text-slate-600">Responsible</th>
                       <th className="p-3 font-medium text-slate-600">Status</th>
+                      <th className="p-3 font-medium text-slate-600">Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {tasks.map((t) => (
+                    {filteredTasks.map((t) => (
                       <tr key={t.checklist_id} className={`border-t border-[color:var(--border)] transition-colors ${t.status ? "bg-emerald-50/30" : ""}`}>
                         <td className="p-3">
                           <span className={t.status ? "line-through text-slate-400" : ""}>{t.task}</span>
@@ -377,6 +513,11 @@ export function ChecklistPage({
                               {t.status ? "Done ✓" : "Pending"}
                             </span>
                           </label>
+                        </td>
+                        <td className="p-3">
+                          <Button variant="ghost" onClick={() => deleteTask(t.checklist_id)}>
+                            Delete
+                          </Button>
                         </td>
                       </tr>
                     ))}

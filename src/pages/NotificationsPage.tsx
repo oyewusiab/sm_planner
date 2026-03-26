@@ -64,14 +64,26 @@ export function NotificationsPage({
   const [tab, setTab] = useState<TabKey>("inbox");
   const [onlyUnread, setOnlyUnread] = useState(false);
   const [q, setQ] = useState("");
+  const [typeFilter, setTypeFilter] = useState<"ALL" | string>("ALL");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [todoScope, setTodoScope] = useState<"mine" | "all">("mine");
+  const [todoStatusFilter, setTodoStatusFilter] = useState<"all" | "open" | "done">("all");
 
   const notifs = useMemo(() => {
     const all = listNotificationsForUser(user.user_id);
-    const filtered = onlyUnread ? all.filter((n) => !n.read) : all;
+    const filtered = all.filter((n) => {
+      if (onlyUnread && n.read) return false;
+      if (typeFilter !== "ALL" && n.type !== typeFilter) return false;
+      const d = n.created_date.slice(0, 10);
+      if (fromDate && d < fromDate) return false;
+      if (toDate && d > toDate) return false;
+      return true;
+    });
     if (!q.trim()) return filtered;
     const s = q.trim().toLowerCase();
     return filtered.filter((n) => (n.title + "\n" + n.body).toLowerCase().includes(s));
-  }, [user.user_id, onlyUnread, q]);
+  }, [user.user_id, onlyUnread, q, typeFilter, fromDate, toDate]);
 
   const today = useMemo(() => getTodayPartsInTimeZone(), []);
   const todayISO = `${today.year}-${String(today.month).padStart(2, "0")}-${String(today.day).padStart(2, "0")}`;
@@ -95,9 +107,17 @@ export function NotificationsPage({
 
   const todos = useMemo(() => {
     const all = (db.TODOS as TodoItem[]).slice();
-    const mine = all.filter((t) => !t.assigned_to_user_id || t.assigned_to_user_id === user.user_id);
-    return mine.sort((a, b) => (a.status + (a.due_date || "") + a.title).localeCompare(b.status + (b.due_date || "") + b.title));
-  }, [db.TODOS, user.user_id]);
+    const scoped =
+      todoScope === "all" && user.role === "ADMIN"
+        ? all
+        : all.filter((t) => !t.assigned_to_user_id || t.assigned_to_user_id === user.user_id);
+    const filtered = scoped.filter((t) => {
+      if (todoStatusFilter === "open") return t.status !== "DONE";
+      if (todoStatusFilter === "done") return t.status === "DONE";
+      return true;
+    });
+    return filtered.sort((a, b) => (a.status + (a.due_date || "") + a.title).localeCompare(b.status + (b.due_date || "") + b.title));
+  }, [db.TODOS, user.user_id, user.role, todoScope, todoStatusFilter]);
 
   const pendingApprovals = useMemo(() => {
     const settings = [...db.SETTINGS_REQUESTS].filter((r) => r.status === "PENDING");
@@ -185,6 +205,58 @@ export function NotificationsPage({
     if (!u) return false;
     sendReminderToUser(u.user_id, "Assignment reminder", body);
     return true;
+  }
+
+  function markUnread(notification_id: string) {
+    updateDB((db0) => ({
+      ...db0,
+      NOTIFICATIONS: db0.NOTIFICATIONS.map((n) =>
+        n.notification_id === notification_id ? { ...n, read: false } : n
+      ),
+    }));
+    onChanged();
+  }
+
+  function deleteNotification(notification_id: string) {
+    updateDB((db0) => ({
+      ...db0,
+      NOTIFICATIONS: db0.NOTIFICATIONS.filter((n) => n.notification_id !== notification_id),
+    }));
+    onChanged();
+  }
+
+  function clearReadNotifications() {
+    updateDB((db0) => ({
+      ...db0,
+      NOTIFICATIONS: db0.NOTIFICATIONS.filter((n) => n.to_user_id !== user.user_id || !n.read),
+    }));
+    onChanged();
+  }
+
+  function deleteTodo(todo_id: string) {
+    updateDB((db0) => ({
+      ...db0,
+      TODOS: db0.TODOS.filter((t) => t.todo_id !== todo_id),
+    }));
+    onChanged();
+  }
+
+  function sendReminderToAllDue() {
+    let sent = 0;
+    let unmatched = 0;
+    for (const a of dueAssignments) {
+      const body =
+        `${unit.unit_name}\n` +
+        `Assignment: ${a.role}\n` +
+        `Date: ${formatDateShort(a.date)}\n` +
+        `Venue: ${a.venue}\n` +
+        `Time: ${formatTime12h(a.meeting_time)}` +
+        (a.topic ? `\nTopic: ${a.topic}` : "");
+      const ok = sendReminderForAssignment(a.person, body);
+      if (ok) sent += 1;
+      else unmatched += 1;
+    }
+    alert(`Reminders sent: ${sent}\nNo linked user account: ${unmatched}`);
   }
 
   function approveRequest(req: SettingsChangeRequest) {
@@ -334,6 +406,20 @@ export function NotificationsPage({
           {tab === "inbox" ? (
             <div className="flex flex-col gap-2 md:flex-row md:items-center">
               <Input placeholder="Search inbox…" value={q} onChange={(e) => setQ(e.target.value)} />
+              <Select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+                <option value="ALL">All types</option>
+                <option value="REMINDER">Reminder</option>
+                <option value="TODO_ASSIGNED">To-do assigned</option>
+                <option value="TODO_COMPLETED">To-do completed</option>
+                <option value="PLANNER_SUBMITTED">Planner submitted</option>
+                <option value="MUSIC_INPUT_REQUEST">Music input request</option>
+                <option value="SETTINGS_APPROVAL_REQUEST">Settings request</option>
+                <option value="SETTINGS_APPROVAL_DECISION">Settings decision</option>
+                <option value="PLANNER_APPROVAL_REQUEST">Planner approval request</option>
+                <option value="PLANNER_APPROVAL_DECISION">Planner approval decision</option>
+              </Select>
+              <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+              <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
               <label className="inline-flex items-center gap-2 text-sm text-slate-600">
                 <input type="checkbox" checked={onlyUnread} onChange={(e) => setOnlyUnread(e.target.checked)} />
                 Unread only
@@ -346,6 +432,9 @@ export function NotificationsPage({
                 }}
               >
                 Mark all read
+              </Button>
+              <Button variant="secondary" onClick={clearReadNotifications}>
+                Clear read
               </Button>
             </div>
           ) : null}
@@ -370,15 +459,26 @@ export function NotificationsPage({
                       <div className="mt-2 text-xs text-slate-500">{new Date(n.created_date).toLocaleString()}</div>
                     </div>
                     <div className="shrink-0">
-                      <Button
-                        variant="secondary"
-                        onClick={() => {
-                          markRead(n.notification_id);
-                          onChanged();
-                        }}
-                      >
-                        Mark read
-                      </Button>
+                      <div className="flex flex-col gap-2">
+                        {!n.read ? (
+                          <Button
+                            variant="secondary"
+                            onClick={() => {
+                              markRead(n.notification_id);
+                              onChanged();
+                            }}
+                          >
+                            Mark read
+                          </Button>
+                        ) : (
+                          <Button variant="secondary" onClick={() => markUnread(n.notification_id)}>
+                            Mark unread
+                          </Button>
+                        )}
+                        <Button variant="ghost" onClick={() => deleteNotification(n.notification_id)}>
+                          Delete
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </CardBody>
@@ -445,7 +545,12 @@ export function NotificationsPage({
           ) : (
             <Card>
               <CardHeader>
-                <CardTitle>Next 14 days</CardTitle>
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle>Next 14 days</CardTitle>
+                  <Button variant="secondary" onClick={sendReminderToAllDue}>
+                    Send reminders to all
+                  </Button>
+                </div>
               </CardHeader>
               <CardBody>
                 <div className="overflow-hidden rounded-xl border border-[color:var(--border)]">
@@ -571,6 +676,23 @@ export function NotificationsPage({
               <CardTitle>My To‑Dos</CardTitle>
             </CardHeader>
             <CardBody className="space-y-3">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="space-y-1">
+                  <Label>Scope</Label>
+                  <Select value={todoScope} onChange={(e) => setTodoScope(e.target.value as "mine" | "all")}>
+                    <option value="mine">Mine</option>
+                    {user.role === "ADMIN" ? <option value="all">All users</option> : null}
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label>Status</Label>
+                  <Select value={todoStatusFilter} onChange={(e) => setTodoStatusFilter(e.target.value as "all" | "open" | "done")}>
+                    <option value="all">All</option>
+                    <option value="open">Open</option>
+                    <option value="done">Done</option>
+                  </Select>
+                </div>
+              </div>
               {todos.length === 0 ? (
                 <EmptyState title="To‑Dos" body="No tasks yet." />
               ) : (
@@ -594,15 +716,20 @@ export function NotificationsPage({
                         </div>
                       </div>
                       <div className="shrink-0">
-                        {t.status !== "DONE" ? (
-                          <Button variant="secondary" onClick={() => setTodoStatus(t.todo_id, "DONE")}>
-                            Mark done
+                        <div className="flex gap-2">
+                          {t.status !== "DONE" ? (
+                            <Button variant="secondary" onClick={() => setTodoStatus(t.todo_id, "DONE")}>
+                              Mark done
+                            </Button>
+                          ) : (
+                            <Button variant="ghost" onClick={() => setTodoStatus(t.todo_id, "OPEN")}>
+                              Re‑open
+                            </Button>
+                          )}
+                          <Button variant="ghost" onClick={() => deleteTodo(t.todo_id)}>
+                            Delete
                           </Button>
-                        ) : (
-                          <Button variant="ghost" onClick={() => setTodoStatus(t.todo_id, "OPEN")}>
-                            Re‑open
-                          </Button>
-                        )}
+                        </div>
                       </div>
                     </div>
                   </div>

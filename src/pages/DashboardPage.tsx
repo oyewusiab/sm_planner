@@ -79,11 +79,10 @@ export function DashboardPage({
   );
 
   const currentMonthSundays = nextSundaysInMonth(month, year);
-  const plannersThisMonth = db.PLANNERS.filter((p) => p.month === month && p.year === year);
-  const submittedThisMonth = plannersThisMonth.filter((p) => p.state === "SUBMITTED");
-  const latestSubmitted = submittedThisMonth.sort(
-    (a, b) => b.updated_date.localeCompare(a.updated_date)
-  )[0];
+  const submittedPlanners = [...db.PLANNERS]
+    .filter((p) => p.state === "SUBMITTED")
+    .sort((a, b) => b.updated_date.localeCompare(a.updated_date));
+  const latestSubmitted = submittedPlanners[0];
 
   const speakerCount = useMemo(() => {
     if (!latestSubmitted) return 0;
@@ -93,7 +92,7 @@ export function DashboardPage({
     );
   }, [latestSubmitted]);
 
-  const checklistStats = useMemo(() => {
+  const aggregateChecklistStats = useMemo(() => {
     if (!latestSubmitted) return { done: 0, total: 0, pct: 0 };
     const forPlanner = db.CHECKLISTS.filter((c) => c.planner_id === latestSubmitted.planner_id);
     const total = forPlanner.length;
@@ -101,6 +100,28 @@ export function DashboardPage({
     const pct = total ? Math.round((done / total) * 100) : 0;
     return { done, total, pct };
   }, [db.CHECKLISTS, latestSubmitted]);
+
+  const nextSundayInfo = useMemo(() => {
+    const todayISO = new Date().toISOString().slice(0, 10);
+    const upcomingMeetings = submittedPlanners
+      .flatMap((p) => p.weeks.map((w) => ({ planner_id: p.planner_id, week_id: w.week_id, date: w.date })))
+      .filter((w) => w.date >= todayISO)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    return upcomingMeetings[0] || null;
+  }, [submittedPlanners]);
+
+  const nextSundayChecklistStats = useMemo(() => {
+    if (!nextSundayInfo) return { done: 0, total: 0, pct: 0 };
+    const rows = db.CHECKLISTS.filter(
+      (c) => c.planner_id === nextSundayInfo.planner_id && c.week_id === nextSundayInfo.week_id
+    );
+    const total = rows.length;
+    const done = rows.filter((r) => r.status).length;
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    return { done, total, pct };
+  }, [db.CHECKLISTS, nextSundayInfo]);
+
+  const readinessStats = nextSundayInfo ? nextSundayChecklistStats : aggregateChecklistStats;
 
   const upcoming = useMemo(() => {
     const todayISO = new Date().toISOString().slice(0, 10);
@@ -141,7 +162,7 @@ export function DashboardPage({
                 </div>
                 <div className="flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm">
                   <span>✅</span>
-                  <span>{checklistStats.pct}% checklist done</span>
+                  <span>{readinessStats.pct}% checklist done</span>
                 </div>
               </>
             )}
@@ -245,26 +266,33 @@ export function DashboardPage({
             </div>
             <div className="mt-4 flex items-center gap-4">
               <div className="relative shrink-0">
-                <ProgressRing pct={checklistStats.pct} size={80} />
+                <ProgressRing pct={readinessStats.pct} size={80} />
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-lg font-extrabold text-slate-800">{checklistStats.pct}%</span>
+                  <span className="text-lg font-extrabold text-slate-800">{readinessStats.pct}%</span>
                 </div>
               </div>
               <div className="min-w-0">
                 <div className="text-2xl font-bold text-slate-800">
-                  {checklistStats.done}
+                  {readinessStats.done}
                   <span className="text-base font-normal text-slate-400">
-                    /{checklistStats.total}
+                    /{readinessStats.total}
                   </span>
                 </div>
-                <div className="text-xs text-slate-400">tasks completed</div>
+                <div className="text-xs text-slate-400">
+                  {nextSundayInfo ? `Next Sunday (${formatDateShort(nextSundayInfo.date)})` : "Latest submitted planner"}
+                </div>
                 <div className="mt-2 text-xs font-medium text-emerald-600">
-                  {checklistStats.pct >= 100
+                  {readinessStats.pct >= 100
                     ? "🎉 All done!"
-                    : checklistStats.pct >= 50
+                    : readinessStats.pct >= 50
                     ? "Making progress!"
                     : "Getting started…"}
                 </div>
+                {nextSundayInfo && (
+                  <div className="mt-1 text-[11px] text-slate-400">
+                    Overall planner: {aggregateChecklistStats.done}/{aggregateChecklistStats.total} ({aggregateChecklistStats.pct}%)
+                  </div>
+                )}
               </div>
             </div>
             <div className="mt-4">
