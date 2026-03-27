@@ -84,6 +84,22 @@ export function AppShell({
   const [notifOpen, setNotifOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifTick, setNotifTick] = useState(0);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  const visibleNavItems = useMemo(
+    () =>
+      navItems.filter(
+        (i) =>
+          (!i.roles || i.roles.includes(user.role)) &&
+          (!i.show || i.show(user))
+      ),
+    [user]
+  );
+
+  const mobilePrimaryNav = useMemo(
+    () => visibleNavItems.filter((i) => i.key !== "archive").slice(0, 5),
+    [visibleNavItems]
+  );
 
   const { notifs, unread } = useMemo(() => {
     void notifTick;
@@ -122,6 +138,36 @@ export function AppShell({
 
   return (
     <div className="min-h-screen" style={{ background: "var(--bg)" }}>
+      <div className="no-print sticky top-0 z-40 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur md:hidden">
+        <div className="flex items-center gap-2">
+          <button
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700"
+            onClick={() => setMobileNavOpen(true)}
+            title="Open menu"
+          >
+            ☰
+          </button>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-semibold text-slate-800">{unit.unit_name}</div>
+            <div className="truncate text-[11px] text-slate-500">{user.calling || user.role}</div>
+          </div>
+          <button
+            className={cn(
+              "relative inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700",
+              unread ? "ring-2 ring-sky-200" : ""
+            )}
+            title="Notifications"
+            onClick={() => setNotifOpen(true)}
+          >
+            🔔
+            {unread ? (
+              <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-sky-600 px-1 text-[11px] font-bold text-white">
+                {unread}
+              </span>
+            ) : null}
+          </button>
+        </div>
+      </div>
       <div className="grid min-h-screen grid-cols-1 md:grid-cols-[268px_1fr]">
         {/* ── Sidebar ── */}
         <aside
@@ -206,13 +252,7 @@ export function AppShell({
               Navigation
             </div>
             <div className="space-y-0.5">
-              {navItems
-                .filter(
-                  (i) =>
-                    (!i.roles || i.roles.includes(user.role)) &&
-                    (!i.show || i.show(user))
-                )
-                .map((i) => {
+              {visibleNavItems.map((i) => {
                   const active = route === i.key;
                   return (
                     <button
@@ -275,9 +315,88 @@ export function AppShell({
         </aside>
 
         {/* ── Main content ── */}
-        <main className="p-4 md:p-8">
+        <main className="p-4 pb-24 md:p-8 md:pb-8">
           <div className="mx-auto max-w-6xl">{children}</div>
         </main>
+
+        {mobileNavOpen ? (
+          <div className="no-print fixed inset-0 z-50 md:hidden">
+            <button
+              className="absolute inset-0 bg-slate-900/40"
+              onClick={() => setMobileNavOpen(false)}
+              aria-label="Close menu overlay"
+            />
+            <div className="absolute left-0 top-0 h-full w-[82%] max-w-[320px] overflow-auto bg-white p-4 shadow-xl">
+              <div className="mb-3 flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-bold text-slate-800">{formatUserDisplayName(user)}</div>
+                  <div className="text-xs text-slate-500">{user.calling || user.role}</div>
+                </div>
+                <button
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600"
+                  onClick={() => setMobileNavOpen(false)}
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="space-y-1">
+                {visibleNavItems.map((i) => {
+                  const active = route === i.key;
+                  return (
+                    <button
+                      key={i.key}
+                      onClick={() => {
+                        setRoute(i.key);
+                        setMobileNavOpen(false);
+                      }}
+                      className={cn(
+                        "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm",
+                        active ? "bg-sky-50 text-sky-800" : "text-slate-700 hover:bg-slate-50"
+                      )}
+                    >
+                      <span>{i.icon}</span>
+                      <span>{i.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-4 border-t border-slate-200 pt-3">
+                <Button variant="secondary" className="w-full" onClick={() => setProfileOpen(true)}>
+                  Open Profile
+                </Button>
+                <Button variant="ghost" className="mt-2 w-full" onClick={onLogout}>
+                  Sign out
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="no-print fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-2 py-1 backdrop-blur md:hidden">
+          <div className="grid grid-cols-5 gap-1">
+            {mobilePrimaryNav.map((i) => {
+              const active = route === i.key;
+              return (
+                <button
+                  key={i.key}
+                  onClick={() => setRoute(i.key)}
+                  className={cn(
+                    "relative flex flex-col items-center rounded-md px-1 py-1 text-[11px]",
+                    active ? "bg-sky-50 text-sky-700" : "text-slate-600"
+                  )}
+                >
+                  <span className="text-base leading-none">{i.icon}</span>
+                  <span className="truncate">{i.label}</span>
+                  {i.key === "notifications" && unread ? (
+                    <span className="absolute right-2 top-0 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-sky-600 px-1 text-[10px] font-bold text-white">
+                      {unread}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         <ProfileModal
           open={profileOpen}

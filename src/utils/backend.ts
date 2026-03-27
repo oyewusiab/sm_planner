@@ -13,6 +13,8 @@ type ApiResponse<T> = {
   ts?: string;
 };
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export function backendEnabled() {
   return Boolean(BASE_URL);
 }
@@ -52,30 +54,41 @@ async function apiPost<T>(body: any): Promise<ApiResponse<T>> {
   }
 }
 
+async function withBusyRetry<T>(request: () => Promise<ApiResponse<T>>, attempts = 3): Promise<ApiResponse<T>> {
+  let last: ApiResponse<T> | null = null;
+  for (let i = 0; i < attempts; i++) {
+    const res = await request();
+    last = res;
+    if (res?.ok || res?.error !== "busy_try_again" || i === attempts - 1) return res;
+    await sleep(200 * (i + 1));
+  }
+  return last || { ok: false, error: "request_failed" };
+}
+
 export async function exportRemoteDB(): Promise<any | null> {
   if (!backendEnabled()) return null;
-  const res = await apiGet<any>({ action: "export" });
+  const res = await withBusyRetry(() => apiGet<any>({ action: "export" }));
   if (!res.ok) throw new Error(res.error || "export_failed");
   return res.data || null;
 }
 
 export async function importRemoteDB(db: any, mode: "merge" | "replace" = "merge") {
   if (!backendEnabled()) return null;
-  const res = await apiPost<any>({ action: "import", mode, db });
+  const res = await withBusyRetry(() => apiPost<any>({ action: "import", mode, db }));
   if (!res.ok) throw new Error(res.error || "import_failed");
   return res.data || null;
 }
 
 export async function pingBackend() {
   if (!backendEnabled()) return null;
-  const res = await apiGet<any>({ action: "ping" });
+  const res = await withBusyRetry(() => apiGet<any>({ action: "ping" }));
   if (!res.ok) throw new Error(res.error || "ping_failed");
   return res.data || null;
 }
 
 export async function syncMusic() {
   if (!backendEnabled()) return null;
-  const res = await apiGet<any>({ action: "syncHymns" });
+  const res = await withBusyRetry(() => apiGet<any>({ action: "syncHymns" }));
   if (!res.ok) throw new Error(res.error || "sync_failed");
   return res.data || null;
 }

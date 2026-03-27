@@ -28,7 +28,7 @@ function LoadingScreen({ label = "Loading…" }: { label?: string }) {
 }
 
 type BackendStatus = "disabled" | "connecting" | "online" | "error";
-const AUTO_SYNC_INTERVAL_MS = 20000;
+const AUTO_SYNC_INTERVAL_MS = 10000;
 
 export function App() {
   const [booting, setBooting] = useState(true);

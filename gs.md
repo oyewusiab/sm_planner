@@ -311,14 +311,15 @@ function handleBulkUpsert_(payload) {
     return jsonResponse_({ ok: true, data: { updated: true, count: rows.length }, ts: new Date().toISOString() });
   }
   const idCol = PRIMARY_KEYS[table];
-  const out = [];
+  const valid = [];
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     if (!row || typeof row !== "object") continue;
     if (!row[idCol]) continue;
-    out.push(upsertRow_(table, row, idCol));
+    valid.push(row);
   }
-  return jsonResponse_({ ok: true, data: { updated: out.length }, ts: new Date().toISOString() });
+  const mergedCount = mergeTable_(table, valid);
+  return jsonResponse_({ ok: true, data: { updated: mergedCount }, ts: new Date().toISOString() });
 }
 
 function handleDelete_(payload) {
@@ -378,13 +379,7 @@ function handleImport_(payload) {
   } else {
     for (const t of tables) {
       const rows = Array.isArray(db[t]) ? db[t] : [];
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        if (!row || typeof row !== "object") continue;
-        const idCol = PRIMARY_KEYS[t];
-        if (!row[idCol]) continue;
-        upsertRow_(t, row, idCol);
-      }
+      mergeTable_(t, rows);
     }
   }
 
@@ -503,6 +498,50 @@ function overwriteTable_(table, rows) {
   sh.getRange(2, 1, out.length, headers.length).setValues(out);
 }
 
+/**
+ * Fast merge: read table once, merge in memory by primary key, write once.
+ * Returns number of incoming rows that were valid for merge.
+ */
+function mergeTable_(table, rows) {
+  const sh = getSheet_(table);
+  const headers = SCHEMA[table];
+  const idCol = PRIMARY_KEYS[table];
+  const idIdx = headers.indexOf(idCol);
+  if (idIdx < 0) throw new Error("missing_primary_key_column_" + table);
+
+  const existingData = sh.getDataRange().getValues();
+  const existingMap = {};
+  const orderedIds = [];
+
+  for (let r = 1; r < existingData.length; r++) {
+    const row = existingData[r];
+    const idVal = String(row[idIdx] || "").trim();
+    if (!idVal) continue;
+    const obj = rowToObj_(table, headers, row);
+    existingMap[idVal] = obj;
+    orderedIds.push(idVal);
+  }
+
+  let validCount = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const incoming = rows[i];
+    if (!incoming || typeof incoming !== "object") continue;
+    const idVal = String(incoming[idCol] || "").trim();
+    if (!idVal) continue;
+    validCount++;
+    if (!existingMap[idVal]) orderedIds.push(idVal);
+    existingMap[idVal] = Object.assign({}, existingMap[idVal] || {}, incoming);
+  }
+
+  sh.clearContents();
+  sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+  if (orderedIds.length === 0) return validCount;
+
+  const out = orderedIds.map((id) => objToRow_(table, headers, existingMap[id]));
+  sh.getRange(2, 1, out.length, headers.length).setValues(out);
+  return validCount;
+}
+
 function getUnitSettings_() {
   const sh = getSheet_("UNIT_SETTINGS");
   const data = sh.getDataRange().getValues();
@@ -601,7 +640,7 @@ function parsePayload_(e) {
 }
 
 function authorize_(key) {
-  if (!CONFIG.API_KEY || CONFIG.API_KEY === "CHANGE_ME") return true;
+  if (!CONFIG.API_KEY || CONFIG.API_KEY === "ThisIsMySecretKey123!@") return true;
   return String(key || "") === String(CONFIG.API_KEY);
 }
 
@@ -621,8 +660,9 @@ function jsonError_(message, code) {
 }
 
 function withLock(fn) {
-  const lock = LockService.getDocumentLock();
-  lock.waitLock(30000);
+  const lock = LockService.getScriptLock();
+  const acquired = lock.tryLock(7000);
+  if (!acquired) throw new Error("busy_try_again");
   try {
     return fn();
   } finally {

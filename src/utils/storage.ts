@@ -179,7 +179,7 @@ function scheduleRemoteSync() {
   if (remoteSyncTimer) window.clearTimeout(remoteSyncTimer);
   remoteSyncTimer = window.setTimeout(() => {
     void pushAllToBackend();
-  }, 250);
+  }, 120);
 }
 
 async function pushAllToBackend() {
@@ -212,8 +212,12 @@ export async function syncFromBackend(): Promise<boolean> {
   if (!backendEnabled()) return false;
   if (remotePullInFlight) return false;
   if (hasPendingPush) {
-    console.log("[Sync] Skipping pull: local changes are pending push.");
-    return false;
+    console.log("[Sync] Local changes pending. Attempting push before pull.");
+    await pushAllToBackend();
+    if (hasPendingPush) {
+      console.log("[Sync] Pull skipped: pending push still not persisted.");
+      return false;
+    }
   }
   remotePullInFlight = true;
   notifySyncListeners(true);
