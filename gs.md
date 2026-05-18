@@ -1,4 +1,58 @@
 /**
+ * Scheduled task: Auto-archive completed planners after 30 days.
+ * Should be set to run daily via Apps Script time-based trigger.
+ */
+function scheduledAutoArchivePlanners() {
+  const planners = getAllRows_("PLANNERS");
+  const now = new Date();
+  let count = 0;
+  planners.forEach(planner => {
+    if (planner.state === "SUBMITTED") {
+      const year = parseInt(planner.year, 10);
+      const month = parseInt(planner.month, 10);
+      if (!isNaN(year) && !isNaN(month)) {
+        // Automatically archive 1 month after the planner's month ends
+        // e.g. for March (month=3), threshold is May 1st
+        const archiveThreshold = new Date(year, month + 1, 1);
+        if (now >= archiveThreshold) {
+          planner.state = "ARCHIVED";
+          planner.archive_method = "auto";
+          planner.archive_date = now.toISOString();
+          upsertRow_("PLANNERS", planner, "planner_id");
+          count++;
+        }
+      }
+    }
+  });
+  return `Auto-archived ${count} planners.`;
+}
+
+/**
+ * Scheduled task: Permanently delete archived planners after retention period.
+ * - Manually archived: delete after 30 days
+ * - Auto-archived: delete after 365 days
+ * Should be set to run daily via Apps Script time-based trigger.
+ */
+function scheduledDeleteArchivedPlanners() {
+  const planners = getAllRows_("PLANNERS");
+  const now = new Date();
+  let deleted = 0;
+  planners.forEach(planner => {
+    if (planner.state === "ARCHIVED") {
+      const method = planner.archive_method || "manual";
+      const dateStr = planner.archive_date || planner.updated_date || planner.created_date;
+      if (!dateStr) return;
+      const archiveDate = new Date(dateStr);
+      let days = (now - archiveDate) / (1000 * 60 * 60 * 24);
+      if ((method === "manual" && days >= 30) || (method === "auto" && days >= 365)) {
+        deleteRowById_("PLANNERS", "planner_id", planner.planner_id);
+        deleted++;
+      }
+    }
+  });
+  return `Deleted ${deleted} archived planners.`;
+}
+/**
  * Sacrament Planner - Google Sheets backend
  * Web App API for CRUD + full DB export/import
  *
@@ -23,6 +77,8 @@ const SCHEMA = {
     "created_date",
     "updated_date",
     "music_status",
+    "archive_method",
+    "archive_date",
   ],
   USERS: [
     "user_id",
@@ -51,7 +107,6 @@ const SCHEMA = {
     "disabled",
   ],
   MEMBERS: [
-    "member_id",
     "name",
     "gender",
     "age",
@@ -143,7 +198,7 @@ const SCHEMA = {
 const PRIMARY_KEYS = {
   PLANNERS: "planner_id",
   USERS: "user_id",
-  MEMBERS: "member_id",
+  MEMBERS: "name",
   ASSIGNMENTS: "assignment_id",
   CHECKLISTS: "checklist_id",
   NOTIFICATIONS: "notification_id",
@@ -176,15 +231,27 @@ const BOOLEAN_FIELDS = {
 const UNIT_JSON_KEYS = ["prefs", "venues"];
 
 function doGet(e) {
-  return withLock(() => route_(e, "GET"));
+  try {
+    return withLock(() => route_(e, "GET"));
+  } catch (err) {
+    return jsonError_(String(err), 500);
+  }
 }
 
 function doPost(e) {
-  return withLock(() => route_(e, "POST"));
+  try {
+    return withLock(() => route_(e, "POST"));
+  } catch (err) {
+    return jsonError_(String(err), 500);
+  }
 }
 
 function doOptions(e) {
-  return jsonResponse_({ ok: true, ts: new Date().toISOString() });
+  try {
+    return jsonResponse_({ ok: true, ts: new Date().toISOString() });
+  } catch (err) {
+    return jsonError_(String(err), 500);
+  }
 }
 
 function withCORS(fn) {
@@ -211,18 +278,27 @@ function onOpen() {
 
 function route_(e, method) {
   const payload = parsePayload_(e);
-  const key = payload.key || (e && e.parameter && e.parameter.key) || "";
+  // Merges URL query parameters into payload if they exist, so that GET requests can access them seamlessly
+  if (e && e.parameter) {
+    for (const key in e.parameter) {
+      if (!(key in payload)) {
+        payload[key] = e.parameter[key];
+      }
+    }
+  }
+
+  const key = payload.key || "";
   if (!authorize_(key)) {
     return jsonError_("unauthorized", 401);
   }
 
-  const action = (payload.action || (e && e.parameter && e.parameter.action) || "").toString();
+  const action = (payload.action || "").toString();
   if (!action) return jsonError_("missing_action", 400);
 
   try {
     switch (action) {
       case "ping":
-        return jsonResponse_({ ok: true, data: { message: "pong" }, ts: new Date().toISOString() });
+        return jsonResponse_({ ok: true, data: { message: "pong", db_version: getDbVersion_() }, ts: new Date().toISOString() });
       case "init":
         ensureSchema_();
         return jsonResponse_({ ok: true, data: { message: "schema_ready" }, ts: new Date().toISOString() });
@@ -245,6 +321,8 @@ function route_(e, method) {
         return handleImport_(payload);
       case "syncHymns":
         return jsonResponse_({ ok: true, data: syncLdsHymns(), ts: new Date().toISOString() });
+      case "sync_v2":
+        return handleSyncV2_(payload);
       default:
         return jsonError_("unknown_action", 400);
     }
@@ -282,6 +360,9 @@ function handleUpsert_(payload) {
   if (!table) return jsonError_("unknown_table", 400);
   const row = payload.row;
   if (!row || typeof row !== "object") return jsonError_("missing_row", 400);
+
+  incrementDbVersion_();
+
   if (table === "UNIT_SETTINGS") {
     upsertUnitSettings_(row);
     return jsonResponse_({ ok: true, data: { updated: true }, ts: new Date().toISOString() });
@@ -299,6 +380,9 @@ function handleBulkUpsert_(payload) {
   if (!table) return jsonError_("unknown_table", 400);
   const rows = Array.isArray(payload.rows) ? payload.rows : [];
   if (rows.length === 0) return jsonError_("missing_rows", 400);
+
+  incrementDbVersion_();
+
   if (table === "UNIT_SETTINGS") {
     // Accept object or array of {Key,Value}
     if (typeof rows === "object" && !Array.isArray(rows)) {
@@ -329,6 +413,9 @@ function handleDelete_(payload) {
   const idCol = PRIMARY_KEYS[table];
   const idVal = (payload.id || payload.value || "").toString();
   if (!idVal) return jsonError_("missing_id", 400);
+
+  incrementDbVersion_();
+
   if (table === "UNIT_SETTINGS") {
     deleteUnitSetting_(idVal);
     return jsonResponse_({ ok: true, data: { deleted: true }, ts: new Date().toISOString() });
@@ -353,7 +440,7 @@ function handleExport_() {
     REMINDERS: getAllRows_("REMINDERS"),
     HYMNS: getAllRows_("HYMNS"),
   };
-  return jsonResponse_({ ok: true, data: db, ts: new Date().toISOString() });
+  return jsonResponse_({ ok: true, data: db, db_version: getDbVersion_(), ts: new Date().toISOString() });
 }
 
 function handleImport_(payload) {
@@ -361,6 +448,8 @@ function handleImport_(payload) {
   const db = payload.db;
   const mode = (payload.mode || "replace").toString(); // replace | merge
   if (!db || typeof db !== "object") return jsonError_("missing_db", 400);
+
+  incrementDbVersion_();
 
   const tables = [
     "USERS",
@@ -387,7 +476,88 @@ function handleImport_(payload) {
     if (typeof db.UNIT_SETTINGS === "object") upsertUnitSettings_(db.UNIT_SETTINGS);
   }
 
-  return jsonResponse_({ ok: true, data: { imported: true, mode: mode }, ts: new Date().toISOString() });
+  return jsonResponse_({ ok: true, data: { imported: true, mode: mode }, db_version: getDbVersion_(), ts: new Date().toISOString() });
+}
+
+/**
+ * Handle V2 Batch Synchronization
+ * Processes multiple updates and deletes across different tables in a single request.
+ */
+function handleSyncV2_(payload) {
+  ensureSchema_();
+  const changes = payload.changes;
+  if (!changes || typeof changes !== "object") return jsonError_("missing_changes", 400);
+
+  const updates = Array.isArray(changes.updates) ? changes.updates : [];
+  const deletes = Array.isArray(changes.deletes) ? changes.deletes : [];
+
+  const results = {
+    updated: 0,
+    deleted: 0,
+    tables: []
+  };
+
+  // Group updates by table
+  const updateMap = {};
+  for (const item of updates) {
+    if (!item.table || !item.row) continue;
+    const t = normalizeTable_(item.table);
+    if (!t) continue;
+    if (!updateMap[t]) updateMap[t] = [];
+    updateMap[t].push(item.row);
+  }
+
+  // Group deletes by table
+  const deleteMap = {};
+  for (const item of deletes) {
+    if (!item.table || !item.id) continue;
+    const t = normalizeTable_(item.table);
+    if (!t) continue;
+    if (!deleteMap[t]) deleteMap[t] = [];
+    deleteMap[t].push(String(item.id));
+  }
+
+  // Process Deletes Table by Table
+  for (const table in deleteMap) {
+    const ids = deleteMap[table];
+    const idCol = PRIMARY_KEYS[table];
+    let count = 0;
+    for (const idVal of ids) {
+      if (deleteRowById_(table, idCol, idVal)) {
+        count++;
+      }
+    }
+    results.deleted += count;
+    if (count > 0) results.tables.push(`${table}:del:${count}`);
+  }
+
+  // Process Updates Table by Table using the optimized mergeTable_
+  for (const table in updateMap) {
+    const rows = updateMap[table];
+    if (table === "UNIT_SETTINGS") {
+      const obj = {};
+      for (const r of rows) {
+        if (typeof r === "object") Object.assign(obj, r);
+      }
+      upsertUnitSettings_(obj);
+      results.updated += rows.length;
+      results.tables.push(`${table}:upd:${rows.length}`);
+    } else {
+      const count = mergeTable_(table, rows);
+      results.updated += count;
+      results.tables.push(`${table}:upd:${count}`);
+    }
+  }
+
+  incrementDbVersion_();
+
+  return jsonResponse_({ ok: true, data: results, db_version: getDbVersion_(), ts: new Date().toISOString() });
+}
+
+function ensureSchemaResilient_(rawHeader, schemaHeader) {
+  const cleanRaw = String(rawHeader || "").trim().replace(/\/$/, "").trim().toLowerCase();
+  const cleanSchema = String(schemaHeader || "").trim().toLowerCase();
+  return cleanRaw === cleanSchema;
 }
 
 function ensureSchema_() {
@@ -395,11 +565,25 @@ function ensureSchema_() {
   Object.keys(SCHEMA).forEach((name) => {
     let sh = ss.getSheetByName(name);
     if (!sh) sh = ss.insertSheet(name);
+
+    // Special transition: if sheet is MEMBERS and has member_id column, delete it to avoid column shifting
+    if (name === "MEMBERS") {
+      const currentHeaders = sh.getDataRange().getValues()[0] || [];
+      const cleanHeaders = currentHeaders.map(h => String(h || "").trim().replace(/\/$/, "").toLowerCase());
+      const colIdx = cleanHeaders.indexOf("member_id");
+      if (colIdx >= 0) {
+        console.log("[Migration] Deleting member_id column from MEMBERS sheet.");
+        sh.deleteColumn(colIdx + 1); // 1-based index
+      }
+    }
+
     const headers = SCHEMA[name];
     const firstRow = sh.getRange(1, 1, 1, headers.length).getValues()[0];
     let needsWrite = false;
     for (let i = 0; i < headers.length; i++) {
-      if (String(firstRow[i] || "") !== headers[i]) {
+      const raw = String(firstRow[i] || "");
+      const schema = headers[i];
+      if (!ensureSchemaResilient_(raw, schema)) {
         needsWrite = true;
         break;
       }
@@ -416,12 +600,38 @@ function getAllRows_(table) {
   const data = sh.getDataRange().getValues();
   if (data.length <= 1) return [];
   const headers = data[0];
+
+  // Find the primary key column index in raw headers (resilient to trailing slashes)
+  const idCol = PRIMARY_KEYS[table];
+  const idx = headers.map(h => {
+    let clean = String(h || "").trim();
+    if (clean.endsWith("/")) clean = clean.slice(0, -1).trim();
+    return clean.toLowerCase();
+  }).indexOf(idCol.toLowerCase());
+
   const out = [];
+  let needsWriteback = false;
+
   for (let r = 1; r < data.length; r++) {
     const row = data[r];
     if (row.every((v) => String(v || "").trim() === "")) continue;
+
+    // Auto-generate missing primary keys (e.g. for manually pasted rows)
+    if (idx >= 0 && String(row[idx] || "").trim() === "") {
+      const prefix = table.slice(0, 3).toLowerCase();
+      const randomId = prefix + "_" + Math.random().toString(36).substring(2, 11) + "_" + Date.now().toString(36);
+      row[idx] = randomId;
+      needsWriteback = true;
+    }
+
     out.push(rowToObj_(table, headers, row));
   }
+
+  if (needsWriteback) {
+    // Write back all auto-generated IDs in a single extremely fast operation
+    sh.getRange(1, 1, data.length, headers.length).setValues(data);
+  }
+
   return out;
 }
 
@@ -429,13 +639,18 @@ function findRowById_(table, idCol, idVal) {
   const sh = getSheet_(table);
   const data = sh.getDataRange().getValues();
   if (data.length <= 1) return null;
-  const headers = data[0];
-  const idx = headers.indexOf(idCol);
+  const rawHeaders = data[0];
+  const headers = rawHeaders.map(h => {
+    let clean = String(h || "").trim();
+    if (clean.endsWith("/")) clean = clean.slice(0, -1).trim();
+    return clean.toLowerCase();
+  });
+  const idx = headers.indexOf(idCol.toLowerCase());
   if (idx === -1) return null;
   for (let r = 1; r < data.length; r++) {
     const row = data[r];
     if (String(row[idx]) === idVal) {
-      return rowToObj_(table, headers, row);
+      return rowToObj_(table, rawHeaders, row);
     }
   }
   return null;
@@ -444,8 +659,13 @@ function findRowById_(table, idCol, idVal) {
 function upsertRow_(table, obj, idCol) {
   const sh = getSheet_(table);
   const data = sh.getDataRange().getValues();
-  const headers = data.length ? data[0] : SCHEMA[table];
-  const idIdx = headers.indexOf(idCol);
+  const rawHeaders = data.length ? data[0] : SCHEMA[table];
+  const headers = rawHeaders.map(h => {
+    let clean = String(h || "").trim();
+    if (clean.endsWith("/")) clean = clean.slice(0, -1).trim();
+    return clean.toLowerCase();
+  });
+  const idIdx = headers.indexOf(idCol.toLowerCase());
   const idVal = String(obj[idCol]);
 
   let rowIndex = -1;
@@ -458,7 +678,7 @@ function upsertRow_(table, obj, idCol) {
     }
   }
 
-  const row = objToRow_(table, headers, obj);
+  const row = objToRow_(table, rawHeaders, obj);
   if (rowIndex === -1) {
     sh.appendRow(row);
     // Trigger email notification for new notifications
@@ -466,7 +686,7 @@ function upsertRow_(table, obj, idCol) {
       try { sendEmail_(obj); } catch (e) { console.warn("Email failed:", e); }
     }
   } else {
-    sh.getRange(rowIndex, 1, 1, headers.length).setValues([row]);
+    sh.getRange(rowIndex, 1, 1, rawHeaders.length).setValues([row]);
   }
 
   return obj;
@@ -476,8 +696,13 @@ function deleteRowById_(table, idCol, idVal) {
   const sh = getSheet_(table);
   const data = sh.getDataRange().getValues();
   if (data.length <= 1) return false;
-  const headers = data[0];
-  const idx = headers.indexOf(idCol);
+  const rawHeaders = data[0];
+  const headers = rawHeaders.map(h => {
+    let clean = String(h || "").trim();
+    if (clean.endsWith("/")) clean = clean.slice(0, -1).trim();
+    return clean.toLowerCase();
+  });
+  const idx = headers.indexOf(idCol.toLowerCase());
   if (idx === -1) return false;
   for (let r = 1; r < data.length; r++) {
     if (String(data[r][idx]) === idVal) {
@@ -504,20 +729,28 @@ function overwriteTable_(table, rows) {
  */
 function mergeTable_(table, rows) {
   const sh = getSheet_(table);
-  const headers = SCHEMA[table];
+  const rawHeaders = SCHEMA[table];
   const idCol = PRIMARY_KEYS[table];
-  const idIdx = headers.indexOf(idCol);
+  const idIdx = rawHeaders.indexOf(idCol);
   if (idIdx < 0) throw new Error("missing_primary_key_column_" + table);
 
   const existingData = sh.getDataRange().getValues();
   const existingMap = {};
   const orderedIds = [];
 
+  const sheetHeaders = existingData.length ? existingData[0] : rawHeaders;
+  const normalizedSheetHeaders = sheetHeaders.map(h => {
+    let clean = String(h || "").trim();
+    if (clean.endsWith("/")) clean = clean.slice(0, -1).trim();
+    return clean.toLowerCase();
+  });
+  const sheetIdIdx = normalizedSheetHeaders.indexOf(idCol.toLowerCase());
+
   for (let r = 1; r < existingData.length; r++) {
     const row = existingData[r];
-    const idVal = String(row[idIdx] || "").trim();
+    const idVal = sheetIdIdx >= 0 ? String(row[sheetIdIdx] || "").trim() : "";
     if (!idVal) continue;
-    const obj = rowToObj_(table, headers, row);
+    const obj = rowToObj_(table, sheetHeaders, row);
     existingMap[idVal] = obj;
     orderedIds.push(idVal);
   }
@@ -534,11 +767,11 @@ function mergeTable_(table, rows) {
   }
 
   sh.clearContents();
-  sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+  sh.getRange(1, 1, 1, rawHeaders.length).setValues([rawHeaders]);
   if (orderedIds.length === 0) return validCount;
 
-  const out = orderedIds.map((id) => objToRow_(table, headers, existingMap[id]));
-  sh.getRange(2, 1, out.length, headers.length).setValues(out);
+  const out = orderedIds.map((id) => objToRow_(table, rawHeaders, existingMap[id]));
+  sh.getRange(2, 1, out.length, rawHeaders.length).setValues(out);
   return validCount;
 }
 
@@ -579,8 +812,15 @@ function deleteUnitSetting_(key) {
 
 function rowToObj_(table, headers, row) {
   const obj = {};
+  const schemaHeaders = SCHEMA[table] || [];
   for (let c = 0; c < headers.length; c++) {
-    const key = headers[c];
+    let rawKey = String(headers[c] || "").trim();
+    if (rawKey.endsWith("/")) {
+      rawKey = rawKey.slice(0, -1).trim();
+    }
+    // Find matching key in SCHEMA case-insensitively
+    const key = schemaHeaders.find(h => h.toLowerCase() === rawKey.toLowerCase()) || rawKey;
+
     let val = row[c];
     if (JSON_FIELDS[table] && JSON_FIELDS[table].indexOf(key) >= 0) {
       if (typeof val === "string" && val.trim()) {
@@ -604,9 +844,26 @@ function rowToObj_(table, headers, row) {
 
 function objToRow_(table, headers, obj) {
   const row = [];
+  const schemaHeaders = SCHEMA[table] || [];
   for (let c = 0; c < headers.length; c++) {
-    const key = headers[c];
-    let val = obj ? obj[key] : "";
+    let rawKey = String(headers[c] || "").trim();
+    if (rawKey.endsWith("/")) {
+      rawKey = rawKey.slice(0, -1).trim();
+    }
+    // Find matching key in SCHEMA case-insensitively, or fallback
+    const key = schemaHeaders.find(h => h.toLowerCase() === rawKey.toLowerCase()) || rawKey;
+
+    let val = obj ? (obj[key] !== undefined ? obj[key] : obj[rawKey]) : "";
+    
+    // Fallback: case-insensitive match on obj keys if still undefined
+    if (obj && val === undefined) {
+      const lowerKey = key.toLowerCase();
+      const objKey = Object.keys(obj).find(k => k.toLowerCase() === lowerKey);
+      if (objKey) {
+        val = obj[objKey];
+      }
+    }
+
     if (JSON_FIELDS[table] && JSON_FIELDS[table].indexOf(key) >= 0) {
       if (val && typeof val !== "string") {
         val = JSON.stringify(val);
@@ -642,6 +899,28 @@ function parsePayload_(e) {
 function authorize_(key) {
   if (!CONFIG.API_KEY || CONFIG.API_KEY === "ThisIsMySecretKey123!@") return true;
   return String(key || "") === String(CONFIG.API_KEY);
+}
+
+function incrementDbVersion_() {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const current = parseInt(props.getProperty("DB_VERSION") || "0", 10);
+    const next = current + 1;
+    props.setProperty("DB_VERSION", String(next));
+    return next;
+  } catch (e) {
+    console.warn("Failed to increment DB_VERSION:", e);
+    return Date.now();
+  }
+}
+
+function getDbVersion_() {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    return parseInt(props.getProperty("DB_VERSION") || "1", 10);
+  } catch (e) {
+    return Date.now();
+  }
 }
 
 function jsonResponse_(payload) {

@@ -37,7 +37,7 @@ async function apiGet<T>(params: Record<string, string>): Promise<ApiResponse<T>
   }
 }
 
-async function apiPost<T>(body: any): Promise<ApiResponse<T>> {
+export async function apiPost<T>(body: any): Promise<ApiResponse<T>> {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), 25000); // 25s timeout
   try {
@@ -65,18 +65,18 @@ async function withBusyRetry<T>(request: () => Promise<ApiResponse<T>>, attempts
   return last || { ok: false, error: "request_failed" };
 }
 
-export async function exportRemoteDB(): Promise<any | null> {
+export async function exportRemoteDB(): Promise<{ data: any; db_version?: number } | null> {
   if (!backendEnabled()) return null;
   const res = await withBusyRetry(() => apiGet<any>({ action: "export" }));
   if (!res.ok) throw new Error(res.error || "export_failed");
-  return res.data || null;
+  return { data: res.data || null, db_version: (res as any).db_version };
 }
 
-export async function importRemoteDB(db: any, mode: "merge" | "replace" = "merge") {
+export async function importRemoteDB(db: any, mode: "merge" | "replace" = "merge"): Promise<{ data: any; db_version?: number } | null> {
   if (!backendEnabled()) return null;
   const res = await withBusyRetry(() => apiPost<any>({ action: "import", mode, db }));
   if (!res.ok) throw new Error(res.error || "import_failed");
-  return res.data || null;
+  return { data: res.data || null, db_version: (res as any).db_version };
 }
 
 export async function pingBackend() {

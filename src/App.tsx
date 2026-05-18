@@ -28,7 +28,7 @@ function LoadingScreen({ label = "Loading…" }: { label?: string }) {
 }
 
 type BackendStatus = "disabled" | "connecting" | "online" | "error";
-const AUTO_SYNC_INTERVAL_MS = 10000;
+const AUTO_SYNC_INTERVAL_MS = 60000;
 
 export function App() {
   const [booting, setBooting] = useState(true);
@@ -357,12 +357,6 @@ export function App() {
       onLogout={logout}
       dbTick={dbTick}
     >
-      {isSyncing && (
-        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 text-xs font-medium text-white shadow-lg animate-pulse">
-          <span className="h-2 w-2 rounded-full bg-sky-400"></span>
-          Saving changes...
-        </div>
-      )}
       {content}
       <div className="hidden">{dbSnapshot.UNIT_SETTINGS?.unit_name}</div>
     </AppShell>

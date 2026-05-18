@@ -13,7 +13,7 @@ import type {
   UnitSettings,
   User,
 } from "../types";
-import { backendEnabled, exportRemoteDB, importRemoteDB } from "./backend";
+import { backendEnabled, exportRemoteDB, importRemoteDB, apiPost, pingBackend } from "./backend";
 
 const APP_KEY = "sac_meeting_planner_mvp_v1";
 
@@ -41,6 +41,7 @@ let suppressRemoteSync = 0;
 let hasPendingPush = false; // Track if local changes are waiting to be sent
 
 let cachedDB: DB | null = null;
+let lastSyncedDB: DB | null = null;
 let syncListeners: ((syncing: boolean) => void)[] = [];
 
 const dbListeners = new Set<() => void>();
@@ -123,9 +124,31 @@ function normalizeDB(raw: any): DB {
       .filter(Boolean);
   };
 
-  const PLANNERS = Array.isArray(raw?.PLANNERS)
-    ? (raw.PLANNERS as any[]).map((p) => ({
+  const now = new Date();
+
+  const PLANNERS_RAW = Array.isArray(raw?.PLANNERS)
+    ? (raw.PLANNERS as any[]).map((p) => {
+        let state = p.state;
+        let archive_method = p.archive_method;
+        let archive_date = p.archive_date;
+        const year = parseInt(p.year, 10);
+        const month = parseInt(p.month, 10);
+
+        if (state === "SUBMITTED" && !isNaN(year) && !isNaN(month)) {
+          const threshold = new Date(year, month + 1, 1);
+          if (now >= threshold) {
+            console.log(`[AutoArchive] Archiving expired planner: ${month}/${year}`);
+            state = "ARCHIVED";
+            archive_method = "auto";
+            archive_date = now.toISOString();
+          }
+        }
+
+        return {
         ...p,
+        state,
+        archive_method,
+        archive_date,
         weeks: Array.isArray(p?.weeks)
           ? p.weeks.map((w: any) => ({
               ...w,
@@ -137,15 +160,34 @@ function normalizeDB(raw: any): DB {
               note: typeof w?.note === "string" ? w.note : "",
             }))
           : [],
-      }))
+        };
+      })
     : [];
+
+  const PLANNERS = PLANNERS_RAW.filter((p) => {
+    if (p.state === "ARCHIVED") {
+      const method = p.archive_method || "manual";
+      const dateStr = p.archive_date || p.updated_date || p.created_date;
+      if (dateStr) {
+        const days = (now.getTime() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24);
+        if (method === "manual" && days >= 30) return false;
+        if (method === "auto" && days >= 365) return false;
+      }
+    }
+    return true;
+  });
 
   const base: DB = {
     UNIT_SETTINGS: raw?.UNIT_SETTINGS ?? null,
     USERS,
     PLANNERS,
     ASSIGNMENTS: Array.isArray(raw?.ASSIGNMENTS) ? raw.ASSIGNMENTS : [],
-    MEMBERS: Array.isArray(raw?.MEMBERS) ? raw.MEMBERS : [],
+    MEMBERS: Array.isArray(raw?.MEMBERS)
+      ? raw.MEMBERS.map((m: any) => ({
+          ...m,
+          member_id: m.name || m.member_id || "",
+        }))
+      : [],
     CHECKLISTS: Array.isArray(raw?.CHECKLISTS) ? raw.CHECKLISTS : [],
     NOTIFICATIONS: Array.isArray(raw?.NOTIFICATIONS) ? raw.NOTIFICATIONS : [],
     SETTINGS_REQUESTS: Array.isArray(raw?.SETTINGS_REQUESTS) ? raw.SETTINGS_REQUESTS : [],
@@ -173,6 +215,23 @@ function isEmptyDB(db: DB): boolean {
   );
 }
 
+const VERSION_KEY = "sac_meeting_planner_db_version_v1";
+
+function getLocalDBVersion(): number {
+  const v = localStorage.getItem(VERSION_KEY);
+  return v ? parseInt(v, 10) : 0;
+}
+
+function setLocalDBVersion(v: number) {
+  localStorage.setItem(VERSION_KEY, String(v));
+}
+
+export async function forcePushChanges(): Promise<boolean> {
+  if (!backendEnabled()) return true;
+  await pushAllToBackend();
+  return !hasPendingPush;
+}
+
 function scheduleRemoteSync() {
   if (!backendEnabled() || suppressRemoteSync > 0) return;
   hasPendingPush = true; // Mark as dirty
@@ -189,9 +248,79 @@ async function pushAllToBackend() {
   notifySyncListeners(true);
   try {
     const db = getDB();
-    console.log(`[Sync] Pushing local changes to backend... (${db.PLANNERS.length} planners, ${db.USERS.length} users)`);
-    await importRemoteDB(db, "merge");
+    if (!lastSyncedDB) {
+      console.log(`[Sync] Baseline missing. Pushing local changes via full merge... (${db.PLANNERS.length} planners, ${db.USERS.length} users)`);
+      const importRes = await importRemoteDB(db, "merge");
+      if (importRes && importRes.db_version) {
+        setLocalDBVersion(importRes.db_version);
+      }
+    } else {
+      console.log(`[Sync] Calculating row-level differences for backend push...`);
+      const updates: any[] = [];
+      const deletes: any[] = [];
+      
+      const tables = [
+        { name: "USERS", idCol: "user_id" },
+        { name: "PLANNERS", idCol: "planner_id" },
+        { name: "ASSIGNMENTS", idCol: "assignment_id" },
+        { name: "MEMBERS", idCol: "name" },
+        { name: "CHECKLISTS", idCol: "checklist_id" },
+        { name: "NOTIFICATIONS", idCol: "notification_id" },
+        { name: "SETTINGS_REQUESTS", idCol: "request_id" },
+        { name: "TODOS", idCol: "todo_id" },
+        { name: "REMINDERS", idCol: "reminder_id" },
+        { name: "HYMNS", idCol: "number" }
+      ];
+
+      for (const t of tables) {
+        const currentRows = (db[t.name as keyof DB] || []) as any[];
+        const lastRows = (lastSyncedDB[t.name as keyof DB] || []) as any[];
+        
+        const currentMap = new Map(currentRows.map(r => [String(r[t.idCol] || ""), r]));
+        const lastMap = new Map(lastRows.map(r => [String(r[t.idCol] || ""), r]));
+
+        // Find updates (new or modified)
+        for (const r of currentRows) {
+          const id = String(r[t.idCol] || "");
+          if (!id) continue;
+          const old = lastMap.get(id);
+          if (!old || JSON.stringify(old) !== JSON.stringify(r)) {
+            updates.push({ table: t.name, row: r });
+          }
+        }
+
+        // Find deletes
+        const deletableTables = ["NOTIFICATIONS", "TODOS"];
+        if (deletableTables.includes(t.name)) {
+          for (const r of lastRows) {
+            const id = String(r[t.idCol] || "");
+            if (!id) continue;
+            if (!currentMap.has(id)) {
+              deletes.push({ table: t.name, id });
+            }
+          }
+        }
+      }
+
+      // Handle UNIT_SETTINGS (special case, object not array)
+      if (JSON.stringify(db.UNIT_SETTINGS) !== JSON.stringify(lastSyncedDB.UNIT_SETTINGS)) {
+        // Just push the entire UNIT_SETTINGS object as an update row
+        updates.push({ table: "UNIT_SETTINGS", row: db.UNIT_SETTINGS });
+      }
+
+      if (updates.length > 0 || deletes.length > 0) {
+        console.log(`[Sync] Syncing ${updates.length} updates, ${deletes.length} deletes.`);
+        const res = await apiPost<any>({ action: "sync_v2", changes: { updates, deletes } });
+        if (!res.ok) throw new Error(res.error || "sync_v2 failed");
+        if ((res as any).db_version) {
+          setLocalDBVersion((res as any).db_version);
+        }
+      } else {
+        console.log("[Sync] No differences found. Push skipped.");
+      }
+    }
     hasPendingPush = false; // Successfully pushed
+    lastSyncedDB = getDB(); // Update the baseline immediately to prevent re-pushing
     console.log("[Sync] Push successful.");
   } catch (err) {
     console.warn("[Sync] Push failed:", err);
@@ -208,6 +337,74 @@ function setDBInternal(next: DB, suppressRemote?: boolean) {
   if (!suppressRemote) scheduleRemoteSync();
 }
 
+function mergeDatabases(local: DB, remote: DB): { merged: DB; needsPush: boolean } {
+  const merged: DB = { ...local };
+  let needsPush = false;
+
+  const tables = [
+    { name: "USERS", idCol: "user_id" },
+    { name: "PLANNERS", idCol: "planner_id" },
+    { name: "ASSIGNMENTS", idCol: "assignment_id" },
+    { name: "MEMBERS", idCol: "name" },
+    { name: "CHECKLISTS", idCol: "checklist_id" },
+    { name: "NOTIFICATIONS", idCol: "notification_id" },
+    { name: "SETTINGS_REQUESTS", idCol: "request_id" },
+    { name: "PLANNER_APPROVAL_REQUESTS", idCol: "request_id" },
+    { name: "TODOS", idCol: "todo_id" },
+    { name: "REMINDERS", idCol: "reminder_id" },
+    { name: "HYMNS", idCol: "number" }
+  ];
+
+  for (const t of tables) {
+    const localRows = (local[t.name as keyof DB] || []) as any[];
+    const remoteRows = (remote[t.name as keyof DB] || []) as any[];
+
+    const localMap = new Map(localRows.map(r => [String(r[t.idCol] || ""), r]));
+    const remoteMap = new Map(remoteRows.map(r => [String(r[t.idCol] || ""), r]));
+
+    const mergedRows: any[] = [];
+    const allIds = new Set([...localMap.keys(), ...remoteMap.keys()]);
+
+    for (const id of allIds) {
+      const l = localMap.get(id);
+      const r = remoteMap.get(id);
+
+      if (l && r) {
+        // Exists in both. Compare updated_date or fallback to remote
+        const lDate = l.updated_date || l.created_date || "";
+        const rDate = r.updated_date || r.created_date || "";
+        if (lDate && rDate && lDate > rDate) {
+          mergedRows.push(l);
+          needsPush = true; // Local is newer, need to push
+        } else {
+          mergedRows.push(r);
+        }
+      } else if (l) {
+        // Exists only locally (not yet pushed to remote)
+        mergedRows.push(l);
+        needsPush = true;
+      } else if (r) {
+        // Exists only remotely
+        mergedRows.push(r);
+      }
+    }
+
+    (merged as any)[t.name] = mergedRows;
+  }
+
+  // Merge UNIT_SETTINGS
+  merged.UNIT_SETTINGS = {
+    ...(remote.UNIT_SETTINGS || {}),
+    ...(local.UNIT_SETTINGS || {})
+  } as any;
+
+  if (JSON.stringify(local.UNIT_SETTINGS) !== JSON.stringify(merged.UNIT_SETTINGS)) {
+    needsPush = true;
+  }
+
+  return { merged, needsPush };
+}
+
 export async function syncFromBackend(): Promise<boolean> {
   if (!backendEnabled()) return false;
   if (remotePullInFlight) return false;
@@ -219,33 +416,47 @@ export async function syncFromBackend(): Promise<boolean> {
       return false;
     }
   }
+
+  const local = getDB();
+
+  // Perform a lightweight version check via ping to avoid heavy export downloads
+  try {
+    const pingData = await pingBackend();
+    if (pingData && pingData.db_version !== undefined) {
+      const localVer = getLocalDBVersion();
+      const remoteVer = pingData.db_version;
+      console.log(`[Sync] Version check - Local: ${localVer}, Remote: ${remoteVer}`);
+      
+      // If versions match, and we don't have an empty local DB, skip the pull!
+      if (localVer === remoteVer && !isEmptyDB(local)) {
+        console.log("[Sync] DB versions match. Skip pulling remote database.");
+        return true;
+      }
+    }
+  } catch (err) {
+    console.warn("[Sync] Lightweight version check failed, falling back to full export:", err);
+  }
+
   remotePullInFlight = true;
   notifySyncListeners(true);
   try {
-    const remote = await exportRemoteDB();
-    if (!remote) {
+    const remoteResult = await exportRemoteDB();
+    if (!remoteResult) {
       console.warn("[Sync] Remote DB export returned null/empty.");
       return false;
     }
+    const remote = remoteResult.data;
+    const remoteVersion = remoteResult.db_version;
 
-    const local = getDB();
     const normalizedRemote = normalizeDB(remote);
+    
+    // Set the baseline! This is critical for computing diffs later.
+    lastSyncedDB = normalizedRemote;
 
     console.log(`[Sync] Remote data: ${normalizedRemote.USERS.length} users, ${normalizedRemote.PLANNERS.length} planners`);
 
-    // Guard against remote data missing UNIT_SETTINGS (common misconfig / empty sheet).
-    // Keep local settings and seed the backend instead of forcing re-setup.
-    if (!normalizedRemote.UNIT_SETTINGS && local.UNIT_SETTINGS) {
-      console.log("[Sync] Remote missing UNIT_SETTINGS. Merging local to remote.");
-      await importRemoteDB(local, "merge");
-      return true;
-    }
-
-    if (isEmptyDB(normalizedRemote) && !isEmptyDB(local)) {
-      console.log("[Sync] Remote is empty but local is not. Merging local to remote.");
-      await importRemoteDB(local, "merge");
-      return true;
-    }
+    // Perform a safe merge of local and remote databases
+    const { merged, needsPush } = mergeDatabases(local, normalizedRemote);
 
     // Re-check hasPendingPush after remote fetch to avoid race during network call
     if (hasPendingPush) {
@@ -253,18 +464,22 @@ export async function syncFromBackend(): Promise<boolean> {
       return false;
     }
 
-    // CRITICAL: Ensure we don't accidentally lose the current user from USERS list
-    // if they exist locally but not remotely (e.g. sync delay or partial sheet).
-    if (local.USERS.length > normalizedRemote.USERS.length) {
-      console.warn(`[Sync] Local has ${local.USERS.length} users, remote has ${normalizedRemote.USERS.length}. Possible data loss?`);
-    }
-
     suppressRemoteSync += 1;
     try {
-      setDBInternal(normalizedRemote, true);
-      console.log("[Sync] Local DB updated from remote.");
+      setDBInternal(merged, true);
+      // Keep baseline as normalizedRemote so that any local-only changes are detected as updates in pushAllToBackend
+      lastSyncedDB = normalizedRemote;
+      if (remoteVersion) {
+        setLocalDBVersion(remoteVersion);
+      }
+      console.log("[Sync] Local DB updated and safely merged with remote.");
     } finally {
       suppressRemoteSync -= 1;
+    }
+
+    if (needsPush) {
+      console.log("[Sync] Local changes detected that are not on remote. Scheduling push...");
+      scheduleRemoteSync();
     }
 
     return true;
@@ -281,7 +496,10 @@ export async function syncNow(): Promise<boolean> {
   if (!backendEnabled()) return false;
   try {
     const local = getDB();
-    await importRemoteDB(local, "merge");
+    const importRes = await importRemoteDB(local, "merge");
+    if (importRes && importRes.db_version) {
+      setLocalDBVersion(importRes.db_version);
+    }
     return await syncFromBackend();
   } catch (err) {
     console.warn("Manual sync failed", err);
@@ -390,7 +608,7 @@ export function useUpsertMutation<K extends keyof DB>(tableName: K) {
         const idField = (tableName === "USERS" ? "user_id" : 
                         tableName === "PLANNERS" ? "planner_id" :
                         tableName === "ASSIGNMENTS" ? "assignment_id" :
-                        tableName === "MEMBERS" ? "member_id" :
+                        tableName === "MEMBERS" ? "name" :
                         tableName === "CHECKLISTS" ? "checklist_id" :
                         tableName === "NOTIFICATIONS" ? "notification_id" :
                         tableName === "SETTINGS_REQUESTS" ? "request_id" :

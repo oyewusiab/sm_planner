@@ -1,7 +1,7 @@
 import type { Role, User } from "../types";
 import { sha256, timingSafeEqual } from "../utils/crypto";
 import { backendEnabled, pingBackend } from "../utils/backend";
-import { getDB, updateDB, ids, time, syncFromBackend } from "../utils/storage";
+import { getDB, updateDB, ids, time, syncFromBackend, forcePushChanges } from "../utils/storage";
 
 function norm(s: string) {
   return (s || "").trim().toLowerCase();
@@ -161,6 +161,12 @@ export async function setUserPassword(user_id: string, newPassword: string) {
     );
     return { ...db, USERS };
   });
+
+  // Force push immediately to ensure the password reset is saved to the remote database
+  const ok = await forcePushChanges();
+  if (!ok) {
+    throw new Error("Failed to save password change to the cloud. Please check your internet connection.");
+  }
 }
 
 /**
@@ -177,6 +183,9 @@ export async function resetUserPasswordToDefault(user_id: string, password = "ch
     );
     return { ...db, USERS };
   });
+
+  // Force push changes to remote sheet
+  await forcePushChanges();
 }
 
 function defaultOrgCallingForRole(

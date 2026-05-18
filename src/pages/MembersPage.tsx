@@ -489,9 +489,6 @@ export function MembersPage({
 
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Member | null>(null);
-  const [analyticsTab, setAnalyticsTab] = useState<"overview" | "members" | "equity" | "alerts">("overview");
-  const [expandedMember, setExpandedMember] = useState<string | null>(null);
-  const [predictRole, setPredictRole] = useState("speaker");
 
   function save(member: Member) {
     updateDB((db0) => {
@@ -1045,9 +1042,11 @@ export function MembersPage({
               onClick={() => {
                 if (!editing) return;
                 if (!editing.name.trim()) return;
+                const cleanName = editing.name.trim();
                 save({
                   ...editing,
-                  name: editing.name.trim(),
+                  member_id: cleanName,
+                  name: cleanName,
                   organisation: editing.organisation?.trim() || undefined,
                   phone: editing.phone?.trim() || undefined,
                   status: editing.status?.trim() || undefined,

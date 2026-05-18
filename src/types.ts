@@ -204,6 +204,8 @@ export type Planner = {
   /** Music is entered by Music Coordinator after submission (optional). */
   music_status?: "PENDING" | "COMPLETE";
   weeks: WeekPlan[]; // 1-5
+  archive_method?: "manual" | "auto";
+  archive_date?: string;
 };
 
 export type Assignment = {

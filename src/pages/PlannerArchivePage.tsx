@@ -4,7 +4,7 @@ import { Badge, Button, Card, CardBody, CardHeader, CardTitle, EmptyState, Secti
 import { Modal } from "../components/Modal";
 import { PlannerPreviewTable } from "../components/PlannerPreviewTable";
 import { monthName } from "../utils/date";
-import { getDB, time, updateDB } from "../utils/storage";
+import { time, updateDB, useTable } from "../utils/storage";
 
 function plannerLabel(p: Planner) {
   return `${monthName(p.month)} ${p.year}`;
@@ -22,7 +22,7 @@ export function PlannerArchivePage({
   void user;
   void onChanged;
 
-  const db = getDB();
+  const { data: planners } = useTable("PLANNERS");
   const [previewPlanner, setPreviewPlanner] = useState<Planner | null>(null);
 
   useEffect(() => {
@@ -51,8 +51,8 @@ export function PlannerArchivePage({
   }, [previewPlanner]);
 
   const archived = useMemo(
-    () => [...db.PLANNERS].filter((p) => p.state === "ARCHIVED").sort((a, b) => b.updated_date.localeCompare(a.updated_date)),
-    [db.PLANNERS]
+    () => [...(planners || [])].filter((p) => p.state === "ARCHIVED").sort((a, b) => b.updated_date.localeCompare(a.updated_date)),
+    [planners]
   );
 
   function restorePlanner(planner_id: string) {

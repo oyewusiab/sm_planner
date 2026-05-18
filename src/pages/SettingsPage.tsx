@@ -1,5 +1,5 @@
-﻿import { useEffect, useMemo, useState } from "react";
-import type { Member, Role, SettingsChangeRequest, UnitSettings, UnitType, User } from "../types";
+import { useEffect, useMemo, useState } from "react";
+import type { Role, SettingsChangeRequest, UnitSettings, UnitType, User } from "../types";
 import {
   Badge,
   Button,
@@ -79,9 +79,6 @@ export function SettingsPage({
     gender: "M" as "M" | "F",
   });
   const [busy, setBusy] = useState<string | null>(null);
-  const [syncUrl, setSyncUrl] = useState(() => localStorage.getItem("sm_sync_url") || "");
-  const [syncKey, setSyncKey] = useState(() => localStorage.getItem("sm_sync_key") || "");
-  const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [broadcastRole, setBroadcastRole] = useState<BroadcastRole>("ALL");
   const [broadcastTitle, setBroadcastTitle] = useState("General announcement");
   const [broadcastBody, setBroadcastBody] = useState("");
@@ -232,34 +229,6 @@ export function SettingsPage({
     if (!ok) return;
     auth.deleteUser(user_id);
     onChanged();
-  }
-
-  async function syncMembers() {
-    const url = syncUrl.trim();
-    if (!url) {
-      setSyncStatus("Please enter the Web App URL.");
-      return;
-    }
-    setSyncStatus("Syncing...");
-    try {
-      const u = new URL(url);
-      u.searchParams.set("action", "list");
-      u.searchParams.set("table", "MEMBERS");
-      if (syncKey.trim()) u.searchParams.set("key", syncKey.trim());
-      const res = await fetch(u.toString());
-      const json = await res.json();
-      if (!json || json.ok !== true) {
-        throw new Error(json?.error || "Sync failed");
-      }
-      const members = Array.isArray(json.data) ? (json.data as Member[]) : [];
-      updateDB((db0) => ({ ...db0, MEMBERS: members }));
-      localStorage.setItem("sm_sync_url", url);
-      localStorage.setItem("sm_sync_key", syncKey.trim());
-      setSyncStatus(`Synced ${members.length} member(s).`);
-      onChanged();
-    } catch (err: any) {
-      setSyncStatus(err?.message || "Sync failed");
-    }
   }
 
   function sendBroadcast() {
@@ -885,36 +854,6 @@ export function SettingsPage({
                 >
                   {syncing ? "Syncing..." : "Sync Now"}
                 </Button>
-              </div>
-
-              <Divider />
-
-              <div className="text-sm text-slate-600">
-                Members directory sync (optional). Configure a Web App URL to pull member data from a backend list.
-              </div>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                <div className="space-y-1 md:col-span-2">
-                  <Label>Web App URL</Label>
-                  <Input
-                    value={syncUrl}
-                    onChange={(e) => setSyncUrl(e.target.value)}
-                    placeholder="https://script.google.com/macros/s/.../exec"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>API Key (optional)</Label>
-                  <Input
-                    value={syncKey}
-                    onChange={(e) => setSyncKey(e.target.value)}
-                    placeholder="Your API key"
-                  />
-                </div>
-              </div>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <Button variant="secondary" onClick={syncMembers}>
-                  Sync Members
-                </Button>
-                {syncStatus ? <div className="text-xs text-slate-500">{syncStatus}</div> : null}
               </div>
             </div>
           </CardBody>

@@ -8,7 +8,7 @@ import { MemberAutocomplete, normalizeGender } from "../components/MemberAutocom
 import { can } from "../utils/permissions";
 import { formatUserDisplayName } from "../utils/format";
 import { formatDateShort, monthName, nextSundaysInMonth, yyyyMmToLabel } from "../utils/date";
-import { getDB, ids, updateDB, useTable, useUpsertMutation, time } from "../utils/storage";
+import { ids, time, useTable, useUpsertMutation } from "../utils/storage";
 import * as auth from "../auth/authService";
 import { notifyUser } from "../utils/notifications";
 import { generatePDF } from "../utils/pdf";
@@ -65,18 +65,16 @@ export function PlannerPage({
 }) {
   const { data: plannersData = [] } = useTable("PLANNERS");
   const { data: members = [] } = useTable("MEMBERS");
-  const { data: users = [] } = useTable("USERS");
-  const { data: approvalRequests = [] } = useTable("PLANNER_APPROVAL_REQUESTS");
 
   const plannerMutation = useUpsertMutation("PLANNERS");
   const approvalMutation = useUpsertMutation("PLANNER_APPROVAL_REQUESTS");
-  const notificationMutation = useUpsertMutation("NOTIFICATIONS");
 
   const canCreate = can(user.role, "CREATE_PLANNER");
   const canEditSubmitted = can(user.role, "EDIT_SUBMITTED");
 
   const [mode, setMode] = useState<"list" | "edit">("list");
   const [previewPlanner, setPreviewPlanner] = useState<Planner | null>(null);
+  const [printPlannerId, setPrintPlannerId] = useState<string | null>(null);
 
   const [downloadingPlannerId, setDownloadingPlannerId] = useState<string | null>(null);
 
@@ -223,7 +221,7 @@ export function PlannerPage({
     if (!window.confirm("Are you sure you want to archive this planner?")) return;
     const p = planners.find((x) => x.planner_id === planner_id);
     if (!p) return;
-    plannerMutation.mutate({ ...p, state: "ARCHIVED" as const, updated_date: time.nowISO() });
+    plannerMutation.mutate({ ...p, state: "ARCHIVED" as const, updated_date: time.nowISO(), archive_method: "manual", archive_date: time.nowISO() });
     onChanged();
   }
 
@@ -371,11 +369,12 @@ export function PlannerPage({
                     <Button
                       variant="secondary"
                       onClick={() => {
-                        setPreviewPlanner(p);
+                        setPrintPlannerId(p.planner_id);
                         setTimeout(() => {
                           if (document.getElementById("planner-print-portal")) {
                             window.print();
                           }
+                          setPrintPlannerId(null);
                         }, 500);
                       }}
                     >
@@ -389,7 +388,7 @@ export function PlannerPage({
                     ) : null}
 
                     <div style={{ display: "none" }}>
-                      {previewPlanner?.planner_id === p.planner_id && (
+                      {printPlannerId === p.planner_id && (
                          <div id={`planner-preview-${p.planner_id}`}>
                            <PlannerPreviewTable planner={p} unit={unit} />
                          </div>
@@ -422,6 +421,50 @@ export function PlannerPage({
             ))}
           </div>
         )}
+
+        <div className="no-print">
+          <Modal
+            open={!!previewPlanner}
+            title={`Preview: ${previewPlanner ? plannerLabel(previewPlanner) : ""}`}
+            onClose={() => setPreviewPlanner(null)}
+            footer={
+              <>
+                <Button variant="secondary" onClick={() => {
+                  setPrintPlannerId(previewPlanner?.planner_id || null);
+                  setTimeout(() => {
+                    window.print();
+                    setPrintPlannerId(null);
+                  }, 500);
+                }}>
+                  Print
+                </Button>
+                <Button variant="ghost" onClick={() => setPreviewPlanner(null)}>
+                  Close
+                </Button>
+              </>
+            }
+            className="max-w-6xl"
+          >
+            <div id="planner-preview-area-list">
+              {previewPlanner ? <PlannerPreviewTable planner={previewPlanner} unit={unit} /> : null}
+            </div>
+          </Modal>
+        </div>
+
+        {/* Print portal for List mode */}
+        {printPlannerId &&
+          (() => {
+            const host = document.getElementById("planner-print-portal");
+            const planner = planners.find(p => p.planner_id === printPlannerId);
+            return host && planner
+              ? createPortal(
+                <div className="print-landscape">
+                  <PlannerPreviewTable planner={planner} unit={unit} />
+                </div>,
+                host
+              )
+              : null;
+          })()}
       </div>
     );
   }
@@ -459,11 +502,12 @@ export function PlannerPage({
           <Button
             variant="secondary"
             onClick={() => {
-              setPreviewPlanner(draft);
+              setPrintPlannerId(draft.planner_id);
               setTimeout(() => {
                 if (document.getElementById("planner-print-portal")) {
                   window.print();
                 }
+                setPrintPlannerId(null);
               }, 500);
             }}
           >
@@ -472,10 +516,10 @@ export function PlannerPage({
           <Button
             variant="secondary"
             onClick={() => {
-              setPreviewPlanner(draft);
+              setDownloadingPlannerId(draft.planner_id);
               setTimeout(() => {
-                generatePDF("planner-preview-area", `Planner_${yyyyMmToLabel(draft.month, draft.year)}`);
-                setPreviewPlanner(null);
+                generatePDF("planner-download-edit", `Planner_${yyyyMmToLabel(draft.month, draft.year)}`);
+                setDownloadingPlannerId(null);
               }, 300);
             }}
           >
@@ -1211,6 +1255,14 @@ export function PlannerPage({
         ))}
       </div>
 
+      <div style={{ display: "none" }}>
+        {downloadingPlannerId === draft.planner_id && (
+          <div id={`planner-download-edit`}>
+             <PlannerPreviewTable planner={draft} unit={unit} />
+          </div>
+        )}
+      </div>
+
       {/* Screen preview modal – hidden when printing */}
       <div className="no-print">
         <Modal
@@ -1219,7 +1271,13 @@ export function PlannerPage({
           onClose={() => setPreviewPlanner(null)}
           footer={
             <>
-              <Button variant="secondary" onClick={() => window.print()}>
+              <Button variant="secondary" onClick={() => {
+                setPrintPlannerId(draft.planner_id);
+                setTimeout(() => {
+                  window.print();
+                  setPrintPlannerId(null);
+                }, 500);
+              }}>
                 Print / Save as PDF
               </Button>
               <Button variant="ghost" onClick={() => setPreviewPlanner(null)}>
@@ -1236,13 +1294,13 @@ export function PlannerPage({
       </div>
 
       {/* Print portal – renders OUTSIDE modal so browser prints only these 2 pages */}
-      {previewPlanner &&
+      {printPlannerId &&
         (() => {
           const host = document.getElementById("planner-print-portal");
           return host
             ? createPortal(
               <div className="print-landscape">
-                <PlannerPreviewTable planner={previewPlanner} unit={unit} />
+                <PlannerPreviewTable planner={draft} unit={unit} />
               </div>,
               host
             )
