@@ -58,6 +58,28 @@ export function MembersPage({
   }, [db.MEMBERS]);
 
   const analyticsData = useMemo(() => {
+    if (tab !== "analytics" && !filterMode) {
+      return {
+        members: [],
+        orgMetrics: {},
+        orgParticipation: [],
+        statusStats: { ACTIVE: 0, "LESS-ACTIVE": 0 },
+        genderStats: { M: 0, F: 0 },
+        genderByRole: {},
+        surnameStats: [],
+        trendTimeline: [],
+        reliabilityIndex: 100,
+        staleTopics: [],
+        inactiveMembers: [],
+        predictions: [],
+        ageGroups: [],
+        neverAsked: [],
+        conflicts: [],
+        readySpeakers: [],
+        totalAssignments: 0,
+      } as any;
+    }
+
     const now = new Date();
     const threeMonthsAgo = new Date();
     threeMonthsAgo.setMonth(now.getMonth() - 3);
@@ -501,12 +523,28 @@ export function MembersPage({
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Member | null>(null);
 
-  function save(member: Member) {
+  function save(member: Member, originalKey?: string) {
     updateDB((db0) => {
-      const exists = db0.MEMBERS.some((m) => m.member_id === member.member_id);
-      const MEMBERS = exists
-        ? db0.MEMBERS.map((m) => (m.member_id === member.member_id ? member : m))
-        : [{ ...member, created_date: member.created_date || new Date().toISOString().split("T")[0] }, ...db0.MEMBERS];
+      const previousKey = asText(originalKey || member.member_id || member.name).trim();
+      const cleanName = asText(member.name).trim();
+      const nextMember: Member = {
+        ...member,
+        member_id: cleanName,
+        name: cleanName,
+        created_date: member.created_date || new Date().toISOString().split("T")[0],
+      };
+      const MEMBERS = [
+        nextMember,
+        ...db0.MEMBERS.filter((m) => {
+          const existingKey = asText(m.member_id || m.name).trim();
+          const existingName = asText(m.name).trim();
+          return (
+            existingKey !== previousKey &&
+            existingName !== previousKey &&
+            existingName !== cleanName
+          );
+        }),
+      ];
       return { ...db0, MEMBERS };
     });
     onChanged();
@@ -1064,7 +1102,7 @@ export function MembersPage({
                   email: editing.email?.trim() || undefined,
                   notes: editing.notes?.trim() || undefined,
                   age: editing.age ? Number(editing.age) : undefined,
-                });
+                }, editing.member_id || editing.name);
                 setOpen(false);
               }}
             >

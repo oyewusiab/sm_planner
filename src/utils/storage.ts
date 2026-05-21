@@ -44,6 +44,22 @@ let cachedDB: DB | null = null;
 let lastSyncedDB: DB | null = null;
 let syncListeners: ((syncing: boolean) => void)[] = [];
 
+const SYNC_TABLES: { name: keyof DB; idCol: string }[] = [
+  { name: "USERS", idCol: "user_id" },
+  { name: "PLANNERS", idCol: "planner_id" },
+  { name: "ASSIGNMENTS", idCol: "assignment_id" },
+  { name: "MEMBERS", idCol: "name" },
+  { name: "CHECKLISTS", idCol: "checklist_id" },
+  { name: "NOTIFICATIONS", idCol: "notification_id" },
+  { name: "SETTINGS_REQUESTS", idCol: "request_id" },
+  { name: "PLANNER_APPROVAL_REQUESTS", idCol: "request_id" },
+  { name: "TODOS", idCol: "todo_id" },
+  { name: "REMINDERS", idCol: "reminder_id" },
+  { name: "HYMNS", idCol: "number" },
+];
+
+const REMOTE_DELETABLE_TABLES = new Set<keyof DB>(["MEMBERS", "NOTIFICATIONS", "TODOS"]);
+
 const dbListeners = new Set<() => void>();
 function notifyDBListeners() {
   dbListeners.forEach((l) => l());
@@ -157,6 +173,7 @@ function serializeUserForRemote(raw: any) {
 function serializeMemberForRemote(raw: any) {
   const member = sanitizeMemberRecord(raw);
   return {
+    member_id: member.member_id,
     name: member.name,
     gender: member.gender || "",
     age: member.age ?? "",
@@ -165,6 +182,7 @@ function serializeMemberForRemote(raw: any) {
     organisation: member.organisation || "",
     status: member.status || "",
     notes: member.notes || "",
+    created_date: member.created_date || "",
   };
 }
 
@@ -180,6 +198,10 @@ function serializeRowForRemote(tableName: keyof DB | "UNIT_SETTINGS", row: any) 
   if (tableName === "USERS") return serializeUserForRemote(row);
   if (tableName === "MEMBERS") return serializeMemberForRemote(row);
   return row;
+}
+
+function getComparableRow(tableName: keyof DB, row: any) {
+  return serializeRowForRemote(tableName, row);
 }
 
 function normalizeDB(raw: any): DB {
@@ -367,22 +389,9 @@ async function pushAllToBackend() {
       const updates: any[] = [];
       const deletes: any[] = [];
       
-      const tables = [
-        { name: "USERS", idCol: "user_id" },
-        { name: "PLANNERS", idCol: "planner_id" },
-        { name: "ASSIGNMENTS", idCol: "assignment_id" },
-        { name: "MEMBERS", idCol: "member_id" },
-        { name: "CHECKLISTS", idCol: "checklist_id" },
-        { name: "NOTIFICATIONS", idCol: "notification_id" },
-        { name: "SETTINGS_REQUESTS", idCol: "request_id" },
-        { name: "TODOS", idCol: "todo_id" },
-        { name: "REMINDERS", idCol: "reminder_id" },
-        { name: "HYMNS", idCol: "number" }
-      ];
-
-      for (const t of tables) {
-        const currentRows = (db[t.name as keyof DB] || []) as any[];
-        const lastRows = (lastSyncedDB[t.name as keyof DB] || []) as any[];
+      for (const t of SYNC_TABLES) {
+        const currentRows = (db[t.name] || []) as any[];
+        const lastRows = (lastSyncedDB[t.name] || []) as any[];
         
         const currentMap = new Map(currentRows.map(r => [String(r[t.idCol] || ""), r]));
         const lastMap = new Map(lastRows.map(r => [String(r[t.idCol] || ""), r]));
@@ -392,14 +401,15 @@ async function pushAllToBackend() {
           const id = String(r[t.idCol] || "");
           if (!id) continue;
           const old = lastMap.get(id);
-          if (!old || JSON.stringify(old) !== JSON.stringify(r)) {
-            updates.push({ table: t.name, row: serializeRowForRemote(t.name as keyof DB, r) });
+          const nextComparable = getComparableRow(t.name, r);
+          const oldComparable = old ? getComparableRow(t.name, old) : null;
+          if (!oldComparable || JSON.stringify(oldComparable) !== JSON.stringify(nextComparable)) {
+            updates.push({ table: t.name, row: nextComparable });
           }
         }
 
         // Find deletes
-        const deletableTables = ["NOTIFICATIONS", "TODOS"];
-        if (deletableTables.includes(t.name)) {
+        if (REMOTE_DELETABLE_TABLES.has(t.name)) {
           for (const r of lastRows) {
             const id = String(r[t.idCol] || "");
             if (!id) continue;
@@ -428,7 +438,7 @@ async function pushAllToBackend() {
       }
     }
     hasPendingPush = false; // Successfully pushed
-    lastSyncedDB = getDB(); // Update the baseline immediately to prevent re-pushing
+    lastSyncedDB = serializeDBForRemote(getDB()); // Keep baseline in backend-comparable shape
     console.log("[Sync] Push successful.");
   } catch (err) {
     console.warn("[Sync] Push failed:", err);
@@ -449,23 +459,9 @@ function mergeDatabases(local: DB, remote: DB): { merged: DB; needsPush: boolean
   const merged: DB = { ...local };
   let needsPush = false;
 
-  const tables = [
-    { name: "USERS", idCol: "user_id" },
-    { name: "PLANNERS", idCol: "planner_id" },
-    { name: "ASSIGNMENTS", idCol: "assignment_id" },
-    { name: "MEMBERS", idCol: "member_id" },
-    { name: "CHECKLISTS", idCol: "checklist_id" },
-    { name: "NOTIFICATIONS", idCol: "notification_id" },
-    { name: "SETTINGS_REQUESTS", idCol: "request_id" },
-    { name: "PLANNER_APPROVAL_REQUESTS", idCol: "request_id" },
-    { name: "TODOS", idCol: "todo_id" },
-    { name: "REMINDERS", idCol: "reminder_id" },
-    { name: "HYMNS", idCol: "number" }
-  ];
-
-  for (const t of tables) {
-    const localRows = (local[t.name as keyof DB] || []) as any[];
-    const remoteRows = (remote[t.name as keyof DB] || []) as any[];
+  for (const t of SYNC_TABLES) {
+    const localRows = (local[t.name] || []) as any[];
+    const remoteRows = (remote[t.name] || []) as any[];
 
     const localMap = new Map(localRows.map(r => [String(r[t.idCol] || ""), r]));
     const remoteMap = new Map(remoteRows.map(r => [String(r[t.idCol] || ""), r]));
@@ -557,9 +553,10 @@ export async function syncFromBackend(): Promise<boolean> {
     const remoteVersion = remoteResult.db_version;
 
     const normalizedRemote = normalizeDB(remote);
+    const comparableRemote = serializeDBForRemote(normalizedRemote);
     
-    // Set the baseline! This is critical for computing diffs later.
-    lastSyncedDB = normalizedRemote;
+    // Set the baseline in backend-comparable shape. This is critical for computing diffs later.
+    lastSyncedDB = comparableRemote;
 
     console.log(`[Sync] Remote data: ${normalizedRemote.USERS.length} users, ${normalizedRemote.PLANNERS.length} planners`);
 
@@ -575,8 +572,8 @@ export async function syncFromBackend(): Promise<boolean> {
     suppressRemoteSync += 1;
     try {
       setDBInternal(merged, true);
-      // Keep baseline as normalizedRemote so that any local-only changes are detected as updates in pushAllToBackend
-      lastSyncedDB = normalizedRemote;
+      // Keep baseline in backend-comparable form so row diffs use the same key/value shape as the server.
+      lastSyncedDB = comparableRemote;
       if (remoteVersion) {
         setLocalDBVersion(remoteVersion);
       }
@@ -603,11 +600,10 @@ export async function syncFromBackend(): Promise<boolean> {
 export async function syncNow(): Promise<boolean> {
   if (!backendEnabled()) return false;
   try {
-    const local = serializeDBForRemote(getDB());
-    const importRes = await importRemoteDB(local, "merge");
-    if (importRes && importRes.db_version) {
-      setLocalDBVersion(importRes.db_version);
+    if (!lastSyncedDB) {
+      await syncFromBackend();
     }
+    await pushAllToBackend();
     return await syncFromBackend();
   } catch (err) {
     console.warn("Manual sync failed", err);

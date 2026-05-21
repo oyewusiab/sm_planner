@@ -8,6 +8,7 @@ import { ProfileModal } from "./ProfileModal";
 import { Badge, Button } from "./ui";
 
 import { formatUserDisplayName } from "../utils/format";
+import logoUrl from "../../logo.png";
 
 export type RouteKey =
   | "dashboard"
@@ -147,6 +148,7 @@ export function AppShell({
           >
             ☰
           </button>
+          <img src={logoUrl} alt="Platform logo" className="h-9 w-9 rounded-xl bg-white/80 p-1 shadow-sm" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-semibold text-slate-800">{unit.unit_name}</div>
             <div className="truncate text-[11px] text-slate-500">{user.calling || user.role}</div>
@@ -182,26 +184,9 @@ export function AppShell({
             style={{ borderColor: "rgba(255,255,255,0.08)" }}
           >
             {/* App logo row */}
-            <div className="mb-3 flex items-center gap-3">
-              <div
-                className="flex h-9 w-9 items-center justify-center rounded-xl text-lg shadow-md"
-                style={{
-                  background: "linear-gradient(135deg, #00c6fb 0%, #005bea 100%)",
-                }}
-              >
-                <svg
-                  className="h-5 w-5 text-white"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2.5}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
-                  />
-                </svg>
+            <div className="mb-3 flex items-center gap-4">
+              <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-2xl bg-white/10 p-3 shadow-md ring-1 ring-white/10">
+                <img src={logoUrl} alt="Platform logo" className="h-full w-full object-contain" />
               </div>
               <div>
                 <div className="text-xs font-bold uppercase tracking-widest text-white/50">

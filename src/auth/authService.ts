@@ -284,7 +284,7 @@ export function setUserCalling(user_id: string, calling: string) {
   });
 }
 
-export function updateUserProfile(user_id: string, patch: Partial<User>) {
+export async function updateUserProfile(user_id: string, patch: Partial<User>) {
   const safePatch: Partial<User> = { ...patch };
   delete (safePatch as any).role;
   delete (safePatch as any).organisation;
@@ -298,6 +298,11 @@ export function updateUserProfile(user_id: string, patch: Partial<User>) {
     const USERS = db.USERS.map((u) => (u.user_id === user_id ? { ...u, ...safePatch } : u));
     return { ...db, USERS };
   });
+  // Push changes to backend immediately
+  const ok = await forcePushChanges();
+  if (!ok) {
+    throw new Error("Failed to save profile changes to the cloud. Please try again.");
+  }
 }
 
 export function addUser(name: string, email: string, role: Role, password_hash: string, calling?: string, gender?: "M" | "F") {

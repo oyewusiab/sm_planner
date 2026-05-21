@@ -24,6 +24,7 @@ export function ProfileModal({
 }) {
   const isSelf = viewer.user_id === target.user_id;
   const canEditSecure = viewer.role === "ADMIN" || isClerkCoAdmin(viewer);
+  const canEditLoginIdentity = canEditSecure || isSelf;
 
   const [tab, setTab] = useState<"profile" | "security">("profile");
   const [saving, setSaving] = useState(false);
@@ -67,8 +68,11 @@ export function ProfileModal({
 
       if (canEditSecure) {
         patch.name = form.name.trim();
+      }
+
+      if (canEditLoginIdentity) {
         patch.email = form.email.trim();
-        patch.username = (form.username || "").trim();
+        patch.username = (form.username || "").trim() || undefined;
       }
 
       // Self-editable fields
@@ -95,7 +99,7 @@ export function ProfileModal({
         patch.signature_data_url = (form.signature_data_url || "").trim() || undefined;
       }
 
-      auth.updateUserProfile(target.user_id, patch);
+      await auth.updateUserProfile(target.user_id, patch);
       setOk("Profile saved.");
       onSaved();
     } catch (e: any) {
@@ -318,7 +322,7 @@ export function ProfileModal({
                 <Label>Email (login)</Label>
                 <Input
                   value={form.email}
-                  disabled={!canEditSecure}
+                  disabled={!canEditLoginIdentity}
                   onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
                 />
               </div>
@@ -326,7 +330,7 @@ export function ProfileModal({
                 <Label>Username (login)</Label>
                 <Input
                   value={form.username || ""}
-                  disabled={!canEditSecure}
+                  disabled={!canEditLoginIdentity}
                   onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
                 />
                 <div className="text-xs text-slate-500">
@@ -379,9 +383,9 @@ export function ProfileModal({
               </div>
             </div>
 
-            {canEditSecure ? (
+            {canEditLoginIdentity ? (
               <div className="text-xs text-slate-500">
-                Security fields are editable only by the Bishop (Admin) or Clerk (Co-admin).
+                You can update your own login email, username, and password here.
               </div>
             ) : (
               <div className="text-xs text-slate-500">Security fields are managed by the Bishop/Clerk (Co-admin).</div>

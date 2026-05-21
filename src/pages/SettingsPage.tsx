@@ -42,6 +42,7 @@ export function SettingsPage({
   backendStatus,
   syncing,
   onSyncNow,
+  onSyncHymns,
 }: {
   user: User;
   unit: UnitSettings;
@@ -49,6 +50,7 @@ export function SettingsPage({
   backendStatus: "disabled" | "connecting" | "online" | "error";
   syncing: boolean;
   onSyncNow: () => void;
+  onSyncHymns: () => void;
 }) {
   const allowed = can(user.role, "SETTINGS");
   const isClerk = user.role === "CLERK";
@@ -208,8 +210,8 @@ export function SettingsPage({
     onChanged();
   }
 
-  function setGender(user_id: string, gender: "M" | "F") {
-    auth.updateUserProfile(user_id, { gender });
+  async function setGender(user_id: string, gender: "M" | "F") {
+    await auth.updateUserProfile(user_id, { gender });
     onChanged();
   }
 
@@ -600,6 +602,69 @@ export function SettingsPage({
         </CardBody>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Backend</CardTitle>
+        </CardHeader>
+        <CardBody>
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="inline-flex items-center gap-2 rounded-full border border-[color:var(--border)] bg-white px-3 py-1 text-xs text-slate-500">
+                <span
+                  className={
+                    "h-2 w-2 rounded-full " +
+                    (backendStatus === "online"
+                      ? "bg-emerald-500"
+                      : backendStatus === "connecting"
+                        ? "bg-amber-400"
+                        : backendStatus === "error"
+                          ? "bg-rose-500"
+                          : "bg-slate-300")
+                  }
+                />
+                <span>
+                  {backendStatus === "online"
+                    ? "Backend connected"
+                    : backendStatus === "connecting"
+                      ? "Connecting to backend"
+                      : backendStatus === "error"
+                        ? "Backend error (Check Script URL or API Key)"
+                        : import.meta.env.PROD
+                          ? "Backend disabled (Check VITE_ environment variables)"
+                          : "Backend disabled"}
+                </span>
+              </div>
+              {backendStatus === "error" && (
+                <div className="w-full mt-2 rounded-lg bg-rose-50 p-3 text-xs text-rose-800 border border-rose-100">
+                  <strong>Troubleshooting:</strong>
+                  <ul className="mt-1 list-disc list-inside space-y-1">
+                    <li>Ensure the <strong>Web App URL</strong> is correct.</li>
+                    <li>Verify the <strong>API Key</strong> matches <code>gs.md</code>.</li>
+                    <li>Check if the script is deployed as a <strong>Web App</strong> and accessible to "Anyone".</li>
+                  </ul>
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={onSyncNow}
+                  disabled={syncing || backendStatus === "disabled" || backendStatus === "connecting"}
+                >
+                  {syncing ? "Syncing..." : "Sync Now"}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={onSyncHymns}
+                  disabled={syncing || backendStatus === "disabled" || backendStatus === "connecting"}
+                >
+                  {syncing ? "Syncing..." : "Sync Hymns"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </CardBody>
+      </Card>
+
       {!isClerk && (
         <Card>
           <CardHeader>
@@ -803,62 +868,6 @@ export function SettingsPage({
         </CardBody>
       </Card>
     )}
-
-      {!isClerk && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Backend</CardTitle>
-          </CardHeader>
-          <CardBody>
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="inline-flex items-center gap-2 rounded-full border border-[color:var(--border)] bg-white px-3 py-1 text-xs text-slate-500">
-                  <span
-                    className={
-                      "h-2 w-2 rounded-full " +
-                      (backendStatus === "online"
-                        ? "bg-emerald-500"
-                        : backendStatus === "connecting"
-                          ? "bg-amber-400"
-                          : backendStatus === "error"
-                            ? "bg-rose-500"
-                            : "bg-slate-300")
-                    }
-                  />
-                  <span>
-                    {backendStatus === "online"
-                      ? "Backend connected"
-                      : backendStatus === "connecting"
-                        ? "Connecting to backend"
-                        : backendStatus === "error"
-                          ? "Backend error (Check Script URL or API Key)"
-                          : import.meta.env.PROD
-                            ? "Backend disabled (Check VITE_ environment variables)"
-                            : "Backend disabled"}
-                  </span>
-                </div>
-                {backendStatus === "error" && (
-                  <div className="w-full mt-2 rounded-lg bg-rose-50 p-3 text-xs text-rose-800 border border-rose-100">
-                    <strong>Troubleshooting:</strong>
-                    <ul className="mt-1 list-disc list-inside space-y-1">
-                      <li>Ensure the <strong>Web App URL</strong> is correct.</li>
-                      <li>Verify the <strong>API Key</strong> matches <code>gs.md</code>.</li>
-                      <li>Check if the script is deployed as a <strong>Web App</strong> and accessible to "Anyone".</li>
-                    </ul>
-                  </div>
-                )}
-                <Button
-                  variant="secondary"
-                  onClick={onSyncNow}
-                  disabled={syncing || backendStatus === "disabled" || backendStatus === "connecting"}
-                >
-                  {syncing ? "Syncing..." : "Sync Now"}
-                </Button>
-              </div>
-            </div>
-          </CardBody>
-        </Card>
-      )}
 
       {isBishop && (
         <Card>

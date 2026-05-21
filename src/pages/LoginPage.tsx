@@ -2,6 +2,7 @@ import { useState, type KeyboardEvent } from "react";
 import type { User } from "../types";
 import { Button, Input, Label } from "../components/ui";
 import * as auth from "../auth/authService";
+import logoUrl from "../../logo.png";
 
 type BackendStatus = "disabled" | "connecting" | "online" | "error";
 
@@ -119,20 +120,12 @@ export function LoginPage({
         <div className="w-full max-w-[440px] animate-fade-in-up">
           {/* Brand/Logo Area */}
           <div className="mb-10 text-center">
-            <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-xl shadow-blue-500/20 ring-1 ring-white/20">
-              <svg
-                className="h-8 w-8 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2.5}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
-                />
-              </svg>
+            <div className="mx-auto mb-6 flex h-48 w-48 items-center justify-center rounded-[2rem] bg-white/10 p-5 shadow-2xl shadow-slate-950/25 ring-1 ring-white/15 backdrop-blur-sm sm:h-56 sm:w-56">
+              <img
+                src={logoUrl}
+                alt="Sacrament Meeting Planner logo"
+                className="h-full w-full object-contain"
+              />
             </div>
             <h1 className="text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
               Sacrament Meeting Planner

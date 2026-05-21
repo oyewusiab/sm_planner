@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { UnitSettings, User } from "./types";
 import { AppShell, type RouteKey } from "./components/AppShell";
 import { LoginPage } from "./pages/LoginPage";
@@ -14,7 +14,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import * as auth from "./auth/authService";
 import { clearSession, getSession, newSessionForUser, setSession } from "./auth/session";
 import { syncNow, syncFromBackend, getDB, onSyncStatusChange } from "./utils/storage";
-import { backendEnabled, pingBackend } from "./utils/backend";
+import { backendEnabled, pingBackend, syncMusic } from "./utils/backend";
 import { Button } from "./components/ui";
 
 function LoadingScreen({ label = "Loading…" }: { label?: string }) {
@@ -33,6 +33,7 @@ const AUTO_SYNC_INTERVAL_MS = 60000;
 export function App() {
   const [booting, setBooting] = useState(true);
   const [dbTick, setDbTick] = useState(0);
+  const sessionGuardRef = useRef(0);
 
   const [user, setUser] = useState<User | null>(null);
   const [unit, setUnit] = useState<UnitSettings | null>(() => getDB().UNIT_SETTINGS);
@@ -55,6 +56,35 @@ export function App() {
     void dbTick;
     return getDB();
   }, [dbTick]);
+
+  function restoreSessionFromLocal(clearIfInvalid: boolean, guard = sessionGuardRef.current) {
+    if (guard !== sessionGuardRef.current) return false;
+    const sess = getSession();
+    if (!sess) {
+      console.log("[Session] No session found on boot.");
+      return false;
+    }
+
+    const u = auth.getUserById(sess.user_id);
+    const now = Date.now();
+    const inactiveMs = now - (sess.last_activity || 0);
+
+    if (guard !== sessionGuardRef.current) return false;
+
+    if (u && !u.disabled && inactiveMs < 30 * 60 * 1000) {
+      console.log(`[Session] Restored session for ${u.name} (${u.role})`);
+      setUser(u);
+      setSession({ ...sess, last_activity: now });
+      return true;
+    }
+
+    if (clearIfInvalid) {
+      console.warn("[Session] Session expired, locked, or invalid. Clearing.");
+      clearSession();
+    }
+
+    return false;
+  }
 
   function refresh() {
     setDbTick((t) => t + 1);
@@ -99,6 +129,22 @@ export function App() {
       refresh();
     } catch (err: any) {
       setSyncError(err?.message || "Sync failed");
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  async function handleSyncHymns() {
+    if (!backendEnabled()) return;
+    setIsSyncing(true);
+    setSyncError(null);
+    try {
+      await syncMusic();
+      await syncNow();
+      await refreshBackendStatus();
+      refresh();
+    } catch (err: any) {
+      setSyncError(err?.message || "Hymn sync failed");
     } finally {
       setIsSyncing(false);
     }
@@ -183,45 +229,33 @@ export function App() {
       try {
         const db = getDB();
         const hasUsers = db.USERS && db.USERS.length > 0;
+        const guard = sessionGuardRef.current;
+        setUnit(db.UNIT_SETTINGS);
+        restoreSessionFromLocal(hasUsers, guard);
+        setBooting(false);
 
-        if (!hasUsers) {
-          try {
-            await syncFromBackend();
-            setSyncError(null);
-          } catch (err: any) {
+        // Existing local data should render immediately; refresh in the background.
+        void syncFromBackend()
+          .then((ok) => {
+            if (guard !== sessionGuardRef.current) return;
+            if (ok) {
+              setSyncError(null);
+            } else if (!hasUsers) {
+              setSyncError("Failed to connect to backend");
+            }
+            setUnit(getDB().UNIT_SETTINGS);
+            restoreSessionFromLocal(true, guard);
+            refresh();
+          })
+          .catch((err: any) => {
+            if (guard !== sessionGuardRef.current) return;
             console.error("Initial sync failed:", err);
-            setSyncError(err?.message || "Failed to connect to backend");
-          }
-        } else {
-          // Existing local data should render immediately; refresh in the background.
-          void syncFromBackend();
-        }
-
-        const latestDB = getDB();
-        setUnit(latestDB.UNIT_SETTINGS);
-
-        // Check for existing session
-        const sess = getSession();
-        if (sess) {
-          const u = auth.getUserById(sess.user_id);
-          const now = Date.now();
-          const inactiveMs = now - (sess.last_activity || 0);
-
-          if (u && !u.disabled && inactiveMs < 30 * 60 * 1000) {
-            console.log(`[Session] Restored session for ${u.name} (${u.role})`);
-            setUser(u);
-            // Refresh activity immediately
-            setSession({ ...sess, last_activity: now });
-          } else {
-            console.warn("[Session] Session expired, locked, or invalid. Clearing.");
-            clearSession();
-          }
-        } else {
-          console.log("[Session] No session found on boot.");
-        }
+            if (!hasUsers) {
+              setSyncError(err?.message || "Failed to connect to backend");
+            }
+          });
       } catch (err) {
         console.error("Booting error:", err);
-      } finally {
         setBooting(false);
       }
     })();
@@ -238,6 +272,7 @@ export function App() {
     return (
       <LoginPage
         onLoggedIn={(u) => {
+          sessionGuardRef.current += 1;
           setSession(newSessionForUser(u));
           setUser(u);
           setUnit(getDB().UNIT_SETTINGS);
@@ -251,6 +286,7 @@ export function App() {
   }
 
   function logout() {
+    sessionGuardRef.current += 1;
     clearSession();
     setUser(null);
     setRoute("dashboard");
@@ -345,6 +381,7 @@ export function App() {
           backendStatus={backendStatus}
           syncing={isSyncing}
           onSyncNow={handleSyncNow}
+          onSyncHymns={handleSyncHymns}
         />
       );
     }
@@ -358,6 +395,7 @@ export function App() {
       route={route}
       setRoute={setRoute}
       onLogout={logout}
+      onProfileChanged={refresh}
       dbTick={dbTick}
     >
       {content}
