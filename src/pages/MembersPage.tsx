@@ -9,6 +9,14 @@ import { normalizeMemberName, getSurname } from "../utils/format";
 import { cn } from "../utils/cn";
 import { Badge } from "../components/ui";
 
+function asText(value: unknown) {
+  return typeof value === "string" ? value : String(value ?? "");
+}
+
+function upperText(value: unknown) {
+  return asText(value).toUpperCase();
+}
+
 function emptyMember(): Member {
   return {
     member_id: ids.uid("mem"),
@@ -42,7 +50,10 @@ export function MembersPage({
 
   const organisations = useMemo(() => {
     const set = new Set<string>();
-    for (const m of db.MEMBERS) if (m.organisation?.trim()) set.add(m.organisation.trim());
+    for (const m of db.MEMBERS) {
+      const organisation = asText(m.organisation).trim();
+      if (organisation) set.add(organisation);
+    }
     return ["ALL", ...Array.from(set).sort()];
   }, [db.MEMBERS]);
 
@@ -79,9 +90,9 @@ export function MembersPage({
     const nameToId = new Map<string, string>();
     const memberGenderMap = new Map<string, string>(); // member_id -> gender
     for (const m of db.MEMBERS) {
-      const norm = normalizeMemberName(m.name);
+      const norm = normalizeMemberName(asText(m.name));
       if (norm) nameToId.set(norm, m.member_id);
-      memberGenderMap.set(m.member_id, (m.gender || "").toUpperCase());
+      memberGenderMap.set(m.member_id, upperText(m.gender));
       memberStats[m.member_id] = {
         total: 0, speakers: 0, invocation: 0, benediction: 0, lastDate: null,
         sacrament: { preparing: 0, blessing: 0, passing: 0 },
@@ -204,10 +215,10 @@ export function MembersPage({
     // 4. Finalize analytics
     const processedMembers = db.MEMBERS.map(m => {
       const s = memberStats[m.member_id];
-      const status = (m.status || "").toUpperCase();
-      const gender = (m.gender || "").toUpperCase();
-      const orgs = (m.organisation || "").split(",").map(o => o.trim()).filter(Boolean);
-      const surname = getSurname(m.name);
+      const status = upperText(m.status);
+      const gender = upperText(m.gender);
+      const orgs = asText(m.organisation).split(",").map(o => o.trim()).filter(Boolean);
+      const surname = getSurname(asText(m.name));
       
       if (status === "ACTIVE" || status === "LESS-ACTIVE") statusStats[status] += s.total;
       if (gender === "M" || gender === "F") genderStats[gender] += s.total;
@@ -469,22 +480,22 @@ export function MembersPage({
     } else if (filterMode === "IDLE") {
       base = base.filter(m => !analyticsData.members.find(am => am.member_id === m.member_id && am.total > 0));
     } else if (filterMode === "ACTIVE_MEMBER") {
-      base = base.filter(m => m.status?.toUpperCase() === "ACTIVE");
+      base = base.filter(m => upperText(m.status) === "ACTIVE");
     } else if (filterMode === "LESS_ACTIVE_MEMBER") {
-      base = base.filter(m => m.status?.toUpperCase() === "LESS-ACTIVE");
+      base = base.filter(m => upperText(m.status) === "LESS-ACTIVE");
     } else if (filterMode?.startsWith("SURNAME_")) {
       const surname = filterMode.replace("SURNAME_", "");
-      base = base.filter(m => getSurname(m.name) === surname);
+      base = base.filter(m => getSurname(asText(m.name)) === surname);
     }
 
     return base
-      .filter((m) => (org === "ALL" ? true : (m.organisation || "").trim() === org))
+      .filter((m) => (org === "ALL" ? true : asText(m.organisation).trim() === org))
       .filter((m) => {
         if (!query) return true;
-        const hay = `${m.name} ${m.phone || ""} ${m.organisation || ""} ${m.email || ""}`.toLowerCase();
+        const hay = `${asText(m.name)} ${asText(m.phone)} ${asText(m.organisation)} ${asText(m.email)}`.toLowerCase();
         return hay.includes(query);
       })
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .sort((a, b) => asText(a.name).localeCompare(asText(b.name)));
   }, [db.MEMBERS, q, org, filterMode, analyticsData.members]);
 
   const [open, setOpen] = useState(false);

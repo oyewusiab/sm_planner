@@ -44,6 +44,81 @@ function blankWeek(dateISO: string, conducting_officer: string, defaultSpeakers 
   };
 }
 
+function normalizeWeek(
+  week: Partial<WeekPlan> | undefined,
+  plannerId: string,
+  weekIndex: number,
+  conductingOfficer: string,
+  defaultSpeakers: number
+): WeekPlan {
+  const fastTestimony = !!week?.fast_testimony;
+  const speakers = Array.isArray(week?.speakers)
+    ? week.speakers.map((speaker) => ({
+        name: speaker?.name || "",
+        topic: speaker?.topic || "",
+        gender: speaker?.gender,
+      }))
+    : fastTestimony
+      ? []
+      : Array.from({ length: Math.max(0, defaultSpeakers) }).map(() => ({
+          name: "",
+          topic: "",
+          gender: undefined,
+        }));
+
+  return {
+    week_id: week?.week_id || `${plannerId}-week-${weekIndex + 1}`,
+    date: week?.date || "",
+    conducting_officer: week?.conducting_officer || conductingOfficer,
+    presiding: week?.presiding || "",
+    fast_testimony: fastTestimony,
+    speakers,
+    hymns: {
+      opening: week?.hymns?.opening || "",
+      sacrament: week?.hymns?.sacrament || "",
+      closing: week?.hymns?.closing || "",
+    },
+    music: week?.music
+      ? {
+          director: week.music.director || "",
+          director_gender: week.music.director_gender,
+          accompanist: week.music.accompanist || "",
+          accompanist_gender: week.music.accompanist_gender,
+        }
+      : undefined,
+    sacrament: {
+      preparing: Array.isArray(week?.sacrament?.preparing) ? week.sacrament.preparing : [],
+      blessing: Array.isArray(week?.sacrament?.blessing) ? week.sacrament.blessing : [],
+      passing: Array.isArray(week?.sacrament?.passing) ? week.sacrament.passing : [],
+    },
+    prayers: {
+      invocation: week?.prayers?.invocation || "",
+      invocation_gender: week?.prayers?.invocation_gender,
+      benediction: week?.prayers?.benediction || "",
+      benediction_gender: week?.prayers?.benediction_gender,
+    },
+    note: week?.note || "",
+    venue_id: week?.venue_id,
+    meeting_time_override: week?.meeting_time_override,
+    meeting_type: week?.meeting_type,
+    is_canceled: !!week?.is_canceled,
+    cancel_reason: week?.cancel_reason || "",
+  };
+}
+
+function normalizePlanner(planner: Planner, defaultSpeakers: number): Planner {
+  const conductingOfficer = planner.conducting_officer || "";
+  return {
+    ...planner,
+    conducting_officer: conductingOfficer,
+    weeks: Array.isArray(planner.weeks)
+      ? planner.weeks.slice(0, 5).map((week, index) =>
+          normalizeWeek(week, planner.planner_id, index, conductingOfficer, defaultSpeakers)
+        )
+      : [],
+  };
+}
+
 function stateTone(state: PlannerState) {
   if (state === "DRAFT") return "amber";
   if (state === "SUBMITTED") return "green";
@@ -71,6 +146,7 @@ export function PlannerPage({
 
   const canCreate = can(user.role, "CREATE_PLANNER");
   const canEditSubmitted = can(user.role, "EDIT_SUBMITTED");
+  const defaultSpeakers = unit.prefs?.default_speakers ?? 3;
 
   const [mode, setMode] = useState<"list" | "edit">("list");
   const [previewPlanner, setPreviewPlanner] = useState<Planner | null>(null);
@@ -80,6 +156,7 @@ export function PlannerPage({
 
   const planners = useMemo(() => {
     const list = [...plannersData]
+      .map((planner) => normalizePlanner(planner, defaultSpeakers))
       .filter((p) => p.state !== "ARCHIVED")
       .sort((a, b) => b.updated_date.localeCompare(a.updated_date));
 
@@ -90,7 +167,7 @@ export function PlannerPage({
       if (user.role === "ADMIN") return true; // Bishop sees all
       return p.created_by === user.user_id; // Drafts only to creator
     });
-  }, [plannersData, user]);
+  }, [defaultSpeakers, plannersData, user]);
 
 
 
@@ -100,8 +177,9 @@ export function PlannerPage({
       try {
         const p = JSON.parse(saved) as Planner;
         if (p.created_by === user.user_id && p.unit_name === unit.unit_name) {
-          console.log("[Planner] Recovered draft from localStorage:", p.planner_id);
-          return p;
+          const normalized = normalizePlanner(p, defaultSpeakers);
+          console.log("[Planner] Recovered draft from localStorage:", normalized.planner_id);
+          return normalized;
         }
       } catch (e) {
         console.error("Failed to load saved draft:", e);
@@ -127,7 +205,6 @@ export function PlannerPage({
     const year = now.getFullYear();
     const sundays = nextSundaysInMonth(month, year);
     const conducting = user.name;
-    const defaultSpeakers = unit.prefs?.default_speakers ?? 3;
     const planner: Planner = {
       planner_id: ids.uid("planner"),
       unit_name: unit.unit_name,
@@ -145,19 +222,20 @@ export function PlannerPage({
   }
 
   function startEdit(p: Planner) {
-    setDraft(JSON.parse(JSON.stringify(p)) as Planner);
+    setDraft(normalizePlanner(JSON.parse(JSON.stringify(p)) as Planner, defaultSpeakers));
     setMode("edit");
   }
 
   function save(nextState?: PlannerState) {
     if (!draft) return;
     const state: PlannerState = nextState || draft.state;
+    const normalizedDraft = normalizePlanner(draft, defaultSpeakers);
     const next: Planner = {
-      ...draft,
+      ...normalizedDraft,
       state,
       unit_name: unit.unit_name,
       updated_date: time.nowISO(),
-      weeks: draft.weeks.slice(0, 5),
+      weeks: normalizedDraft.weeks.slice(0, 5),
     };
     plannerMutation.mutate(next);
     onChanged();
@@ -826,7 +904,7 @@ export function PlannerPage({
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                        {w.speakers.map((s, i) => (
+                        {(w.speakers || []).map((s, i) => (
                           <div key={i} className="space-y-2 rounded-lg border border-[color:var(--border)] p-3">
                             <div className="text-xs font-medium text-slate-500">Speaker {i + 1}</div>
 
@@ -859,7 +937,7 @@ export function PlannerPage({
                               <MemberAutocomplete
                                 members={members}
                                 disabled={readonly}
-                                value={s.name}
+                                value={s.name || ""}
                                 placeholder="Select from Members…"
                                 onChange={(val) =>
                                   setDraft((d) => {
@@ -894,7 +972,7 @@ export function PlannerPage({
                               <Textarea
                                 disabled={readonly}
                                 rows={3}
-                                value={s.topic}
+                                value={s.topic || ""}
                                 onChange={(e) =>
                                   setDraft((d) => {
                                     if (!d) return d;
@@ -921,15 +999,15 @@ export function PlannerPage({
                         <div className="text-sm font-semibold text-slate-900">Hymns</div>
                         <div className="space-y-1">
                           <Label>Opening</Label>
-                          <Input disabled={readonly} value={w.hymns.opening} onChange={(e) => setDraft((d) => d ? ({ ...d, weeks: d.weeks.map((x) => x.week_id === w.week_id ? ({ ...x, hymns: { ...x.hymns, opening: e.target.value } }) : x) }) : d)} />
+                          <Input disabled={readonly} value={w.hymns?.opening || ""} onChange={(e) => setDraft((d) => d ? ({ ...d, weeks: d.weeks.map((x) => x.week_id === w.week_id ? ({ ...x, hymns: { ...x.hymns, opening: e.target.value } }) : x) }) : d)} />
                         </div>
                         <div className="space-y-1">
                           <Label>Sacrament</Label>
-                          <Input disabled={readonly} value={w.hymns.sacrament} onChange={(e) => setDraft((d) => d ? ({ ...d, weeks: d.weeks.map((x) => x.week_id === w.week_id ? ({ ...x, hymns: { ...x.hymns, sacrament: e.target.value } }) : x) }) : d)} />
+                          <Input disabled={readonly} value={w.hymns?.sacrament || ""} onChange={(e) => setDraft((d) => d ? ({ ...d, weeks: d.weeks.map((x) => x.week_id === w.week_id ? ({ ...x, hymns: { ...x.hymns, sacrament: e.target.value } }) : x) }) : d)} />
                         </div>
                         <div className="space-y-1">
                           <Label>Closing</Label>
-                          <Input disabled={readonly} value={w.hymns.closing} onChange={(e) => setDraft((d) => d ? ({ ...d, weeks: d.weeks.map((x) => x.week_id === w.week_id ? ({ ...x, hymns: { ...x.hymns, closing: e.target.value } }) : x) }) : d)} />
+                          <Input disabled={readonly} value={w.hymns?.closing || ""} onChange={(e) => setDraft((d) => d ? ({ ...d, weeks: d.weeks.map((x) => x.week_id === w.week_id ? ({ ...x, hymns: { ...x.hymns, closing: e.target.value } }) : x) }) : d)} />
                         </div>
                       </div>
 
@@ -948,7 +1026,7 @@ export function PlannerPage({
                             ) : null}
                           </div>
                           <div className="space-y-2">
-                            {ensureListWithAtLeastOne(w.sacrament.preparing).map((name, i) => (
+                            {ensureListWithAtLeastOne(w.sacrament?.preparing).map((name, i) => (
                               <div key={i} className="flex items-center gap-2">
                                 <MemberAutocomplete
                                   members={members}
@@ -984,7 +1062,7 @@ export function PlannerPage({
                             ) : null}
                           </div>
                           <div className="space-y-2">
-                            {ensureListWithAtLeastOne(w.sacrament.blessing).map((name, i) => (
+                            {ensureListWithAtLeastOne(w.sacrament?.blessing).map((name, i) => (
                               <div key={i} className="flex items-center gap-2">
                                 <MemberAutocomplete
                                   members={members}
@@ -1020,7 +1098,7 @@ export function PlannerPage({
                             ) : null}
                           </div>
                           <div className="space-y-2">
-                            {ensureListWithAtLeastOne(w.sacrament.passing).map((name, i) => (
+                            {ensureListWithAtLeastOne(w.sacrament?.passing).map((name, i) => (
                               <div key={i} className="flex items-center gap-2">
                                 <MemberAutocomplete
                                   members={members}
@@ -1056,7 +1134,7 @@ export function PlannerPage({
                               <Label>Gender / Prefix</Label>
                               <Select
                                 disabled={readonly}
-                                value={w.prayers.invocation_gender || ""}
+                                value={w.prayers?.invocation_gender || ""}
                                 onChange={(e) =>
                                   setDraft((d) =>
                                     d
@@ -1088,7 +1166,7 @@ export function PlannerPage({
                               <MemberAutocomplete
                                 members={members}
                                 disabled={readonly}
-                                value={w.prayers.invocation}
+                                value={w.prayers?.invocation || ""}
                                 placeholder="Select from Members…"
                                 onChange={(val) =>
                                   setDraft((d) =>
@@ -1138,7 +1216,7 @@ export function PlannerPage({
                               <Label>Gender / Prefix</Label>
                               <Select
                                 disabled={readonly}
-                                value={w.prayers.benediction_gender || ""}
+                                value={w.prayers?.benediction_gender || ""}
                                 onChange={(e) =>
                                   setDraft((d) =>
                                     d
@@ -1170,7 +1248,7 @@ export function PlannerPage({
                               <MemberAutocomplete
                                 members={members}
                                 disabled={readonly}
-                                value={w.prayers.benediction}
+                                value={w.prayers?.benediction || ""}
                                 placeholder="Select from Members…"
                                 onChange={(val) =>
                                   setDraft((d) =>

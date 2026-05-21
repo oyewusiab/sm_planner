@@ -7,6 +7,13 @@ function norm(s: string) {
   return (s || "").trim().toLowerCase();
 }
 
+function usernameFromUser(name: string, email: string) {
+  const fromEmail = norm((email || "").split("@")[0] || "").replace(/[^a-z0-9._-]/g, "");
+  if (fromEmail) return fromEmail;
+  const fromName = norm(name).replace(/\s+/g, "").replace(/[^a-z0-9._-]/g, "");
+  return fromName || ids.uid("user").slice(0, 12);
+}
+
 function ensureUniqueUsernameEmail(user_id: string, patch: Partial<User>) {
   const db = getDB();
   const currentUser = db.USERS.find((u) => u.user_id === user_id);
@@ -86,8 +93,8 @@ export async function login(identifier: string, password: string): Promise<User>
   // Find user by email or username
   const user = db.USERS.find(
     (u) =>
-      (u.email && u.email.toLowerCase() === id) ||
-      (u.username && u.username.toLowerCase() === id)
+      norm(u.email || "") === id ||
+      norm(u.username || "") === id
   );
 
   if (!user) {
@@ -299,6 +306,7 @@ export function addUser(name: string, email: string, role: Role, password_hash: 
     const user: User = {
       user_id: ids.uid("user"),
       name,
+      username: usernameFromUser(name, email),
       email,
       role,
       organisation,

@@ -11,6 +11,10 @@ export function normalizeGender(g?: string): "M" | "F" | undefined {
   return undefined;
 }
 
+function asText(value: unknown) {
+  return typeof value === "string" ? value : String(value ?? "");
+}
+
 export function MemberAutocomplete({
   members,
   value,
@@ -32,16 +36,14 @@ export function MemberAutocomplete({
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   const options = useMemo(() => {
-    const q = value.trim().toLowerCase();
-    const list = [...members].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-    const filtered = q
-      ? list.filter((m) => (m.name || "").toLowerCase().includes(q))
-      : list;
+    const q = asText(value).trim().toLowerCase();
+    const list = [...members].sort((a, b) => asText(a.name).localeCompare(asText(b.name)));
+    const filtered = q ? list.filter((m) => asText(m.name).toLowerCase().includes(q)) : list;
     return filtered.slice(0, 10);
   }, [members, value]);
 
   function pick(m: Member) {
-    onChange(m.name);
+    onChange(asText(m.name));
     onPick?.(m);
     setOpen(false);
   }
@@ -60,8 +62,8 @@ export function MemberAutocomplete({
     <div ref={rootRef} className={cn("relative", className)}>
       <Input
         disabled={disabled}
-        value={value}
-        placeholder={placeholder || "Start typing a member name…"}
+        value={asText(value)}
+        placeholder={placeholder || "Start typing a member name..."}
         onFocus={() => setOpen(true)}
         onChange={(e) => {
           onChange(e.target.value);
@@ -76,16 +78,16 @@ export function MemberAutocomplete({
           ) : (
             <ul className="max-h-56 overflow-auto py-1">
               {options.map((m) => (
-                <li key={m.member_id}>
+                <li key={asText(m.member_id) || asText(m.name)}>
                   <button
                     type="button"
                     className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-slate-50"
                     onClick={() => pick(m)}
                   >
-                    <span className="font-medium text-slate-900">{m.name}</span>
+                    <span className="font-medium text-slate-900">{asText(m.name)}</span>
                     <span className="text-xs text-slate-500">
                       {normalizeGender(m.gender) ? (normalizeGender(m.gender) === "M" ? "Brother" : "Sister") : ""}
-                      {m.phone ? (normalizeGender(m.gender) ? ` • ${m.phone}` : m.phone) : ""}
+                      {m.phone ? (normalizeGender(m.gender) ? ` - ${asText(m.phone)}` : asText(m.phone)) : ""}
                     </span>
                   </button>
                 </li>

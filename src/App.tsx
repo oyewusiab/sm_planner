@@ -193,7 +193,7 @@ export function App() {
             setSyncError(err?.message || "Failed to connect to backend");
           }
         } else {
-          // Background sync for existing local data
+          // Existing local data should render immediately; refresh in the background.
           void syncFromBackend();
         }
 
@@ -219,8 +219,6 @@ export function App() {
         } else {
           console.log("[Session] No session found on boot.");
         }
-
-        await refreshBackendStatus();
       } catch (err) {
         console.error("Booting error:", err);
       } finally {
@@ -228,6 +226,11 @@ export function App() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (booting) return;
+    void refreshBackendStatus();
+  }, [booting]);
 
   if (booting) return <LoadingScreen label="Loading..." />;
 

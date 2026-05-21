@@ -69,8 +69,121 @@ function safeParse<T>(value: string | null): T | null {
   }
 }
 
+function asText(value: unknown) {
+  return typeof value === "string" ? value : String(value ?? "");
+}
+
+function sanitizeMemberRecord(raw: any) {
+  const name = asText(raw?.name).trim();
+  const ageValue = raw?.age;
+  const parsedAge =
+    ageValue === undefined || ageValue === null || String(ageValue).trim() === ""
+      ? undefined
+      : Number(ageValue);
+
+  return {
+    member_id: name || asText(raw?.member_id).trim(),
+    name,
+    gender: asText(raw?.gender).trim(),
+    age: Number.isFinite(parsedAge) ? parsedAge : undefined,
+    phone: asText(raw?.phone).trim(),
+    email: asText(raw?.email).trim(),
+    organisation: asText(raw?.organisation).trim(),
+    status: asText(raw?.status).trim(),
+    notes: asText(raw?.notes).trim(),
+    created_date: asText(raw?.created_date).trim() || undefined,
+  };
+}
+
+function sanitizeUserRecord(raw: any) {
+  return {
+    user_id: asText(raw?.user_id).trim(),
+    name: asText(raw?.name).trim(),
+    preferred_name: asText(raw?.preferred_name).trim() || undefined,
+    username: asText(raw?.username).trim() || undefined,
+    email: asText(raw?.email).trim(),
+    password_hash: asText(raw?.password_hash || raw?.password || raw?.passwordHash).trim(),
+    role: raw?.role,
+    organisation: asText(raw?.organisation).trim() || undefined,
+    calling: asText(raw?.calling).trim() || undefined,
+    phone: asText(raw?.phone).trim() || undefined,
+    whatsapp: asText(raw?.whatsapp).trim() || undefined,
+    gender: asText(raw?.gender).trim() || undefined,
+    address: asText(raw?.address).trim() || undefined,
+    lga: asText(raw?.lga).trim() || undefined,
+    state: asText(raw?.state).trim() || undefined,
+    country: asText(raw?.country).trim() || undefined,
+    emergency_contact_name: asText(raw?.emergency_contact_name).trim() || undefined,
+    emergency_contact_phone: asText(raw?.emergency_contact_phone).trim() || undefined,
+    signature_data_url: asText(raw?.signature_data_url).trim() || undefined,
+    notes: asText(raw?.notes).trim() || undefined,
+    created_date: asText(raw?.created_date).trim(),
+    last_login_date: asText(raw?.last_login_date).trim() || undefined,
+    must_reset_password: raw?.must_reset_password === true || String(raw?.must_reset_password).toLowerCase() === "true",
+    disabled: raw?.disabled === true || String(raw?.disabled).toLowerCase() === "true",
+  };
+}
+
+function serializeUserForRemote(raw: any) {
+  const user = sanitizeUserRecord(raw);
+  return {
+    user_id: user.user_id,
+    name: user.name,
+    preferred_name: user.preferred_name || "",
+    username: user.username || "",
+    email: user.email,
+    password_hash: user.password_hash,
+    role: user.role || "",
+    organisation: user.organisation || "",
+    calling: user.calling || "",
+    phone: user.phone || "",
+    whatsapp: user.whatsapp || "",
+    gender: user.gender || "",
+    address: user.address || "",
+    lga: user.lga || "",
+    state: user.state || "",
+    country: user.country || "",
+    emergency_contact_name: user.emergency_contact_name || "",
+    emergency_contact_phone: user.emergency_contact_phone || "",
+    signature_data_url: user.signature_data_url || "",
+    notes: user.notes || "",
+    created_date: user.created_date || "",
+    last_login_date: user.last_login_date || "",
+    must_reset_password: !!user.must_reset_password,
+    disabled: !!user.disabled,
+  };
+}
+
+function serializeMemberForRemote(raw: any) {
+  const member = sanitizeMemberRecord(raw);
+  return {
+    name: member.name,
+    gender: member.gender || "",
+    age: member.age ?? "",
+    phone: member.phone || "",
+    email: member.email || "",
+    organisation: member.organisation || "",
+    status: member.status || "",
+    notes: member.notes || "",
+  };
+}
+
+function serializeDBForRemote(db: DB): DB {
+  return {
+    ...db,
+    USERS: db.USERS.map((user) => serializeUserForRemote(user) as any),
+    MEMBERS: db.MEMBERS.map((member) => serializeMemberForRemote(member) as any),
+  };
+}
+
+function serializeRowForRemote(tableName: keyof DB | "UNIT_SETTINGS", row: any) {
+  if (tableName === "USERS") return serializeUserForRemote(row);
+  if (tableName === "MEMBERS") return serializeMemberForRemote(row);
+  return row;
+}
+
 function normalizeDB(raw: any): DB {
-  const USERS0 = Array.isArray(raw?.USERS) ? (raw.USERS as User[]) : [];
+  const USERS0 = Array.isArray(raw?.USERS) ? (raw.USERS as any[]).map((u) => sanitizeUserRecord(u) as User) : [];
 
   // Migration: ensure every user has a unique username.
   const used = new Set<string>();
@@ -182,12 +295,7 @@ function normalizeDB(raw: any): DB {
     USERS,
     PLANNERS,
     ASSIGNMENTS: Array.isArray(raw?.ASSIGNMENTS) ? raw.ASSIGNMENTS : [],
-    MEMBERS: Array.isArray(raw?.MEMBERS)
-      ? raw.MEMBERS.map((m: any) => ({
-          ...m,
-          member_id: m.name || m.member_id || "",
-        }))
-      : [],
+    MEMBERS: Array.isArray(raw?.MEMBERS) ? raw.MEMBERS.map((m: any) => sanitizeMemberRecord(m) as Member) : [],
     CHECKLISTS: Array.isArray(raw?.CHECKLISTS) ? raw.CHECKLISTS : [],
     NOTIFICATIONS: Array.isArray(raw?.NOTIFICATIONS) ? raw.NOTIFICATIONS : [],
     SETTINGS_REQUESTS: Array.isArray(raw?.SETTINGS_REQUESTS) ? raw.SETTINGS_REQUESTS : [],
@@ -247,7 +355,7 @@ async function pushAllToBackend() {
   remoteSyncInFlight = true;
   notifySyncListeners(true);
   try {
-    const db = getDB();
+      const db = serializeDBForRemote(getDB());
     if (!lastSyncedDB) {
       console.log(`[Sync] Baseline missing. Pushing local changes via full merge... (${db.PLANNERS.length} planners, ${db.USERS.length} users)`);
       const importRes = await importRemoteDB(db, "merge");
@@ -263,7 +371,7 @@ async function pushAllToBackend() {
         { name: "USERS", idCol: "user_id" },
         { name: "PLANNERS", idCol: "planner_id" },
         { name: "ASSIGNMENTS", idCol: "assignment_id" },
-        { name: "MEMBERS", idCol: "name" },
+        { name: "MEMBERS", idCol: "member_id" },
         { name: "CHECKLISTS", idCol: "checklist_id" },
         { name: "NOTIFICATIONS", idCol: "notification_id" },
         { name: "SETTINGS_REQUESTS", idCol: "request_id" },
@@ -285,7 +393,7 @@ async function pushAllToBackend() {
           if (!id) continue;
           const old = lastMap.get(id);
           if (!old || JSON.stringify(old) !== JSON.stringify(r)) {
-            updates.push({ table: t.name, row: r });
+            updates.push({ table: t.name, row: serializeRowForRemote(t.name as keyof DB, r) });
           }
         }
 
@@ -345,7 +453,7 @@ function mergeDatabases(local: DB, remote: DB): { merged: DB; needsPush: boolean
     { name: "USERS", idCol: "user_id" },
     { name: "PLANNERS", idCol: "planner_id" },
     { name: "ASSIGNMENTS", idCol: "assignment_id" },
-    { name: "MEMBERS", idCol: "name" },
+    { name: "MEMBERS", idCol: "member_id" },
     { name: "CHECKLISTS", idCol: "checklist_id" },
     { name: "NOTIFICATIONS", idCol: "notification_id" },
     { name: "SETTINGS_REQUESTS", idCol: "request_id" },
@@ -495,7 +603,7 @@ export async function syncFromBackend(): Promise<boolean> {
 export async function syncNow(): Promise<boolean> {
   if (!backendEnabled()) return false;
   try {
-    const local = getDB();
+    const local = serializeDBForRemote(getDB());
     const importRes = await importRemoteDB(local, "merge");
     if (importRes && importRes.db_version) {
       setLocalDBVersion(importRes.db_version);
@@ -608,7 +716,7 @@ export function useUpsertMutation<K extends keyof DB>(tableName: K) {
         const idField = (tableName === "USERS" ? "user_id" : 
                         tableName === "PLANNERS" ? "planner_id" :
                         tableName === "ASSIGNMENTS" ? "assignment_id" :
-                        tableName === "MEMBERS" ? "name" :
+                        tableName === "MEMBERS" ? "member_id" :
                         tableName === "CHECKLISTS" ? "checklist_id" :
                         tableName === "NOTIFICATIONS" ? "notification_id" :
                         tableName === "SETTINGS_REQUESTS" ? "request_id" :
@@ -640,4 +748,3 @@ export function useUpsertMutation<K extends keyof DB>(tableName: K) {
 
   return { mutate, loading, error };
 }
-
