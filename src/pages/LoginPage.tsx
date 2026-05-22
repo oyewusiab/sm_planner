@@ -120,17 +120,14 @@ export function LoginPage({
         <div className="w-full max-w-[440px] animate-fade-in-up">
           {/* Brand/Logo Area */}
           <div className="mb-10 text-center">
-            <div className="mx-auto mb-6 flex h-48 w-48 items-center justify-center rounded-[2rem] bg-white/10 p-5 shadow-2xl shadow-slate-950/25 ring-1 ring-white/15 backdrop-blur-sm sm:h-56 sm:w-56">
+            <div className="mx-auto mb-6 flex h-70 w-70 items-center justify-center rounded-[2rem] bg-white/10 p-5 shadow-2xl shadow-slate-950/25 ring-1 ring-white/15 backdrop-blur-sm sm:h-56 sm:w-56">
               <img
                 src={logoUrl}
                 alt="Sacrament Meeting Planner logo"
                 className="h-full w-full object-contain"
               />
             </div>
-            <h1 className="text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
-              Sacrament Meeting Planner
-            </h1>
-            <p className="mt-2 text-sm font-medium text-slate-400">
+            <p className="mt-2 text-sm font-medium text-slate-300">
               Sacrament Meeting Coordination Tool for LDS units
             </p>
           </div>

@@ -185,14 +185,15 @@ export function AppShell({
           >
             {/* App logo row */}
             <div className="mb-3 flex items-center gap-4">
-              <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-2xl bg-white/10 p-3 shadow-md ring-1 ring-white/10">
+              <div className="flex h-20 w-28 items-center justify-center overflow-hidden rounded-2xl bg-white/10 p-3 shadow-md ring-1 ring-white/10">
                 <img src={logoUrl} alt="Platform logo" className="h-full w-full object-contain" />
               </div>
               <div>
-                <div className="text-xs font-bold uppercase tracking-widest text-white/50">
+                <div className="text-xs font-bold uppercase tracking-widest text-white/100">
                   Sacrament
                 </div>
-                <div className="text-sm font-bold leading-tight text-white">Planner</div>
+                <div className="text-sm font-bold leading-tight text-white">M e e t i n g</div>
+                <div className="text-sm font-bold leading-tight text-white">P l a n n e r</div>
               </div>
 
               {/* Notification bell */}

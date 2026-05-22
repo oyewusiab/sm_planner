@@ -32,6 +32,106 @@ function emptyMember(): Member {
   };
 }
 
+type AnalyticsRoleHistory = {
+  date: string;
+  type: string;
+  label: string;
+  topic?: string;
+};
+
+type AnalyticsMember = Member & {
+  total: number;
+  speakers: number;
+  invocation: number;
+  benediction: number;
+  lastDate: string | null;
+  sacrament: { preparing: number; blessing: number; passing: number };
+  music: { director: number; accompanist: number };
+  monthlyAssignments: Record<string, number>;
+  topics: { topic: string; date: string }[];
+  roleHistory: AnalyticsRoleHistory[];
+  roleDatesByType: Record<string, string[]>;
+  status: string;
+  orgs: string[];
+  surname: string;
+  monthsSinceLast: number;
+  isNewcomer: boolean;
+  isDoubleDipped: boolean;
+  readiness: number;
+  diversityScore?: number;
+  roleBreadth?: { category: string; count: number }[];
+};
+
+type OrgMetric = { total: number; idleCount: number };
+type OrgParticipation = {
+  org: string;
+  memberCount: number;
+  assignedCount: number;
+  idleCount: number;
+  totalAssignments: number;
+  participationRate: number;
+};
+type TrendPoint = { month: string; count: number };
+type PredictionCandidate = {
+  member_id: string;
+  name: string;
+  daysSinceLast: number;
+  avgInterval: number;
+  overdueDays: number;
+  confidence: string;
+  totalForRole: number;
+};
+type RolePrediction = { role: string; label: string; candidates: PredictionCandidate[] };
+type AgeGroupMetric = {
+  label: string;
+  min: number;
+  max: number;
+  memberCount: number;
+  assignedCount: number;
+  totalAssignments: number;
+  rate: number;
+};
+type ConflictItem = { date: string; type: string; members: string[]; detail: string };
+type AnalyticsData = {
+  members: AnalyticsMember[];
+  orgMetrics: Record<string, OrgMetric>;
+  orgParticipation: OrgParticipation[];
+  statusStats: Record<"ACTIVE" | "LESS-ACTIVE", number>;
+  genderStats: Record<"M" | "F", number>;
+  genderByRole: Record<string, { M: number; F: number }>;
+  surnameStats: [string, number][];
+  trendTimeline: TrendPoint[];
+  reliabilityIndex: number;
+  staleTopics: string[];
+  inactiveMembers: AnalyticsMember[];
+  predictions: RolePrediction[];
+  ageGroups: AgeGroupMetric[];
+  neverAsked: AnalyticsMember[];
+  conflicts: ConflictItem[];
+  readySpeakers: AnalyticsMember[];
+  totalAssignments: number;
+};
+
+const emptyAnalyticsData: AnalyticsData = {
+  members: [],
+  orgMetrics: {},
+  orgParticipation: [],
+  statusStats: { ACTIVE: 0, "LESS-ACTIVE": 0 },
+  genderStats: { M: 0, F: 0 },
+  genderByRole: {},
+  surnameStats: [],
+  trendTimeline: [],
+  reliabilityIndex: 100,
+  staleTopics: [],
+  inactiveMembers: [],
+  predictions: [],
+  ageGroups: [],
+  neverAsked: [],
+  conflicts: [],
+  readySpeakers: [],
+  totalAssignments: 0,
+};
+
 export function MembersPage({
   user,
   unit,
@@ -57,27 +157,9 @@ export function MembersPage({
     return ["ALL", ...Array.from(set).sort()];
   }, [db.MEMBERS]);
 
-  const analyticsData = useMemo(() => {
+  const analyticsData = useMemo<AnalyticsData>(() => {
     if (tab !== "analytics" && !filterMode) {
-      return {
-        members: [],
-        orgMetrics: {},
-        orgParticipation: [],
-        statusStats: { ACTIVE: 0, "LESS-ACTIVE": 0 },
-        genderStats: { M: 0, F: 0 },
-        genderByRole: {},
-        surnameStats: [],
-        trendTimeline: [],
-        reliabilityIndex: 100,
-        staleTopics: [],
-        inactiveMembers: [],
-        predictions: [],
-        ageGroups: [],
-        neverAsked: [],
-        conflicts: [],
-        readySpeakers: [],
-        totalAssignments: 0,
-      } as any;
+      return emptyAnalyticsData;
     }
 
     const now = new Date();

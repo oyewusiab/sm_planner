@@ -173,7 +173,6 @@ function serializeUserForRemote(raw: any) {
 function serializeMemberForRemote(raw: any) {
   const member = sanitizeMemberRecord(raw);
   return {
-    member_id: member.member_id,
     name: member.name,
     gender: member.gender || "",
     age: member.age ?? "",
@@ -182,7 +181,6 @@ function serializeMemberForRemote(raw: any) {
     organisation: member.organisation || "",
     status: member.status || "",
     notes: member.notes || "",
-    created_date: member.created_date || "",
   };
 }
 
@@ -509,10 +507,12 @@ function mergeDatabases(local: DB, remote: DB): { merged: DB; needsPush: boolean
   return { merged, needsPush };
 }
 
-export async function syncFromBackend(): Promise<boolean> {
+export async function syncFromBackend(options?: { force?: boolean; replaceLocal?: boolean }): Promise<boolean> {
   if (!backendEnabled()) return false;
+  const force = options?.force === true;
+  const replaceLocal = options?.replaceLocal === true;
   if (remotePullInFlight) return false;
-  if (hasPendingPush) {
+  if (!force && hasPendingPush) {
     console.log("[Sync] Local changes pending. Attempting push before pull.");
     await pushAllToBackend();
     if (hasPendingPush) {
@@ -532,7 +532,7 @@ export async function syncFromBackend(): Promise<boolean> {
       console.log(`[Sync] Version check - Local: ${localVer}, Remote: ${remoteVer}`);
       
       // If versions match, and we don't have an empty local DB, skip the pull!
-      if (localVer === remoteVer && !isEmptyDB(local)) {
+      if (!force && localVer === remoteVer && !isEmptyDB(local)) {
         console.log("[Sync] DB versions match. Skip pulling remote database.");
         return true;
       }
@@ -560,11 +560,13 @@ export async function syncFromBackend(): Promise<boolean> {
 
     console.log(`[Sync] Remote data: ${normalizedRemote.USERS.length} users, ${normalizedRemote.PLANNERS.length} planners`);
 
-    // Perform a safe merge of local and remote databases
-    const { merged, needsPush } = mergeDatabases(local, normalizedRemote);
+    // Perform a safe merge of local and remote databases unless the caller requested a full local refresh.
+    const { merged, needsPush } = replaceLocal
+      ? { merged: normalizedRemote, needsPush: false }
+      : mergeDatabases(local, normalizedRemote);
 
     // Re-check hasPendingPush after remote fetch to avoid race during network call
-    if (hasPendingPush) {
+    if (!force && hasPendingPush) {
       console.warn("[Sync] Local became dirty during remote fetch. Aborting overwrite to prevent data loss.");
       return false;
     }
@@ -582,7 +584,7 @@ export async function syncFromBackend(): Promise<boolean> {
       suppressRemoteSync -= 1;
     }
 
-    if (needsPush) {
+    if (!replaceLocal && needsPush) {
       console.log("[Sync] Local changes detected that are not on remote. Scheduling push...");
       scheduleRemoteSync();
     }
@@ -600,11 +602,7 @@ export async function syncFromBackend(): Promise<boolean> {
 export async function syncNow(): Promise<boolean> {
   if (!backendEnabled()) return false;
   try {
-    if (!lastSyncedDB) {
-      await syncFromBackend();
-    }
-    await pushAllToBackend();
-    return await syncFromBackend();
+    return await syncFromBackend({ force: true, replaceLocal: true });
   } catch (err) {
     console.warn("Manual sync failed", err);
     return false;

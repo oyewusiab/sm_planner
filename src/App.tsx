@@ -49,8 +49,10 @@ export function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>(() =>
     backendEnabled() ? "connecting" : "disabled"
   );
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [backgroundSyncing, setBackgroundSyncing] = useState(false);
+  const [syncingAction, setSyncingAction] = useState<"sync_now" | "sync_hymns" | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const isSyncing = backgroundSyncing || syncingAction !== null;
 
   const dbSnapshot = useMemo(() => {
     void dbTick;
@@ -90,8 +92,9 @@ export function App() {
     setDbTick((t) => t + 1);
     const db = getDB();
     setUnit(db.UNIT_SETTINGS);
-    if (user) {
-      const latest = auth.getUserById(user.user_id);
+    const sess = getSession();
+    if (sess?.user_id) {
+      const latest = auth.getUserById(sess.user_id);
       if (latest) {
         if (latest.disabled) {
           clearSession();
@@ -121,7 +124,7 @@ export function App() {
 
   async function handleSyncNow() {
     if (!backendEnabled()) return;
-    setIsSyncing(true);
+    setSyncingAction("sync_now");
     setSyncError(null);
     try {
       await syncNow();
@@ -130,33 +133,33 @@ export function App() {
     } catch (err: any) {
       setSyncError(err?.message || "Sync failed");
     } finally {
-      setIsSyncing(false);
+      setSyncingAction(null);
     }
   }
 
   async function handleSyncHymns() {
     if (!backendEnabled()) return;
-    setIsSyncing(true);
+    setSyncingAction("sync_hymns");
     setSyncError(null);
     try {
       await syncMusic();
-      await syncNow();
+      await syncFromBackend({ force: true });
       await refreshBackendStatus();
       refresh();
     } catch (err: any) {
       setSyncError(err?.message || "Hymn sync failed");
     } finally {
-      setIsSyncing(false);
+      setSyncingAction(null);
     }
   }
 
   // Subscribe to background sync status overrides
   useEffect(() => {
     return onSyncStatusChange((syncing) => {
-      setIsSyncing(syncing);
+      setBackgroundSyncing(syncing);
       if (!syncing) refresh(); // Refresh UI when background sync completes
     });
-  }, [user]);
+  }, []);
 
   // Inactivity & Auto-logout
   useEffect(() => {
@@ -380,6 +383,7 @@ export function App() {
           onChanged={refresh}
           backendStatus={backendStatus}
           syncing={isSyncing}
+          syncingAction={syncingAction}
           onSyncNow={handleSyncNow}
           onSyncHymns={handleSyncHymns}
         />

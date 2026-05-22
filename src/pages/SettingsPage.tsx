@@ -41,6 +41,7 @@ export function SettingsPage({
   onChanged,
   backendStatus,
   syncing,
+  syncingAction,
   onSyncNow,
   onSyncHymns,
 }: {
@@ -49,6 +50,7 @@ export function SettingsPage({
   onChanged: () => void;
   backendStatus: "disabled" | "connecting" | "online" | "error";
   syncing: boolean;
+  syncingAction: "sync_now" | "sync_hymns" | null;
   onSyncNow: () => void;
   onSyncHymns: () => void;
 }) {
@@ -334,7 +336,7 @@ export function SettingsPage({
           USERS: mergeById(current.USERS, incoming.USERS, "user_id"),
           PLANNERS: mergeById(current.PLANNERS, incoming.PLANNERS, "planner_id"),
           ASSIGNMENTS: mergeById(current.ASSIGNMENTS, incoming.ASSIGNMENTS, "assignment_id"),
-          MEMBERS: mergeById(current.MEMBERS, incoming.MEMBERS, "member_id"),
+          MEMBERS: mergeById(current.MEMBERS, incoming.MEMBERS, "name"),
           CHECKLISTS: mergeById(current.CHECKLISTS, incoming.CHECKLISTS, "checklist_id"),
           NOTIFICATIONS: mergeById(current.NOTIFICATIONS, incoming.NOTIFICATIONS, "notification_id"),
           SETTINGS_REQUESTS: mergeById(current.SETTINGS_REQUESTS, incoming.SETTINGS_REQUESTS, "request_id"),
@@ -650,14 +652,14 @@ export function SettingsPage({
                   onClick={onSyncNow}
                   disabled={syncing || backendStatus === "disabled" || backendStatus === "connecting"}
                 >
-                  {syncing ? "Syncing..." : "Sync Now"}
+                  {syncingAction === "sync_now" ? "Syncing..." : "Sync Now"}
                 </Button>
                 <Button
                   variant="secondary"
                   onClick={onSyncHymns}
                   disabled={syncing || backendStatus === "disabled" || backendStatus === "connecting"}
                 >
-                  {syncing ? "Syncing..." : "Sync Hymns"}
+                  {syncingAction === "sync_hymns" ? "Syncing..." : "Sync Hymns"}
                 </Button>
               </div>
             </div>
