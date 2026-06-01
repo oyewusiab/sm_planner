@@ -38,6 +38,14 @@ export function notifyUser(params: {
   body: string;
   meta?: Record<string, string>;
 }) {
+  const db = getDB();
+  // Avoid creating duplicate notifications for the same user/type/meta
+  const metaA = JSON.stringify(params.meta || {});
+  const existing = db.NOTIFICATIONS.find(
+    (n) => n.to_user_id === params.to_user_id && n.type === params.type && JSON.stringify(n.meta || {}) === metaA
+  );
+  if (existing) return existing;
+
   const row: Notification = {
     notification_id: ids.uid("notif"),
     to_user_id: params.to_user_id,
@@ -61,16 +69,26 @@ export function notifyRoles(params: {
 }) {
   const db = getDB();
   const users = db.USERS.filter((u) => params.toRoles.includes(u.role));
-  const created: Notification[] = users.map((u) => ({
-    notification_id: ids.uid("notif"),
-    to_user_id: u.user_id,
-    type: params.type,
-    created_date: time.nowISO(),
-    read: false,
-    title: params.title,
-    body: params.body,
-    meta: params.meta,
-  }));
+  const metaA = JSON.stringify(params.meta || {});
+  const created: Notification[] = users
+    .map((u) => {
+      const exists = db.NOTIFICATIONS.find(
+        (n) => n.to_user_id === u.user_id && n.type === params.type && JSON.stringify(n.meta || {}) === metaA
+      );
+      if (exists) return null;
+      return {
+        notification_id: ids.uid("notif"),
+        to_user_id: u.user_id,
+        type: params.type,
+        created_date: time.nowISO(),
+        read: false,
+        title: params.title,
+        body: params.body,
+        meta: params.meta,
+      } as Notification;
+    })
+    .filter((x): x is Notification => x !== null);
+
   if (created.length === 0) return [];
   updateDB((db0) => ({ ...db0, NOTIFICATIONS: [...created, ...db0.NOTIFICATIONS] }));
   return created;

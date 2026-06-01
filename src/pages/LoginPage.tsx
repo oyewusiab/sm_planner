@@ -19,6 +19,7 @@ export function LoginPage({
 }) {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -127,7 +128,10 @@ export function LoginPage({
                 className="h-full w-full object-contain"
               />
             </div>
-            <p className="mt-2 text-sm font-medium text-slate-300">
+            <p className="mt-2 text-sm font-medium text-slate-200">
+              PLAN💠ASSIGN💠SERVE
+            </p>
+            <p className="mt-9 text-sm font-medium text-slate-300">
               Sacrament Meeting Coordination Tool for LDS units
             </p>
           </div>
@@ -232,15 +236,25 @@ export function LoginPage({
 
                 <div className="space-y-1.5">
                   <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="h-12 bg-white/50 focus:scale-[1.01]"
-                    autoComplete="current-password"
-                  />
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="h-12 bg-white/50 pr-10"
+                      autoComplete="current-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((s) => !s)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-sm text-slate-500 hover:text-slate-700"
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? "🙈" : "👁️"}
+                    </button>
+                  </div>
                 </div>
 
                 {error && (

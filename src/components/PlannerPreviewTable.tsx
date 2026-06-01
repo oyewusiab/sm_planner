@@ -153,7 +153,7 @@ export function PlannerPreviewTable({ planner, unit }: { planner: Planner; unit:
           {(unit.unit_name || "").toUpperCase()} — SACRAMENT MEETING PLAN
         </div>
         <div style={S.subtitle}>{planLabel}  |  {headerInfo}</div>
-        <div style={S.pageLabel}>Page 1 — Speakers (Front)</div>
+        <div style={S.pageLabel}>Page 1 — Speakers/Topics/References</div>
 
         <table style={{ ...S.table }}>
           <colgroup>{frontCols}</colgroup>
@@ -196,13 +196,20 @@ export function PlannerPreviewTable({ planner, unit }: { planner: Planner; unit:
                     const s = w.speakers?.[i];
                     const nameStr = s ? gender(s.name, s.gender) : "";
                     const topicStr = (s?.topic || "").trim();
-                    const cell =
-                      nameStr && topicStr
-                        ? `${nameStr}\n${topicStr}`
-                        : nameStr || topicStr || "—";
                     return (
                       <td key={i} style={S.td}>
-                        {cell}
+                        {s ? (
+                          <div>
+                            {nameStr ? (
+                              <div style={{ fontWeight: 700 }}>{nameStr}</div>
+                            ) : null}
+                            {topicStr ? (
+                              <div style={{ marginTop: 4, color: "#222", fontSize: "11px" }}>{topicStr}</div>
+                            ) : null}
+                          </div>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                     );
                   })
@@ -221,7 +228,7 @@ export function PlannerPreviewTable({ planner, unit }: { planner: Planner; unit:
           {(unit.unit_name || "").toUpperCase()} — SACRAMENT MEETING PLAN
         </div>
         <div style={S.subtitle}>{planLabel}  |  {headerInfo}</div>
-        <div style={S.pageLabel}>Page 2 — Hymns / Sacrament / Prayers (Back)</div>
+        <div style={S.pageLabel}>Page 2 — Hymns / Sacrament / Prayers</div>
 
         <table style={S.table}>
           <colgroup>{backCols}</colgroup>

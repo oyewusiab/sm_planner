@@ -30,10 +30,15 @@ function plannerLabel(p: Planner) {
 }
 
 function weekTopicsOnly(w: WeekPlan) {
-  const topics = (w.speakers || [])
-    .map((s) => (s.topic || "").trim())
-    .filter(Boolean);
-  if (topics.length === 0) return "(No topics yet)";
+  // If the meeting is cancelled / no sacrament meeting, indicate clearly
+  if (w.is_canceled) return "(No sacrament meeting)";
+
+  // Fast & Testimony Sundays typically have no planned speakers
+  const topics = (w.speakers || []).map((s) => (s.topic || "").trim()).filter(Boolean);
+  if (topics.length === 0) {
+    if (w.fast_testimony) return "(Fast & Testimony Sunday)";
+    return "(No topics yet)";
+  }
   return topics.map((t, i) => `${i + 1}. ${t}`).join("\n");
 }
 
@@ -311,7 +316,7 @@ export function MusicPage({
                     </CardHeader>
                     <CardBody className="space-y-4">
                       <div className="space-y-1">
-                        <Label>Topics (Names Hidden)</Label>
+                        <Label>Topics</Label>
                         <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-3 text-xs leading-relaxed text-slate-600">
                           {weekTopicsOnly(w).split('\n').map((line, i) => <div key={i}>{line}</div>)}
                         </div>
@@ -320,96 +325,104 @@ export function MusicPage({
                       <Divider />
 
                       <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-                        <div className="space-y-3">
-                          <div className="text-[10px] font-bold uppercase tracking-widest text-blue-600">Weekly Hymns</div>
-                          <div className="space-y-1.5">
-                            <Label>Opening</Label>
-                            <HymnAutocomplete
-                              hymns={hymnLibrary}
-                              value={w.hymns.opening}
-                              onChange={(val) => setHymn(w.week_id, "opening", val)}
-                              className="h-9"
-                            />
+                        {w.is_canceled ? (
+                          <div className="md:col-span-3 rounded-lg border border-rose-50 bg-rose-50/30 p-3 text-sm italic text-rose-700">
+                            No sacrament meeting this week — music details not required.
                           </div>
-                          <div className="space-y-1.5">
-                            <Label>Sacrament</Label>
-                            <HymnAutocomplete
-                              hymns={hymnLibrary}
-                              value={w.hymns.sacrament}
-                              onChange={(val) => setHymn(w.week_id, "sacrament", val)}
-                              className="h-9"
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label>Closing</Label>
-                            <HymnAutocomplete
-                              hymns={hymnLibrary}
-                              value={w.hymns.closing}
-                              onChange={(val) => setHymn(w.week_id, "closing", val)}
-                              className="h-9"
-                            />
-                          </div>
-                        </div>
+                        ) : (
+                          <>
+                            <div className="space-y-3">
+                              <div className="text-[10px] font-bold uppercase tracking-widest text-blue-600">Weekly Hymns</div>
+                              <div className="space-y-1.5">
+                                <Label>Opening</Label>
+                                <HymnAutocomplete
+                                  hymns={hymnLibrary}
+                                  value={w.hymns.opening}
+                                  onChange={(val) => setHymn(w.week_id, "opening", val)}
+                                  className="h-9"
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label>Sacrament</Label>
+                                <HymnAutocomplete
+                                  hymns={hymnLibrary}
+                                  value={w.hymns.sacrament}
+                                  onChange={(val) => setHymn(w.week_id, "sacrament", val)}
+                                  className="h-9"
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label>Closing</Label>
+                                <HymnAutocomplete
+                                  hymns={hymnLibrary}
+                                  value={w.hymns.closing}
+                                  onChange={(val) => setHymn(w.week_id, "closing", val)}
+                                  className="h-9"
+                                />
+                              </div>
+                            </div>
 
-                        <div className="space-y-3 md:col-span-2">
-                          <div className="text-[10px] font-bold uppercase tracking-widest text-blue-600">Serving This Week</div>
-                          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                            <div className="space-y-1.5">
-                              <Label>Music Director</Label>
-                              <MemberAutocomplete
-                                members={db.MEMBERS}
-                                value={w.music?.director || ""}
-                                onChange={(val) => setMusicField(w.week_id, "director", val)}
-                                placeholder="Select Director…"
-                                onPick={(m) => {
-                                  const g = normalizeGender(m.gender);
-                                  setLocal((p) => {
-                                    if (!p) return p;
-                                    const weeks = p.weeks.map((wk) => {
-                                      if (wk.week_id !== w.week_id) return wk;
-                                      return {
-                                        ...wk,
-                                        music: {
-                                          ...(wk.music || {}),
-                                          director: m.name,
-                                          director_gender: g ?? wk.music?.director_gender,
-                                        },
-                                      };
-                                    });
-                                    return { ...p, weeks };
-                                  });
-                                }}
-                              />
+                            <div className="space-y-3 md:col-span-2">
+                              <div className="text-[10px] font-bold uppercase tracking-widest text-blue-600">Serving This Week</div>
+                              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                <div className="space-y-1.5">
+                                  <Label>Music Director</Label>
+                                  <MemberAutocomplete
+                                    members={db.MEMBERS}
+                                    value={w.music?.director || ""}
+                                    onChange={(val) => setMusicField(w.week_id, "director", val)}
+                                    placeholder="Select Director…"
+                                    onPick={(m) => {
+                                      const g = normalizeGender(m.gender);
+                                      setLocal((p) => {
+                                        if (!p) return p;
+                                        const weeks = p.weeks.map((wk) => {
+                                          if (wk.week_id !== w.week_id) return wk;
+                                          return {
+                                            ...wk,
+                                            music: {
+                                              ...(wk.music || {}),
+                                              director: m.name,
+                                              director_gender: g ?? wk.music?.director_gender,
+                                            },
+                                          };
+                                        });
+                                        return { ...p, weeks };
+                                      });
+                                    }}
+                                  />
+                                </div>
+                                <div className="space-y-1.5">
+                                  <Label>Accompanist</Label>
+                                  <MemberAutocomplete
+                                    members={db.MEMBERS}
+                                    value={w.music?.accompanist || ""}
+                                    onChange={(val) => setMusicField(w.week_id, "accompanist", val)}
+                                    placeholder="Select Accompanist…"
+                                    onPick={(m) => {
+                                      const g = normalizeGender(m.gender);
+                                      setLocal((p) => {
+                                        if (!p) return p;
+                                        const weeks = p.weeks.map((wk) => {
+                                          if (wk.week_id !== w.week_id) return wk;
+                                          return {
+                                            ...wk,
+                                            music: {
+                                              ...(wk.music || {}),
+                                              accompanist: m.name,
+                                              accompanist_gender: g ?? wk.music?.accompanist_gender,
+                                            },
+                                          };
+                                        });
+                                        return { ...p, weeks };
+                                      });
+                                    }}
+                                  />
+                                </div>
+                              </div>
                             </div>
-                            <div className="space-y-1.5">
-                              <Label>Accompanist</Label>
-                              <MemberAutocomplete
-                                members={db.MEMBERS}
-                                value={w.music?.accompanist || ""}
-                                onChange={(val) => setMusicField(w.week_id, "accompanist", val)}
-                                placeholder="Select Accompanist…"
-                                onPick={(m) => {
-                                  const g = normalizeGender(m.gender);
-                                  setLocal((p) => {
-                                    if (!p) return p;
-                                    const weeks = p.weeks.map((wk) => {
-                                      if (wk.week_id !== w.week_id) return wk;
-                                      return {
-                                        ...wk,
-                                        music: {
-                                          ...(wk.music || {}),
-                                          accompanist: m.name,
-                                          accompanist_gender: g ?? wk.music?.accompanist_gender,
-                                        },
-                                      };
-                                    });
-                                    return { ...p, weeks };
-                                  });
-                                }}
-                              />
-                            </div>
-                          </div>
-                        </div>
+                          </>
+                        )}
                       </div>
                     </CardBody>
                   </Card>

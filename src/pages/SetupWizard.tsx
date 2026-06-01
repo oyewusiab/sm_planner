@@ -114,8 +114,13 @@ export function SetupWizard({
               </div>
 
               <div className="space-y-1 md:col-span-2">
-                <Label>Default Meeting Time</Label>
-                <Input value={form.meeting_time} onChange={(e) => set("meeting_time", e.target.value)} placeholder="e.g., Sunday 10:00 AM" />
+                  <Label>Default Meeting Time</Label>
+                  <Input
+                    value={form.meeting_time}
+                    onChange={(e) => set("meeting_time", e.target.value)}
+                    placeholder="e.g., 10:00 AM or 10:00 (24h)"
+                  />
+                  <div className="text-xs text-slate-500 mt-1">Use 24‑hour (HH:mm) or 12‑hour (h:mm AM/PM) format, e.g. "10:00" or "10:00 AM".</div>
               </div>
             </div>
 

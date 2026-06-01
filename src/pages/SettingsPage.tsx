@@ -448,7 +448,12 @@ export function SettingsPage({
             </div>
             <div className="space-y-1 md:col-span-2">
               <Label>Meeting Time</Label>
-              <Input value={form.meeting_time} onChange={(e) => setForm((f) => ({ ...f, meeting_time: e.target.value }))} />
+              <Input
+                value={form.meeting_time}
+                onChange={(e) => setForm((f) => ({ ...f, meeting_time: e.target.value }))}
+                placeholder="e.g., 10:00 AM or 10:00 (24h)"
+              />
+              <div className="text-xs text-slate-500 mt-1">Accepted formats: <span style={{ fontWeight: 600 }}>HH:mm</span> or <span style={{ fontWeight: 600 }}>h:mm AM/PM</span> (e.g., 10:00 or 10:00 AM).</div>
             </div>
           </div>
 

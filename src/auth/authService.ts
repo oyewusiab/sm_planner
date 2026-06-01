@@ -94,7 +94,8 @@ export async function login(identifier: string, password: string): Promise<User>
   const user = db.USERS.find(
     (u) =>
       norm(u.email || "") === id ||
-      norm(u.username || "") === id
+      norm(u.username || "") === id ||
+      norm(u.name || "") === id
   );
 
   if (!user) {

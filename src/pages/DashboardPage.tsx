@@ -208,100 +208,151 @@ export function DashboardPage({
               )}
             </div>
             <div className="mt-4">
-              <Button variant="primary" className="w-full" onClick={() => onNavigate("planner")}>
-                Open Planner →
-              </Button>
+              {user.role !== "MUSIC" ? (
+                <Button variant="primary" className="w-full" onClick={() => onNavigate("planner")}>
+                  Open Planner →
+                </Button>
+              ) : null}
             </div>
           </div>
         </div>
 
-        {/* Speakers / Assignments */}
-        <div className="stat-card animate-fade-in-up stagger-2">
-          <div className="stat-card-bar bar-violet" />
-          <div className="p-5">
-            <div className="flex items-center justify-between">
-              <div className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                Assignments
-              </div>
-              <div className="stat-icon stat-icon-violet">🎙️</div>
-            </div>
-            <div className="mt-4 flex items-end gap-2">
-              <div className="animate-count-up text-5xl font-extrabold tracking-tight text-slate-800">
-                {speakerCount}
-              </div>
-              <div className="mb-1.5 text-sm text-slate-500">speaker{speakerCount !== 1 ? "s" : ""}</div>
-            </div>
-            <div className="mt-1 text-xs text-slate-400">
-              From the latest submitted plan
-            </div>
-            <div
-              className="mt-3 h-1.5 rounded-full"
-              style={{ background: "rgba(0,0,0,0.06)" }}
-            >
-              <div
-                className="h-1.5 rounded-full transition-all duration-700"
-                style={{
-                  width: `${Math.min(speakerCount * 10, 100)}%`,
-                  background: "linear-gradient(90deg, #7c3aed, #a78bfa)",
-                }}
-              />
-            </div>
-            <div className="mt-4">
-              <Button variant="secondary" className="w-full" onClick={() => onNavigate("assignments")}>
-                Generate Notifications
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        {/* Readiness */}
-        <div className="stat-card animate-fade-in-up stagger-3">
-          <div className="stat-card-bar bar-green" />
-          <div className="p-5">
-            <div className="flex items-center justify-between">
-              <div className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                Readiness
-              </div>
-              <div className="stat-icon stat-icon-green">✅</div>
-            </div>
-            <div className="mt-4 flex items-center gap-4">
-              <div className="relative shrink-0">
-                <ProgressRing pct={readinessStats.pct} size={80} />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-lg font-extrabold text-slate-800">{readinessStats.pct}%</span>
+        {user.role === "MUSIC" ? (
+          <>
+            <div className="stat-card animate-fade-in-up stagger-2">
+              <div className="stat-card-bar bar-violet" />
+              <div className="p-5">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Music Status</div>
+                  <div className="stat-icon stat-icon-violet">🎵</div>
                 </div>
-              </div>
-              <div className="min-w-0">
-                <div className="text-2xl font-bold text-slate-800">
-                  {readinessStats.done}
-                  <span className="text-base font-normal text-slate-400">
-                    /{readinessStats.total}
-                  </span>
-                </div>
-                <div className="text-xs text-slate-400">
-                  {nextSundayInfo ? `Next Sunday (${formatDateShort(nextSundayInfo.date)})` : "Latest submitted planner"}
-                </div>
-                <div className="mt-2 text-xs font-medium text-emerald-600">
-                  {readinessStats.pct >= 100
-                    ? "🎉 All done!"
-                    : readinessStats.pct >= 50
-                    ? "Making progress!"
-                    : "Getting started…"}
-                </div>
-                {nextSundayInfo && (
-                  <div className="mt-1 text-[11px] text-slate-400">
-                    Overall planner: {aggregateChecklistStats.done}/{aggregateChecklistStats.total} ({aggregateChecklistStats.pct}%)
+                <div className="mt-4">
+                  <div className="text-sm text-slate-700">
+                    {latestSubmitted
+                      ? latestSubmitted.music_status === "COMPLETE"
+                        ? "Latest submitted planner: music finalized"
+                        : "Latest submitted planner: music input needed"
+                      : "No submitted planner yet"}
                   </div>
-                )}
+                </div>
+                <div className="mt-4">
+                  <Button className="w-full" onClick={() => onNavigate("music")}>
+                    Open Music Toolkit
+                  </Button>
+                </div>
               </div>
             </div>
-            <div className="mt-4">
-              <Button variant="secondary" className="w-full" onClick={() => onNavigate("checklist")}>
-                Open Checklist
-              </Button>
+
+            <div className="stat-card animate-fade-in-up stagger-3">
+              <div className="stat-card-bar bar-green" />
+              <div className="p-5">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Hymn Library</div>
+                  <div className="stat-icon stat-icon-green">📚</div>
+                </div>
+                <div className="mt-4">
+                  <div className="text-3xl font-extrabold text-slate-800">{(db.HYMNS || []).length}</div>
+                  <div className="text-xs text-slate-400">hymns available</div>
+                </div>
+                <div className="mt-4">
+                  <Button variant="secondary" className="w-full" onClick={() => onNavigate("music")}>
+                    Manage Hymns
+                  </Button>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+          </>
+        ) : (
+          <>
+            {/* Speakers / Assignments */}
+            <div className="stat-card animate-fade-in-up stagger-2">
+              <div className="stat-card-bar bar-violet" />
+              <div className="p-5">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                    Assignments
+                  </div>
+                  <div className="stat-icon stat-icon-violet">🎙️</div>
+                </div>
+                <div className="mt-4 flex items-end gap-2">
+                  <div className="animate-count-up text-5xl font-extrabold tracking-tight text-slate-800">
+                    {speakerCount}
+                  </div>
+                  <div className="mb-1.5 text-sm text-slate-500">speaker{speakerCount !== 1 ? "s" : ""}</div>
+                </div>
+                <div className="mt-1 text-xs text-slate-400">
+                  From the latest submitted plan
+                </div>
+                <div
+                  className="mt-3 h-1.5 rounded-full"
+                  style={{ background: "rgba(0,0,0,0.06)" }}
+                >
+                  <div
+                    className="h-1.5 rounded-full transition-all duration-700"
+                    style={{
+                      width: `${Math.min(speakerCount * 10, 100)}%`,
+                      background: "linear-gradient(90deg, #7c3aed, #a78bfa)",
+                    }}
+                  />
+                </div>
+                <div className="mt-4">
+                  <Button variant="secondary" className="w-full" onClick={() => onNavigate("assignments")}>
+                    Generate Notifications
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Readiness */}
+            <div className="stat-card animate-fade-in-up stagger-3">
+              <div className="stat-card-bar bar-green" />
+              <div className="p-5">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                    Readiness
+                  </div>
+                  <div className="stat-icon stat-icon-green">✅</div>
+                </div>
+                <div className="mt-4 flex items-center gap-4">
+                  <div className="relative shrink-0">
+                    <ProgressRing pct={readinessStats.pct} size={80} />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-lg font-extrabold text-slate-800">{readinessStats.pct}%</span>
+                    </div>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-2xl font-bold text-slate-800">
+                      {readinessStats.done}
+                      <span className="text-base font-normal text-slate-400">
+                        /{readinessStats.total}
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-400">
+                      {nextSundayInfo ? `Next Sunday (${formatDateShort(nextSundayInfo.date)})` : "Latest submitted planner"}
+                    </div>
+                    <div className="mt-2 text-xs font-medium text-emerald-600">
+                      {readinessStats.pct >= 100
+                        ? "🎉 All done!"
+                        : readinessStats.pct >= 50
+                        ? "Making progress!"
+                        : "Getting started…"}
+                    </div>
+                    {nextSundayInfo && (
+                      <div className="mt-1 text-[11px] text-slate-400">
+                        Overall planner: {aggregateChecklistStats.done}/{aggregateChecklistStats.total} ({aggregateChecklistStats.pct}%)
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <Button variant="secondary" className="w-full" onClick={() => onNavigate("checklist")}>
+                    Open Checklist
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* ── Quick Actions ── */}
