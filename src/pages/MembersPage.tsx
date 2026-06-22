@@ -208,9 +208,49 @@ export function MembersPage({
       };
     }
 
-    // Helper to find member by name (exact or partial)
     const findMid = (rawName: string): string | null => {
       if (!rawName) return null;
+      
+      const normName = (name: string): string => {
+        if (!name) return "";
+        return name.toLowerCase()
+          .replace(/^(bishop|brother|sister|elder|president|stake|ward|br|sr)\s+/g, "")
+          .replace(/[^a-z0-9]/g, "")
+          .trim();
+      };
+      
+      const fuzzyMatch = (nameA: string, nameB: string): boolean => {
+        const normA = normName(nameA);
+        const normB = normName(nameB);
+        if (normA === normB) return true;
+        
+        const cleanA = nameA.toLowerCase().replace(/^(bishop|brother|sister|elder|president|stake|ward|br|sr)\s+/g, "").trim();
+        const cleanB = nameB.toLowerCase().replace(/^(bishop|brother|sister|elder|president|stake|ward|br|sr)\s+/g, "").trim();
+        
+        const partsA = cleanA.split(/\s+/).filter(p => p.length > 0 && !p.endsWith("."));
+        const partsB = cleanB.split(/\s+/).filter(p => p.length > 0 && !p.endsWith("."));
+        
+        if (partsA.length === 0 || partsB.length === 0) return false;
+        
+        const firstA = partsA[0];
+        const lastA = partsA[partsA.length - 1];
+        const firstB = partsB[0];
+        const lastB = partsB[partsB.length - 1];
+        
+        if (firstA === firstB && lastA === lastB) return true;
+        
+        if (normA.length > 3 && normB.length > 3 && (normA.indexOf(normB) >= 0 || normB.indexOf(normA) >= 0)) {
+          return true;
+        }
+        return false;
+      };
+
+      for (const m of db.MEMBERS) {
+        if (fuzzyMatch(m.name, rawName)) {
+          return m.member_id;
+        }
+      }
+
       const norm = normalizeMemberName(rawName);
       if (!norm) return null;
       // 1. Exact match

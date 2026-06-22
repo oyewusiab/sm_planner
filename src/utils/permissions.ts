@@ -6,7 +6,10 @@ export type Feature =
   | "VIEW_SUBMITTED"
   | "GENERATE_ASSIGNMENTS"
   | "MANAGE_MEMBERS"
-  | "SETTINGS";
+  | "SETTINGS"
+  | "agendas.create"
+  | "agendas.edit"
+  | "agendas.print";
 
 /**
  * MVP permissions matrix (Nigeria ward setup).
@@ -25,6 +28,9 @@ const rolePerms: Record<Role, Record<Feature, boolean>> = {
     GENERATE_ASSIGNMENTS: true,
     MANAGE_MEMBERS: true,
     SETTINGS: true,
+    "agendas.create": true,
+    "agendas.edit": true,
+    "agendas.print": true,
   },
 
   /** 1st / 2nd Counsellor — create/edit/submit planners + can edit submitted planners */
@@ -35,6 +41,9 @@ const rolePerms: Record<Role, Record<Feature, boolean>> = {
     GENERATE_ASSIGNMENTS: true,
     MANAGE_MEMBERS: true,
     SETTINGS: false,
+    "agendas.create": true,
+    "agendas.edit": true,
+    "agendas.print": true,
   },
 
   /** Clerk / Assistant Clerk — printing + members (settings handled via approval workflow) */
@@ -45,6 +54,9 @@ const rolePerms: Record<Role, Record<Feature, boolean>> = {
     GENERATE_ASSIGNMENTS: true,
     MANAGE_MEMBERS: true,
     SETTINGS: true,
+    "agendas.create": false,
+    "agendas.edit": false,
+    "agendas.print": true,
   },
 
   /** Secretary / Assistant Secretary — printing */
@@ -55,6 +67,9 @@ const rolePerms: Record<Role, Record<Feature, boolean>> = {
     GENERATE_ASSIGNMENTS: true,
     MANAGE_MEMBERS: false,
     SETTINGS: false,
+    "agendas.create": false,
+    "agendas.edit": false,
+    "agendas.print": true,
   },
 
   /** Music Coordinator — works via Music workflow */
@@ -65,6 +80,9 @@ const rolePerms: Record<Role, Record<Feature, boolean>> = {
     GENERATE_ASSIGNMENTS: false,
     MANAGE_MEMBERS: false,
     SETTINGS: false,
+    "agendas.create": false,
+    "agendas.edit": false,
+    "agendas.print": false,
   },
 };
 

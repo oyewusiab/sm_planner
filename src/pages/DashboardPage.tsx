@@ -65,7 +65,7 @@ export function DashboardPage({
 }: {
   user: User;
   unit: UnitSettings;
-  onNavigate: (route: "planner" | "assignments" | "checklist" | "members" | "settings") => void;
+  onNavigate: (route: string) => void;
 }) {
   const db = getDB();
   const now = new Date();
@@ -363,6 +363,7 @@ export function DashboardPage({
         <div className="flex gap-3 overflow-x-auto pb-1">
           {[
             { icon: "📅", label: "New Plan", color: "#e0f2fe", route: "planner" as const, roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
+            { icon: "📝", label: "Agenda", color: "#fee2e2", route: "agenda" as const, roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
             { icon: "👥", label: "Members", color: "#ede9fe", route: "members" as const, roles: ["ADMIN", "BISHOPRIC", "CLERK"] },
             { icon: "✅", label: "Checklist", color: "#dcfce7", route: "checklist" as const, roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
             { icon: "🎵", label: "Music", color: "#fdf4ff", route: "music" as const, roles: ["ADMIN", "MUSIC"] },

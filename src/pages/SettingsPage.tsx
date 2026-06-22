@@ -657,7 +657,7 @@ export function SettingsPage({
                   onClick={onSyncNow}
                   disabled={syncing || backendStatus === "disabled" || backendStatus === "connecting"}
                 >
-                  {syncingAction === "sync_now" ? "Syncing..." : "Sync Now"}
+                  {syncingAction === "sync_now" ? "Syncing..." : "Sync Members List"}
                 </Button>
                 <Button
                   variant="secondary"

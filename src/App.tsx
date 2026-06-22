@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { UnitSettings, User } from "./types";
+import type { UnitSettings, User, Notification } from "./types";
 import { AppShell, type RouteKey } from "./components/AppShell";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -11,9 +11,10 @@ import { MembersPage } from "./pages/MembersPage";
 import { MusicPage } from "./pages/MusicPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { AgendaPage } from "./pages/AgendaPage";
 import * as auth from "./auth/authService";
 import { clearSession, getSession, newSessionForUser, setSession } from "./auth/session";
-import { syncNow, syncFromBackend, getDB, onSyncStatusChange } from "./utils/storage";
+import { syncNow, syncFromBackend, getDB, onSyncStatusChange, updateDB, ids } from "./utils/storage";
 import { backendEnabled, pingBackend, syncMusic } from "./utils/backend";
 import { Button } from "./components/ui";
 
@@ -143,7 +144,7 @@ export function App() {
     setSyncError(null);
     try {
       await syncMusic();
-      await syncFromBackend({ force: true });
+      await syncFromBackend({ force: true, replaceLocal: true });
       await refreshBackendStatus();
       refresh();
     } catch (err: any) {
@@ -266,8 +267,94 @@ export function App() {
 
   useEffect(() => {
     if (booting) return;
-    void refreshBackendStatus();
-  }, [booting]);
+    if (!isSyncing) {
+      void refreshBackendStatus();
+    }
+  }, [booting, isSyncing]);
+
+  useEffect(() => {
+    if (booting || !user || user.role !== "ADMIN") return;
+    
+    const db = getDB();
+    const planners = db.PLANNERS || [];
+    const agendas = db.AGENDAS || [];
+    const notifications = db.NOTIFICATIONS || [];
+    const now = new Date();
+    
+    let dbUpdated = false;
+    const newNotifications: Notification[] = [];
+    
+    // Check Planners in Archive > 2 years (2 * 365 days)
+    planners.forEach((p) => {
+      if (p.state === "ARCHIVED") {
+        const dateStr = p.archive_date || p.updated_date || p.created_date;
+        if (dateStr) {
+          const archiveTime = new Date(dateStr).getTime();
+          const ageYears = (now.getTime() - archiveTime) / (1000 * 60 * 60 * 24 * 365);
+          if (ageYears >= 2) {
+            const exists = notifications.some(
+              (n) => n.type === "PLANNER_EXPIRY_APPROVAL" && n.meta?.planner_id === p.planner_id && !n.read
+            );
+            if (!exists) {
+              const label = `${p.month}/${p.year} (${p.unit_name})`;
+              newNotifications.push({
+                notification_id: ids.uid("notif"),
+                to_user_id: user.user_id,
+                type: "PLANNER_EXPIRY_APPROVAL",
+                created_date: now.toISOString(),
+                read: false,
+                title: "Archived Planner Expiry Approval Request",
+                body: `The archived planner for ${label} is older than 2 years and is scheduled for deletion. Please approve or reject this deletion request.`,
+                meta: { planner_id: p.planner_id }
+              });
+              dbUpdated = true;
+            }
+          }
+        }
+      }
+    });
+
+    // Check Agendas in Archive > 3 years (3 * 365 days)
+    agendas.forEach((a) => {
+      if (a.state === "ARCHIVED") {
+        const dateStr = a.updated_date || a.created_date || a.date;
+        if (dateStr) {
+          const archiveTime = new Date(dateStr).getTime();
+          const ageYears = (now.getTime() - archiveTime) / (1000 * 60 * 60 * 24 * 365);
+          if (ageYears >= 3) {
+            const exists = notifications.some(
+              (n) => n.type === "AGENDA_EXPIRY_APPROVAL" && n.meta?.agenda_id === a.agenda_id && !n.read
+            );
+            if (!exists) {
+              const dateLabel = a.date ? new Date(a.date).toLocaleDateString() : "Unknown Date";
+              newNotifications.push({
+                notification_id: ids.uid("notif"),
+                to_user_id: user.user_id,
+                type: "AGENDA_EXPIRY_APPROVAL",
+                created_date: now.toISOString(),
+                read: false,
+                title: "Archived Agenda Expiry Approval Request",
+                body: `The archived agenda for ${dateLabel} (${a.ward_branch}) is older than 3 years and is scheduled for deletion. Please approve or reject this deletion request.`,
+                meta: { agenda_id: a.agenda_id }
+              });
+              dbUpdated = true;
+            }
+          }
+        }
+      }
+    });
+
+    if (dbUpdated && newNotifications.length > 0) {
+      updateDB((db0) => {
+        const existing = db0.NOTIFICATIONS || [];
+        return {
+          ...db0,
+          NOTIFICATIONS: [...newNotifications, ...existing]
+        };
+      });
+      refresh();
+    }
+  }, [user, dbTick, booting]);
 
   if (booting) return <LoadingScreen label="Loading..." />;
 
@@ -334,7 +421,7 @@ export function App() {
               </div>
             </div>
           )}
-          <DashboardPage user={user} unit={effectiveUnit} onNavigate={(r) => setRoute(r)} />
+          <DashboardPage user={user} unit={effectiveUnit} onNavigate={(r) => setRoute(r as RouteKey)} />
         </>
       );
     }
@@ -367,6 +454,13 @@ export function App() {
         return null;
       }
       return <MembersPage user={user} unit={effectiveUnit} onChanged={refresh} />;
+    }
+    if (route === "agenda") {
+      if (user.role === "MUSIC") {
+        setRoute("dashboard");
+        return null;
+      }
+      return <AgendaPage user={user} unit={effectiveUnit} onChanged={refresh} />;
     }
     if (route === "music") return <MusicPage user={user} unit={effectiveUnit} onChanged={refresh} />;
     if (route === "notifications") return <NotificationsPage user={user} unit={effectiveUnit} onChanged={refresh} />;

@@ -236,6 +236,11 @@ export type Member = {
   email?: string;
   notes?: string;
   created_date?: string;
+  total_assignments?: number;
+  spoken_count?: number;
+  prayers_count?: number;
+  last_assigned_date?: string;
+  readiness_score?: number;
 };
 
 export type ChecklistTask = {
@@ -260,7 +265,9 @@ export type NotificationType =
   | "REMINDER"
   | "TODO_ASSIGNED"
   | "TODO_COMPLETED"
-  | "SETTINGS_DECISION";
+  | "SETTINGS_DECISION"
+  | "PLANNER_EXPIRY_APPROVAL"
+  | "AGENDA_EXPIRY_APPROVAL";
 
 export type Notification = {
   notification_id: string;
@@ -323,4 +330,57 @@ export type PlannerApprovalRequest = {
   reason?: string;
   decided_by?: string;
   decided_date?: string;
+};
+
+export type Agenda = {
+  agenda_id: string;
+  planner_id: string;
+  week_id: string;
+  created_by: string;
+  created_date: string;
+  updated_date: string;
+  state: "DRAFT" | "SUBMITTED" | "ARCHIVED";
+  
+  // Front page specific details
+  ward_branch: string;
+  stake_district: string;
+  date: string;
+  type_of_meeting: "Sacrament Meeting" | "Fast & Testimony" | "Stake/District Meeting" | "Ward/Branch Conference" | "Other";
+  other_meeting_specify?: string;
+  presiding: string;
+  conducting: string;
+  music_director: string;
+  choir_director: string;
+  organist: string;
+  start_time: string;
+  prelude_music: string;
+  greetings_welcome: string;
+  acknowledgements: string;
+  ward_branch_business: string;
+  stake_district_business: string;
+  naming_blessing: string;
+  confirmation_bestowal: string;
+  opening_hymn: string;
+  opening_hymn_number: string;
+  opening_prayer: string;
+  sacrament_hymn: string;
+  sacrament_hymn_number: string;
+  special_music: string;
+  speakers: { name: string; topic: string }[];
+  closing_hymn: string;
+  closing_hymn_number: string;
+  closing_prayer: string;
+  postlude_music: string;
+
+  // Back page items
+  announcements: string[]; // 6 items
+  releases: { name: string; calling: string }[];
+  calls: { name: string; calling: string }[];
+  baptized_children: string[];
+  aaronic_ordinations: { name: string; office: string; ordained_by: string; ordained_by_office: string }[];
+  aaronic_advancements: { name: string; office_from: string; office_to: string; ordained_by: string; ordained_by_office: string }[];
+  achievements: string[];
+  babies: { family: string; baby_name: string; blessed_by: string; blessed_by_office: string }[];
+  confirmations: { name: string; confirmed_by: string; confirmed_by_office: string }[];
+  fellowships: string[];
 };

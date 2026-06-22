@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import type { Notification, Role, UnitSettings, User } from "../types";
 import { cn } from "../utils/cn";
 import { listNotificationsForUser, markAllRead, markRead, unreadCount } from "../utils/notifications";
+import { updateDB } from "../utils/storage";
 import { formatTime12h } from "../utils/date";
 import { Modal } from "./Modal";
 import { ProfileModal } from "./ProfileModal";
@@ -13,6 +14,7 @@ import logoUrl from "../../logo.png";
 export type RouteKey =
   | "dashboard"
   | "planner"
+  | "agenda"
   | "archive"
   | "assignments"
   | "checklist"
@@ -30,7 +32,7 @@ const navItems: {
 }[] = [
   { key: "dashboard",     label: "Dashboard",     icon: "⊞" },
   { key: "planner",       label: "Planner",        icon: "📅", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
-  { key: "archive",       label: "Archive",        icon: "🗂️", roles: ["ADMIN", "CLERK"] },
+  { key: "agenda",        label: "Agenda",         icon: "📄", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
   { key: "assignments",   label: "Assignments",    icon: "✉️", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
   { key: "notifications", label: "Notifications",  icon: "🔔", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY", "MUSIC"] },
   { key: "checklist",     label: "Checklist",      icon: "✅", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
@@ -42,6 +44,7 @@ const navItems: {
     icon: "⚙️",
     roles: ["ADMIN", "CLERK"],
   },
+  { key: "archive",       label: "Archive",        icon: "🗂️", roles: ["ADMIN", "CLERK"] },
 ];
 
 function notifCta(n: Notification): { label: string; route: RouteKey } | null {
@@ -86,6 +89,58 @@ export function AppShell({
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifTick, setNotifTick] = useState(0);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  const handleApproveExpiryDeletion = (n: Notification) => {
+    const isPlanner = n.type === "PLANNER_EXPIRY_APPROVAL";
+    const idField = isPlanner ? "planner_id" : "agenda_id";
+    const targetId = n.meta?.[idField];
+    if (!targetId) return;
+
+    const confirmText = isPlanner ? "planner" : "agenda";
+    const ok = window.confirm(`Are you sure you want to permanently delete this ${confirmText} from the system?`);
+    if (!ok) return;
+
+    updateDB((db0) => {
+      let nextDb = { ...db0 };
+      if (isPlanner) {
+        nextDb.PLANNERS = db0.PLANNERS.filter((p) => p.planner_id !== targetId);
+      } else {
+        nextDb.AGENDAS = db0.AGENDAS.filter((a) => a.agenda_id !== targetId);
+      }
+      nextDb.NOTIFICATIONS = db0.NOTIFICATIONS.filter((notif) => notif.notification_id !== n.notification_id);
+      return nextDb;
+    });
+
+    setNotifTick((t) => t + 1);
+    onProfileChanged?.();
+    alert(`${isPlanner ? "Planner" : "Agenda"} deleted successfully.`);
+  };
+
+  const handleExtendExpiryRetention = (n: Notification) => {
+    const isPlanner = n.type === "PLANNER_EXPIRY_APPROVAL";
+    const idField = isPlanner ? "planner_id" : "agenda_id";
+    const targetId = n.meta?.[idField];
+    if (!targetId) return;
+
+    updateDB((db0) => {
+      let nextDb = { ...db0 };
+      if (isPlanner) {
+        nextDb.PLANNERS = db0.PLANNERS.map((p) =>
+          p.planner_id === targetId ? { ...p, archive_date: new Date().toISOString(), updated_date: new Date().toISOString() } : p
+        );
+      } else {
+        nextDb.AGENDAS = db0.AGENDAS.map((a) =>
+          a.agenda_id === targetId ? { ...a, updated_date: new Date().toISOString() } : a
+        );
+      }
+      nextDb.NOTIFICATIONS = db0.NOTIFICATIONS.filter((notif) => notif.notification_id !== n.notification_id);
+      return nextDb;
+    });
+
+    setNotifTick((t) => t + 1);
+    onProfileChanged?.();
+    alert("Retention extended for another 2/3 years.");
+  };
 
   const visibleNavItems = useMemo(
     () =>
@@ -468,6 +523,24 @@ export function AppShell({
                             {cta.label}
                           </Button>
                         ) : null}
+                        {(n.type === "PLANNER_EXPIRY_APPROVAL" || n.type === "AGENDA_EXPIRY_APPROVAL") && (
+                          <div className="flex gap-2 mt-1">
+                            <Button
+                              variant="danger"
+                              onClick={() => handleApproveExpiryDeletion(n)}
+                              size="sm"
+                            >
+                              Approve Deletion
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              onClick={() => handleExtendExpiryRetention(n)}
+                              size="sm"
+                            >
+                              Extend Retention
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

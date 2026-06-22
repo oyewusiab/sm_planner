@@ -1,4 +1,7 @@
 /**
+ * Sacrament Meeting Planner - Google Apps Script Backend
+ * Handles sheet management, synchronization, auto-archiving, and retrieval.
+ *
  * Scheduled task: Auto-archive completed planners after 30 days.
  * Should be set to run daily via Apps Script time-based trigger.
  */
@@ -51,6 +54,60 @@ function scheduledDeleteArchivedPlanners() {
     }
   });
   return `Deleted ${deleted} archived planners.`;
+}
+
+/**
+ * Scheduled task: Auto-archive completed agendas after 30 days.
+ * Should be set to run daily via Apps Script time-based trigger.
+ */
+function scheduledAutoArchiveAgendas() {
+  const agendas = getAllRows_("AGENDAS");
+  const now = new Date();
+  let count = 0;
+  agendas.forEach(agenda => {
+    if (agenda.state === "SUBMITTED") {
+      // Auto-archive 30 days after the agenda's date
+      if (agenda.date) {
+        const agendaDate = new Date(agenda.date);
+        const archiveThreshold = new Date(agendaDate);
+        archiveThreshold.setDate(archiveThreshold.getDate() + 30);
+        if (now >= archiveThreshold) {
+          agenda.state = "ARCHIVED";
+          agenda.archive_method = "auto";
+          agenda.archive_date = now.toISOString();
+          upsertRow_("AGENDAS", agenda, "agenda_id");
+          count++;
+        }
+      }
+    }
+  });
+  return `Auto-archived ${count} agendas.`;
+}
+
+/**
+ * Scheduled task: Permanently delete archived agendas after retention period.
+ * - Manually archived: delete after 30 days
+ * - Auto-archived: delete after 365 days
+ * Should be set to run daily via Apps Script time-based trigger.
+ */
+function scheduledDeleteArchivedAgendas() {
+  const agendas = getAllRows_("AGENDAS");
+  const now = new Date();
+  let deleted = 0;
+  agendas.forEach(agenda => {
+    if (agenda.state === "ARCHIVED") {
+      const method = agenda.archive_method || "manual";
+      const dateStr = agenda.archive_date || agenda.updated_date || agenda.created_date;
+      if (!dateStr) return;
+      const archiveDate = new Date(dateStr);
+      let days = (now - archiveDate) / (1000 * 60 * 60 * 24);
+      if ((method === "manual" && days >= 30) || (method === "auto" && days >= 365)) {
+        deleteRowById_("AGENDAS", "agenda_id", agenda.agenda_id);
+        deleted++;
+      }
+    }
+  });
+  return `Deleted ${deleted} archived agendas.`;
 }
 /**
  * Sacrament Planner - Google Sheets backend
@@ -115,6 +172,11 @@ const SCHEMA = {
     "organisation",
     "status",
     "notes",
+    "total_assignments",
+    "spoken_count",
+    "prayers_count",
+    "last_assigned_date",
+    "readiness_score",
   ],
   ASSIGNMENTS: [
     "assignment_id",
@@ -193,6 +255,56 @@ const SCHEMA = {
   ],
   UNIT_SETTINGS: ["Key", "Value"],
   HYMNS: ["number", "title", "type", "theme", "updated_date"],
+  AGENDAS: [
+    "agenda_id",
+    "planner_id",
+    "week_id",
+    "created_by",
+    "created_date",
+    "updated_date",
+    "state",
+    "ward_branch",
+    "stake_district",
+    "date",
+    "type_of_meeting",
+    "other_meeting_specify",
+    "presiding",
+    "conducting",
+    "music_director",
+    "choir_director",
+    "organist",
+    "start_time",
+    "prelude_music",
+    "greetings_welcome",
+    "acknowledgements",
+    "ward_branch_business",
+    "stake_district_business",
+    "naming_blessing",
+    "confirmation_bestowal",
+    "opening_hymn",
+    "opening_hymn_number",
+    "opening_prayer",
+    "sacrament_hymn",
+    "sacrament_hymn_number",
+    "special_music",
+    "speakers",
+    "closing_hymn",
+    "closing_hymn_number",
+    "closing_prayer",
+    "postlude_music",
+    "announcements",
+    "releases",
+    "calls",
+    "baptized_children",
+    "aaronic_ordinations",
+    "aaronic_advancements",
+    "achievements",
+    "babies",
+    "confirmations",
+    "fellowships",
+    "archive_method",
+    "archive_date"
+  ],
 };
 
 const PRIMARY_KEYS = {
@@ -207,6 +319,7 @@ const PRIMARY_KEYS = {
   REMINDERS: "reminder_id",
   UNIT_SETTINGS: "Key",
   HYMNS: "number",
+  AGENDAS: "agenda_id",
 };
 
 // Columns that store JSON strings
@@ -214,6 +327,19 @@ const JSON_FIELDS = {
   PLANNERS: ["weeks"],
   NOTIFICATIONS: ["meta"],
   SETTINGS_REQUESTS: ["patch"],
+  AGENDAS: [
+    "announcements",
+    "releases",
+    "calls",
+    "baptized_children",
+    "aaronic_ordinations",
+    "aaronic_advancements",
+    "achievements",
+    "babies",
+    "confirmations",
+    "fellowships",
+    "speakers"
+  ],
 };
 
 const NUMBER_FIELDS = {
@@ -371,6 +497,9 @@ function handleUpsert_(payload) {
   const idVal = String(row[idCol] || "");
   if (!idVal) return jsonError_("missing_primary_key", 400);
   const updated = upsertRow_(table, row, idCol);
+  if (table === "PLANNERS" || table === "ASSIGNMENTS" || table === "MEMBERS") {
+    recalculateMemberAnalytics_();
+  }
   return jsonResponse_({ ok: true, data: updated, ts: new Date().toISOString() });
 }
 
@@ -403,6 +532,9 @@ function handleBulkUpsert_(payload) {
     valid.push(row);
   }
   const mergedCount = mergeTable_(table, valid);
+  if (table === "PLANNERS" || table === "ASSIGNMENTS" || table === "MEMBERS") {
+    recalculateMemberAnalytics_();
+  }
   return jsonResponse_({ ok: true, data: { updated: mergedCount }, ts: new Date().toISOString() });
 }
 
@@ -439,6 +571,7 @@ function handleExport_() {
     TODOS: getAllRows_("TODOS"),
     REMINDERS: getAllRows_("REMINDERS"),
     HYMNS: getAllRows_("HYMNS"),
+    AGENDAS: getAllRows_("AGENDAS"),
   };
   return jsonResponse_({ ok: true, data: db, db_version: getDbVersion_(), ts: new Date().toISOString() });
 }
@@ -461,6 +594,7 @@ function handleImport_(payload) {
     "SETTINGS_REQUESTS",
     "TODOS",
     "REMINDERS",
+    "AGENDAS",
   ];
 
   if (mode === "replace") {
@@ -475,6 +609,8 @@ function handleImport_(payload) {
   if (db.UNIT_SETTINGS) {
     if (typeof db.UNIT_SETTINGS === "object") upsertUnitSettings_(db.UNIT_SETTINGS);
   }
+
+  recalculateMemberAnalytics_();
 
   return jsonResponse_({ ok: true, data: { imported: true, mode: mode }, db_version: getDbVersion_(), ts: new Date().toISOString() });
 }
@@ -549,6 +685,18 @@ function handleSyncV2_(payload) {
     }
   }
 
+  // Recalculate member analytics if any changes to PLANNERS, ASSIGNMENTS, or MEMBERS
+  let hasMod = false;
+  for (const item of updates) {
+    if (item.table === "PLANNERS" || item.table === "ASSIGNMENTS" || item.table === "MEMBERS") hasMod = true;
+  }
+  for (const item of deletes) {
+    if (item.table === "PLANNERS" || item.table === "ASSIGNMENTS" || item.table === "MEMBERS") hasMod = true;
+  }
+  if (hasMod) {
+    recalculateMemberAnalytics_();
+  }
+
   incrementDbVersion_();
 
   return jsonResponse_({ ok: true, data: results, db_version: getDbVersion_(), ts: new Date().toISOString() });
@@ -589,7 +737,21 @@ function ensureSchema_() {
       }
     }
     if (needsWrite) {
-      sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+      const allData = sh.getDataRange().getValues();
+      if (allData.length > 1) {
+        const oldHeaders = allData[0];
+        const rows = [];
+        for (let r = 1; r < allData.length; r++) {
+          rows.push(rowToObj_(name, oldHeaders, allData[r]));
+        }
+        sh.clearContents();
+        sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+        const out = rows.map(rowObj => objToRow_(name, headers, rowObj));
+        sh.getRange(2, 1, out.length, headers.length).setValues(out);
+      } else {
+        sh.clearContents();
+        sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+      }
     }
     if (sh.getFrozenRows() < 1) sh.setFrozenRows(1);
   });
@@ -1444,4 +1606,186 @@ function syncLdsHymns() {
   });
 
   return `Synced ${all.length} hymns including sacrament collection and new global releases.`;
+}
+
+function recalculateMemberAnalytics_() {
+  const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  const memSheet = ss.getSheetByName("MEMBERS");
+  if (!memSheet) return;
+  
+  ensureSchema_();
+  
+  const memData = memSheet.getDataRange().getValues();
+  if (memData.length <= 1) return;
+  
+  const memHeaders = memData[0].map(h => String(h || "").trim().replace(/\/$/, "").toLowerCase());
+  
+  const nameIdx = memHeaders.indexOf("name");
+  const statusIdx = memHeaders.indexOf("status");
+  const totalIdx = memHeaders.indexOf("total_assignments");
+  const spokenIdx = memHeaders.indexOf("spoken_count");
+  const prayersIdx = memHeaders.indexOf("prayers_count");
+  const lastDateIdx = memHeaders.indexOf("last_assigned_date");
+  const readinessIdx = memHeaders.indexOf("readiness_score");
+  
+  if (nameIdx < 0) return;
+  
+  let assignments = [];
+  const assSheet = ss.getSheetByName("ASSIGNMENTS");
+  if (assSheet) {
+    const assData = assSheet.getDataRange().getValues();
+    if (assData.length > 1) {
+      const assHeaders = assData[0].map(h => String(h || "").trim().toLowerCase());
+      const personIdx = assHeaders.indexOf("person");
+      const roleIdx = assHeaders.indexOf("role");
+      const dateIdx = assHeaders.indexOf("date");
+      const topicIdx = assHeaders.indexOf("topic");
+      for (let r = 1; r < assData.length; r++) {
+        const row = assData[r];
+        assignments.push({
+          person: personIdx >= 0 ? String(row[personIdx] || "").trim() : "",
+          role: roleIdx >= 0 ? String(row[roleIdx] || "").trim() : "",
+          date: dateIdx >= 0 ? String(row[dateIdx] || "").trim() : "",
+          topic: topicIdx >= 0 ? String(row[topicIdx] || "").trim() : "",
+        });
+      }
+    }
+  }
+  
+  let planners = [];
+  const planSheet = ss.getSheetByName("PLANNERS");
+  if (planSheet) {
+    const planData = planSheet.getDataRange().getValues();
+    if (planData.length > 1) {
+      const planHeaders = planData[0].map(h => String(h || "").trim().toLowerCase());
+      const stateIdx = planHeaders.indexOf("state");
+      const weeksIdx = planHeaders.indexOf("weeks");
+      for (let r = 1; r < planData.length; r++) {
+        const row = planData[r];
+        const state = stateIdx >= 0 ? String(row[stateIdx] || "").trim() : "";
+        if (state === "DRAFT") continue;
+        let weeks = [];
+        const rawWeeks = weeksIdx >= 0 ? String(row[weeksIdx] || "").trim() : "";
+        if (rawWeeks) {
+          try { weeks = JSON.parse(rawWeeks); } catch (e) {}
+        }
+        planners.push({ weeks });
+      }
+    }
+  }
+  
+  const plannerAssignments = [];
+  for (const p of planners) {
+    for (const w of p.weeks) {
+      const wDate = w.date || "";
+      if (!wDate) continue;
+      
+      const items = [
+        { name: w.conducting_officer, role: "conducting" },
+        { name: w.presiding, role: "presiding" },
+        ...(w.speakers || []).map(s => ({ name: s.name, role: "speaker", topic: s.topic })),
+        { name: w.prayers?.invocation, role: "invocation" },
+        { name: w.prayers?.benediction, role: "benediction" },
+        { name: w.music?.director, role: "director" },
+        { name: w.music?.accompanist, role: "accompanist" },
+        ...(w.sacrament?.preparing || []).map(n => ({ name: n, role: "preparing" })),
+        ...(w.sacrament?.blessing || []).map(n => ({ name: n, role: "blessing" })),
+        ...(w.sacrament?.passing || []).map(n => ({ name: n, role: "passing" })),
+      ];
+      for (const it of items) {
+        if (it.name) {
+          plannerAssignments.push({
+            person: it.name,
+            role: it.role,
+            date: wDate,
+            topic: it.topic || ""
+          });
+        }
+      }
+    }
+  }
+  
+  const allAssignments = [...assignments, ...plannerAssignments];
+  
+  function normName(name) {
+    if (!name) return "";
+    return name.toLowerCase()
+      .replace(/^(bishop|brother|sister|elder|president|stake|ward|br|sr)\s+/g, "")
+      .replace(/[^a-z0-9]/g, "")
+      .trim();
+  }
+  
+  function fuzzyMatch(nameA, nameB) {
+    const normA = normName(nameA);
+    const normB = normName(nameB);
+    if (normA === normB) return true;
+    
+    const cleanA = nameA.toLowerCase().replace(/^(bishop|brother|sister|elder|president|stake|ward|br|sr)\s+/g, "").trim();
+    const cleanB = nameB.toLowerCase().replace(/^(bishop|brother|sister|elder|president|stake|ward|br|sr)\s+/g, "").trim();
+    
+    const partsA = cleanA.split(/\s+/).filter(p => p.length > 0 && !p.endsWith("."));
+    const partsB = cleanB.split(/\s+/).filter(p => p.length > 0 && !p.endsWith("."));
+    
+    if (partsA.length === 0 || partsB.length === 0) return false;
+    
+    const firstA = partsA[0];
+    const lastA = partsA[partsA.length - 1];
+    const firstB = partsB[0];
+    const lastB = partsB[partsB.length - 1];
+    
+    if (firstA === firstB && lastA === lastB) return true;
+    
+    if (normA.length > 3 && normB.length > 3 && (normA.indexOf(normB) >= 0 || normB.indexOf(normA) >= 0)) {
+      return true;
+    }
+    return false;
+  }
+  
+  const now = new Date();
+  
+  for (let r = 1; r < memData.length; r++) {
+    const memberName = String(memData[r][nameIdx] || "").trim();
+    const status = statusIdx >= 0 ? String(memData[r][statusIdx] || "").trim().toUpperCase() : "ACTIVE";
+    
+    let total = 0;
+    let spoken = 0;
+    let prayers = 0;
+    let lastDate = "";
+    
+    for (const a of allAssignments) {
+      if (fuzzyMatch(memberName, a.person)) {
+        total++;
+        const role = a.role.toLowerCase();
+        if (role.indexOf("speaker") >= 0) spoken++;
+        if (role.indexOf("invocation") >= 0 || role.indexOf("benediction") >= 0 || role.indexOf("prayer") >= 0) prayers++;
+        if (a.date && (!lastDate || a.date > lastDate)) {
+          lastDate = a.date;
+        }
+      }
+    }
+    
+    let readiness = 0;
+    if (status === "ACTIVE") {
+      readiness += 40;
+      let monthsSince = 99;
+      if (lastDate) {
+        try {
+          monthsSince = Math.floor((now.getTime() - new Date(lastDate).getTime()) / (1000 * 60 * 60 * 24 * 30));
+        } catch(e) {}
+      }
+      if (monthsSince >= 3) readiness += 30;
+      if (spoken < 2) readiness += 20;
+      readiness += 10;
+    }
+    
+    if (totalIdx >= 0) memData[r][totalIdx] = total;
+    if (spokenIdx >= 0) memData[r][spokenIdx] = spoken;
+    if (prayersIdx >= 0) memData[r][prayersIdx] = prayers;
+    if (lastDateIdx >= 0) memData[r][lastDateIdx] = lastDate;
+    if (readinessIdx >= 0) memData[r][readinessIdx] = readiness;
+  }
+  
+  const numRows = memData.length - 1;
+  const numCols = memHeaders.length;
+  memSheet.getRange(2, 1, numRows, numCols).setValues(memData.slice(1));
 }

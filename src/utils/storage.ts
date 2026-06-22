@@ -12,6 +12,7 @@ import type {
   TodoItem,
   UnitSettings,
   User,
+  Agenda,
 } from "../types";
 import { backendEnabled, exportRemoteDB, importRemoteDB, apiPost, pingBackend } from "./backend";
 
@@ -30,6 +31,7 @@ export type DB = {
   TODOS: TodoItem[];
   REMINDERS: ReminderJob[];
   HYMNS: Hymn[];
+  AGENDAS: Agenda[];
 };
 
 const nowISO = () => new Date().toISOString();
@@ -56,6 +58,7 @@ const SYNC_TABLES: { name: keyof DB; idCol: string }[] = [
   { name: "TODOS", idCol: "todo_id" },
   { name: "REMINDERS", idCol: "reminder_id" },
   { name: "HYMNS", idCol: "number" },
+  { name: "AGENDAS", idCol: "agenda_id" },
 ];
 
 const REMOTE_DELETABLE_TABLES = new Set<keyof DB>(["MEMBERS", "NOTIFICATIONS", "TODOS"]);
@@ -108,6 +111,11 @@ function sanitizeMemberRecord(raw: any) {
     status: asText(raw?.status).trim(),
     notes: asText(raw?.notes).trim(),
     created_date: asText(raw?.created_date).trim() || undefined,
+    total_assignments: raw?.total_assignments !== undefined && raw?.total_assignments !== null && raw?.total_assignments !== "" ? Number(raw.total_assignments) : undefined,
+    spoken_count: raw?.spoken_count !== undefined && raw?.spoken_count !== null && raw?.spoken_count !== "" ? Number(raw.spoken_count) : undefined,
+    prayers_count: raw?.prayers_count !== undefined && raw?.prayers_count !== null && raw?.prayers_count !== "" ? Number(raw.prayers_count) : undefined,
+    last_assigned_date: asText(raw?.last_assigned_date).trim() || undefined,
+    readiness_score: raw?.readiness_score !== undefined && raw?.readiness_score !== null && raw?.readiness_score !== "" ? Number(raw.readiness_score) : undefined,
   };
 }
 
@@ -131,12 +139,12 @@ function sanitizeUserRecord(raw: any) {
     country: asText(raw?.country).trim() || undefined,
     emergency_contact_name: asText(raw?.emergency_contact_name).trim() || undefined,
     emergency_contact_phone: asText(raw?.emergency_contact_phone).trim() || undefined,
-    signature_data_url: asText(raw?.signature_data_url).trim() || undefined,
+    signature_data_url: asText(raw?.signature_data_url || raw?.signatureDataUrl).trim() || undefined,
     notes: asText(raw?.notes).trim() || undefined,
-    created_date: asText(raw?.created_date).trim(),
-    last_login_date: asText(raw?.last_login_date).trim() || undefined,
-    must_reset_password: raw?.must_reset_password === true || String(raw?.must_reset_password).toLowerCase() === "true",
-    disabled: raw?.disabled === true || String(raw?.disabled).toLowerCase() === "true",
+    created_date: asText(raw?.created_date).trim() || undefined,
+    last_login_date: asText(raw?.last_login_date || raw?.lastLoginDate).trim() || undefined,
+    must_reset_password: raw?.must_reset_password === true || raw?.must_reset_password === "true" || raw?.must_reset_password === 1,
+    disabled: raw?.disabled === true || raw?.disabled === "true" || raw?.disabled === 1,
   };
 }
 
@@ -181,6 +189,11 @@ function serializeMemberForRemote(raw: any) {
     organisation: member.organisation || "",
     status: member.status || "",
     notes: member.notes || "",
+    total_assignments: member.total_assignments ?? "",
+    spoken_count: member.spoken_count ?? "",
+    prayers_count: member.prayers_count ?? "",
+    last_assigned_date: member.last_assigned_date || "",
+    readiness_score: member.readiness_score ?? "",
   };
 }
 
@@ -257,25 +270,11 @@ function normalizeDB(raw: any): DB {
       .filter(Boolean);
   };
 
-  const now = new Date();
-
   const PLANNERS_RAW = Array.isArray(raw?.PLANNERS)
     ? (raw.PLANNERS as any[]).map((p) => {
         let state = p.state;
         let archive_method = p.archive_method;
         let archive_date = p.archive_date;
-        const year = parseInt(p.year, 10);
-        const month = parseInt(p.month, 10);
-
-        if (state === "SUBMITTED" && !isNaN(year) && !isNaN(month)) {
-          const threshold = new Date(year, month + 1, 1);
-          if (now >= threshold) {
-            console.log(`[AutoArchive] Archiving expired planner: ${month}/${year}`);
-            state = "ARCHIVED";
-            archive_method = "auto";
-            archive_date = now.toISOString();
-          }
-        }
 
         return {
         ...p,
@@ -297,18 +296,26 @@ function normalizeDB(raw: any): DB {
       })
     : [];
 
-  const PLANNERS = PLANNERS_RAW.filter((p) => {
-    if (p.state === "ARCHIVED") {
-      const method = p.archive_method || "manual";
-      const dateStr = p.archive_date || p.updated_date || p.created_date;
-      if (dateStr) {
-        const days = (now.getTime() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24);
-        if (method === "manual" && days >= 30) return false;
-        if (method === "auto" && days >= 365) return false;
-      }
-    }
-    return true;
-  });
+  const PLANNERS = PLANNERS_RAW;
+
+  // Normalize AGENDAS
+  const AGENDAS = Array.isArray(raw?.AGENDAS)
+    ? (raw.AGENDAS as any[]).map(a => ({
+        ...a,
+        state: a.state || "DRAFT",
+        speakers: Array.isArray(a.speakers) ? a.speakers : [],
+        announcements: Array.isArray(a.announcements) ? a.announcements : ["", "", "", "", "", ""],
+        releases: Array.isArray(a.releases) ? a.releases : [],
+        calls: Array.isArray(a.calls) ? a.calls : [],
+        baptized_children: Array.isArray(a.baptized_children) ? a.baptized_children : ["", "", "", ""],
+        aaronic_ordinations: Array.isArray(a.aaronic_ordinations) ? a.aaronic_ordinations : [],
+        aaronic_advancements: Array.isArray(a.aaronic_advancements) ? a.aaronic_advancements : [],
+        achievements: Array.isArray(a.achievements) ? a.achievements : ["", "", "", ""],
+        babies: Array.isArray(a.babies) ? a.babies : [],
+        confirmations: Array.isArray(a.confirmations) ? a.confirmations : [],
+        fellowships: Array.isArray(a.fellowships) ? a.fellowships : ["", "", "", "", "", "", "", ""],
+      }))
+    : [];
 
   const base: DB = {
     UNIT_SETTINGS: raw?.UNIT_SETTINGS ?? null,
@@ -323,6 +330,7 @@ function normalizeDB(raw: any): DB {
     TODOS: Array.isArray(raw?.TODOS) ? raw.TODOS : [],
     REMINDERS: Array.isArray(raw?.REMINDERS) ? raw.REMINDERS : [],
     HYMNS: Array.isArray(raw?.HYMNS) ? raw.HYMNS : [],
+    AGENDAS,
   };
   return base;
 }
@@ -339,7 +347,8 @@ function isEmptyDB(db: DB): boolean {
     db.SETTINGS_REQUESTS.length === 0 &&
     db.TODOS.length === 0 &&
     db.REMINDERS.length === 0 &&
-    db.HYMNS.length === 0
+    db.HYMNS.length === 0 &&
+    db.AGENDAS.length === 0
   );
 }
 
@@ -453,6 +462,28 @@ function setDBInternal(next: DB, suppressRemote?: boolean) {
   if (!suppressRemote) scheduleRemoteSync();
 }
 
+function isLocalModified(tableName: keyof DB, id: string, localRow: any): boolean {
+  if (!lastSyncedDB) return false;
+  const lastRows = (lastSyncedDB[tableName] || []) as any[];
+  const idCol = SYNC_TABLES.find((t) => t.name === tableName)?.idCol || "id";
+  const old = lastRows.find((r) => String(r[idCol] || "") === id);
+  if (!old) return true; // New row is modified
+  const nextComparable = getComparableRow(tableName, localRow);
+  const oldComparable = getComparableRow(tableName, old);
+  return JSON.stringify(oldComparable) !== JSON.stringify(nextComparable);
+}
+
+function isRemoteModified(tableName: keyof DB, id: string, remoteRow: any): boolean {
+  if (!lastSyncedDB) return false;
+  const lastRows = (lastSyncedDB[tableName] || []) as any[];
+  const idCol = SYNC_TABLES.find((t) => t.name === tableName)?.idCol || "id";
+  const old = lastRows.find((r) => String(r[idCol] || "") === id);
+  if (!old) return true; // New row is modified
+  const remoteComparable = getComparableRow(tableName, remoteRow);
+  const oldComparable = getComparableRow(tableName, old);
+  return JSON.stringify(oldComparable) !== JSON.stringify(remoteComparable);
+}
+
 function mergeDatabases(local: DB, remote: DB): { merged: DB; needsPush: boolean } {
   const merged: DB = { ...local };
   let needsPush = false;
@@ -472,14 +503,33 @@ function mergeDatabases(local: DB, remote: DB): { merged: DB; needsPush: boolean
       const r = remoteMap.get(id);
 
       if (l && r) {
-        // Exists in both. Compare updated_date or fallback to remote
+        // Exists in both. Compare updated_date or fallback to dirty detection
         const lDate = l.updated_date || l.created_date || "";
         const rDate = r.updated_date || r.created_date || "";
-        if (lDate && rDate && lDate > rDate) {
-          mergedRows.push(l);
-          needsPush = true; // Local is newer, need to push
+        if (lDate && rDate && lDate !== rDate) {
+          if (lDate > rDate) {
+            mergedRows.push(l);
+            needsPush = true; // Local is newer, need to push
+          } else {
+            mergedRows.push(r);
+          }
         } else {
-          mergedRows.push(r);
+          // Dates are missing, equal, or not comparable. Use dirty detection.
+          if (isLocalModified(t.name, id, l)) {
+            const isRemoteMod = isRemoteModified(t.name, id, r);
+            if (isRemoteMod) {
+              // Conflict: both modified. Merge fields, prefer local edits
+              mergedRows.push({ ...r, ...l });
+              needsPush = true;
+            } else {
+              // Only local was modified
+              mergedRows.push(l);
+              needsPush = true;
+            }
+          } else {
+            // Local is not modified, so remote wins (either remote is modified or both match baseline)
+            mergedRows.push(r);
+          }
         }
       } else if (l) {
         // Exists only locally (not yet pushed to remote)
@@ -512,38 +562,40 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
   const force = options?.force === true;
   const replaceLocal = options?.replaceLocal === true;
   if (remotePullInFlight) return false;
-  if (!force && hasPendingPush) {
-    console.log("[Sync] Local changes pending. Attempting push before pull.");
-    await pushAllToBackend();
-    if (hasPendingPush) {
-      console.log("[Sync] Pull skipped: pending push still not persisted.");
-      return false;
-    }
-  }
-
-  const local = getDB();
-
-  // Perform a lightweight version check via ping to avoid heavy export downloads
-  try {
-    const pingData = await pingBackend();
-    if (pingData && pingData.db_version !== undefined) {
-      const localVer = getLocalDBVersion();
-      const remoteVer = pingData.db_version;
-      console.log(`[Sync] Version check - Local: ${localVer}, Remote: ${remoteVer}`);
-      
-      // If versions match, and we don't have an empty local DB, skip the pull!
-      if (!force && localVer === remoteVer && !isEmptyDB(local)) {
-        console.log("[Sync] DB versions match. Skip pulling remote database.");
-        return true;
-      }
-    }
-  } catch (err) {
-    console.warn("[Sync] Lightweight version check failed, falling back to full export:", err);
-  }
 
   remotePullInFlight = true;
   notifySyncListeners(true);
+
   try {
+    if (!force && hasPendingPush) {
+      console.log("[Sync] Local changes pending. Attempting push before pull.");
+      await pushAllToBackend();
+      if (hasPendingPush) {
+        console.log("[Sync] Pull skipped: pending push still not persisted.");
+        return false;
+      }
+    }
+
+    const local = getDB();
+
+    // Perform a lightweight version check via ping to avoid heavy export downloads
+    try {
+      const pingData = await pingBackend();
+      if (pingData && pingData.db_version !== undefined) {
+        const localVer = getLocalDBVersion();
+        const remoteVer = pingData.db_version;
+        console.log(`[Sync] Version check - Local: ${localVer}, Remote: ${remoteVer}`);
+        
+        // If versions match, and we don't have an empty local DB, skip the pull!
+        if (!force && localVer === remoteVer && !isEmptyDB(local)) {
+          console.log("[Sync] DB versions match. Skip pulling remote database.");
+          return true;
+        }
+      }
+    } catch (err) {
+      console.warn("[Sync] Lightweight version check failed, falling back to full export:", err);
+    }
+
     const remoteResult = await exportRemoteDB();
     if (!remoteResult) {
       console.warn("[Sync] Remote DB export returned null/empty.");
@@ -642,6 +694,7 @@ export function getDB(): DB {
     TODOS: [],
     REMINDERS: [],
     HYMNS: [],
+    AGENDAS: [],
   };
   localStorage.setItem(APP_KEY, JSON.stringify(fresh));
   cachedDB = fresh;
@@ -666,6 +719,7 @@ export const ids = {
 };
 
 export const time = {
+  now: nowISO,
   nowISO,
 };
 
@@ -681,11 +735,20 @@ export function resetDB() {
  */
 
 export function useTable<K extends keyof DB>(tableName: K) {
-  const [data, setData] = useState<DB[K]>(() => getDB()[tableName]);
+  const [data, setData] = useState<DB[K]>(() => {
+    const val = getDB()[tableName];
+    if (tableName === "UNIT_SETTINGS") return val;
+    return Array.isArray(val) ? val : ([] as any);
+  });
 
   useEffect(() => {
     const handler = () => {
-      setData(getDB()[tableName]);
+      const val = getDB()[tableName];
+      if (tableName === "UNIT_SETTINGS") {
+        setData(val);
+      } else {
+        setData(Array.isArray(val) ? val : ([] as any));
+      }
     };
     dbListeners.add(handler);
     return () => {
@@ -704,8 +767,12 @@ export function useUpsertMutation<K extends keyof DB>(tableName: K) {
     setLoading(true);
     try {
       updateDB((db) => {
-        const table = db[tableName];
-        if (!Array.isArray(table)) return db;
+        let table = db[tableName] as any;
+        if (!Array.isArray(table)) {
+          if (tableName === "UNIT_SETTINGS") return db; // special case
+          table = [];
+          (db as any)[tableName] = table;
+        }
 
         const idField = (tableName === "USERS" ? "user_id" : 
                         tableName === "PLANNERS" ? "planner_id" :
@@ -717,7 +784,8 @@ export function useUpsertMutation<K extends keyof DB>(tableName: K) {
                         tableName === "PLANNER_APPROVAL_REQUESTS" ? "request_id" :
                         tableName === "TODOS" ? "todo_id" :
                         tableName === "REMINDERS" ? "reminder_id" :
-                        tableName === "HYMNS" ? "number" : "id") as string;
+                        tableName === "HYMNS" ? "number" :
+                        tableName === "AGENDAS" ? "agenda_id" : "id") as string;
 
         const id = item[idField];
         const existingIdx = table.findIndex((x: any) => x[idField] === id);

@@ -170,10 +170,14 @@ export async function setUserPassword(user_id: string, newPassword: string) {
     return { ...db, USERS };
   });
 
-  // Force push immediately to ensure the password reset is saved to the remote database
-  const ok = await forcePushChanges();
-  if (!ok) {
-    throw new Error("Failed to save password change to the cloud. Please check your internet connection.");
+  // Force push immediately in the background, don't block locally if push fails
+  try {
+    const ok = await forcePushChanges();
+    if (!ok) {
+      console.warn("Failed to save password change to the cloud immediately. Will retry in background.");
+    }
+  } catch (err) {
+    console.warn("Password change push failed:", err);
   }
 }
 
@@ -299,10 +303,14 @@ export async function updateUserProfile(user_id: string, patch: Partial<User>) {
     const USERS = db.USERS.map((u) => (u.user_id === user_id ? { ...u, ...safePatch } : u));
     return { ...db, USERS };
   });
-  // Push changes to backend immediately
-  const ok = await forcePushChanges();
-  if (!ok) {
-    throw new Error("Failed to save profile changes to the cloud. Please try again.");
+  // Push changes to backend immediately in the background, don't block locally if push fails
+  try {
+    const ok = await forcePushChanges();
+    if (!ok) {
+      console.warn("Failed to save profile changes to the cloud immediately. Will retry in background.");
+    }
+  } catch (err) {
+    console.warn("Profile changes push failed:", err);
   }
 }
 

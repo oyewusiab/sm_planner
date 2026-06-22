@@ -8,7 +8,7 @@ import { MemberAutocomplete, normalizeGender } from "../components/MemberAutocom
 import { can } from "../utils/permissions";
 import { formatUserDisplayName } from "../utils/format";
 import { formatDateShort, monthName, nextSundaysInMonth, yyyyMmToLabel } from "../utils/date";
-import { ids, time, useTable, useUpsertMutation } from "../utils/storage";
+import { ids, time, useTable, useUpsertMutation, updateDB } from "../utils/storage";
 import * as auth from "../auth/authService";
 import { notifyUser } from "../utils/notifications";
 import { generatePDF } from "../utils/pdf";
@@ -119,11 +119,6 @@ function normalizePlanner(planner: Planner, defaultSpeakers: number): Planner {
   };
 }
 
-function stateTone(state: PlannerState) {
-  if (state === "DRAFT") return "amber";
-  if (state === "SUBMITTED") return "green";
-  return "gray";
-}
 
 function plannerLabel(p: Planner) {
   return `${monthName(p.month)} ${p.year}`;
@@ -162,6 +157,7 @@ export function PlannerPage({
 
     // Privacy: Drafts are only visible to the person who created them.
     // However, ADMINs (Bishop) can always see everything.
+    // We keep archived and submitted planners visible to all.
     return list.filter((p) => {
       if (p.state !== "DRAFT") return true; // Submitted/Archived are public
       if (user.role === "ADMIN") return true; // Bishop sees all
@@ -296,12 +292,73 @@ export function PlannerPage({
   }
 
   function archive(planner_id: string) {
+    if (user.role !== "ADMIN") {
+      alert("Only the Bishop (admin) can archive planners.");
+      return;
+    }
     if (!window.confirm("Are you sure you want to archive this planner?")) return;
     const p = planners.find((x) => x.planner_id === planner_id);
     if (!p) return;
     plannerMutation.mutate({ ...p, state: "ARCHIVED" as const, updated_date: time.nowISO(), archive_method: "manual", archive_date: time.nowISO() });
     onChanged();
   }
+
+  function restorePlanner(planner_id: string) {
+    if (user.role !== "ADMIN") {
+      alert("Only the Bishop (admin) can restore planners.");
+      return;
+    }
+    if (!window.confirm("Restore this planner to submitted status?")) return;
+    const p = planners.find((x) => x.planner_id === planner_id);
+    if (!p) return;
+    plannerMutation.mutate({ ...p, state: "SUBMITTED" as const, updated_date: time.nowISO() });
+    onChanged();
+    alert("Planner restored to submitted status.");
+  }
+
+  function deletePlanner(p: Planner) {
+    if (user.role !== "ADMIN") {
+      alert("Only the Bishop (admin) can delete planners.");
+      return;
+    }
+    const label = `${monthName(p.month)} ${p.year}`;
+    if (!window.confirm(`Are you sure you want to permanently delete the planner for ${label}? This will also delete all checklist items and assignments associated with it. This action cannot be undone.`)) return;
+    const verify = window.prompt("Type 'DELETE' to verify permanent deletion:");
+    if (verify !== "DELETE") {
+      alert("Deletion cancelled. Verification text did not match.");
+      return;
+    }
+    updateDB((db0) => {
+      const PLANNERS = db0.PLANNERS.filter((item) => item.planner_id !== p.planner_id);
+      const CHECKLISTS = db0.CHECKLISTS.filter((item) => item.planner_id !== p.planner_id);
+      const ASSIGNMENTS = db0.ASSIGNMENTS.filter((item) => item.planner_id !== p.planner_id);
+      return { ...db0, PLANNERS, CHECKLISTS, ASSIGNMENTS };
+    });
+    onChanged();
+    alert("Planner permanently deleted.");
+  }
+
+  const getStatusText = (p: Planner) => {
+    if (p.state === "DRAFT") return "DRAFT";
+    if (p.state === "SUBMITTED") return "SUBMITTED";
+    
+    // Check if it is expired/hidden under the old 30d/365d rules
+    const method = p.archive_method || "manual";
+    const dateStr = p.archive_date || p.updated_date || p.created_date;
+    if (dateStr) {
+      const days = (new Date().getTime() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24);
+      if (method === "manual" && days >= 30) return "ARCHIVED (EXPIRED/HIDDEN)";
+      if (method === "auto" && days >= 365) return "ARCHIVED (EXPIRED/HIDDEN)";
+    }
+    return "ARCHIVED";
+  };
+
+  const getStatusTone = (status: string) => {
+    if (status === "DRAFT") return "amber";
+    if (status === "SUBMITTED") return "green";
+    if (status === "ARCHIVED (EXPIRED/HIDDEN)") return "rose";
+    return "gray";
+  };
 
   function requestEditAccess(planner_id: string) {
     const reason = window.prompt("Reason for requesting edit access:");
@@ -416,7 +473,7 @@ export function PlannerPage({
                     <div className="text-xs text-slate-500">Updated {new Date(p.updated_date).toLocaleString()}</div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge tone={stateTone(p.state) as any}>{p.state}</Badge>
+                    <Badge tone={getStatusTone(getStatusText(p)) as any}>{getStatusText(p)}</Badge>
 
                     <Button variant="secondary" onClick={() => startEdit(p)}>
                       {p.state === "SUBMITTED" && !canEditSubmitted ? "View" : "Open"}
@@ -459,11 +516,23 @@ export function PlannerPage({
                       Print
                     </Button>
 
-                    {p.state === "SUBMITTED" && canEditSubmitted ? (
+                    {user.role === "ADMIN" && p.state === "SUBMITTED" ? (
                       <Button variant="ghost" onClick={() => archive(p.planner_id)}>
                         Archive
                       </Button>
                     ) : null}
+
+                    {user.role === "ADMIN" && p.state === "ARCHIVED" ? (
+                      <Button variant="ghost" onClick={() => restorePlanner(p.planner_id)} className="text-emerald-600 hover:bg-emerald-50">
+                        Restore
+                      </Button>
+                    ) : null}
+
+                    {user.role === "ADMIN" && (
+                      <Button variant="ghost" onClick={() => deletePlanner(p)} className="text-rose-600 hover:bg-rose-50">
+                        Delete
+                      </Button>
+                    )}
 
                     <div style={{ display: "none" }}>
                       {printPlannerId === p.planner_id && (

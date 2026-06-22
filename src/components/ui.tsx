@@ -43,13 +43,18 @@ export function CardBody({ className, ...props }: React.HTMLAttributes<HTMLDivEl
 
 export function Button({
   variant = "primary",
+  size = "md",
+  icon,
   className,
+  children,
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "primary" | "secondary" | "ghost" | "danger" | "outline";
+  size?: "sm" | "md" | "lg";
+  icon?: React.ReactNode;
 }) {
   const base =
-    "inline-flex items-center justify-center gap-2 rounded-[10px] px-4 py-2 text-sm font-semibold transition-all duration-200 disabled:opacity-50 active:scale-[0.97]";
+    "inline-flex items-center justify-center gap-2 font-semibold transition-all duration-200 disabled:opacity-50 active:scale-[0.97]";
   const styles: Record<string, string> = {
     primary:
       "bg-gradient-to-r from-[color:var(--primary)] to-[color:var(--primary-light)] text-white shadow-sm hover:shadow-md hover:brightness-110",
@@ -59,7 +64,17 @@ export function Button({
     danger: "bg-gradient-to-r from-rose-600 to-rose-500 text-white shadow-sm hover:brightness-110",
     outline: "bg-transparent text-slate-700 border border-[color:var(--border)] hover:bg-slate-50",
   };
-  return <button className={cn(base, styles[variant], className)} {...props} />;
+  const sizeStyles = {
+    sm: "px-3 py-1.5 text-xs rounded-lg",
+    md: "px-4 py-2 text-sm rounded-[10px]",
+    lg: "px-5 py-2.5 text-base rounded-xl",
+  };
+  return (
+    <button className={cn(base, sizeStyles[size], styles[variant], className)} {...props}>
+      {icon && <span className="inline-flex items-center justify-center">{icon}</span>}
+      {children}
+    </button>
+  );
 }
 
 export function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
@@ -154,18 +169,22 @@ export function SectionTitle({ title, subtitle }: { title: string; subtitle?: st
 export function EmptyState({
   title,
   body,
+  description,
   action,
+  icon,
 }: {
   title: string;
   body?: string;
+  description?: string;
   action?: React.ReactNode;
+  icon?: React.ReactNode | string;
 }) {
   return (
     <div className="rounded-2xl border border-dashed border-[color:var(--border)] bg-white/70 backdrop-blur-sm p-10 text-center">
       <div className="mx-auto max-w-lg space-y-3">
-        <div className="text-3xl">📋</div>
+        <div className="text-3xl">{icon || "📋"}</div>
         <div className="text-base font-semibold text-slate-800">{title}</div>
-        {body ? <div className="text-sm text-slate-500 leading-relaxed">{body}</div> : null}
+        {description || body ? <div className="text-sm text-slate-500 leading-relaxed">{description || body}</div> : null}
         {action ? <div className="pt-4">{action}</div> : null}
       </div>
     </div>
