@@ -305,6 +305,11 @@ const SCHEMA = {
     "archive_method",
     "archive_date"
   ],
+  "ACTIVITIES": ["activity_id", "date", "activity", "organisation", "status", "email_sent", "those_involved", "report_submitted", "time", "last_reminder"],
+  "OTHER CHURCH PROGRAM": ["program_id", "date", "program", "organisation"],
+  "PUBLIC HOLIDAY": ["holiday_id", "date", "holiday", "theme"],
+  "CONTACTS": ["contact_id", "name", "calling", "organisation", "upcoming", "report", "email"],
+  "REPORT LOG": ["log_id", "date", "type", "recipient", "status", "timestamp"]
 };
 
 const PRIMARY_KEYS = {
@@ -320,6 +325,11 @@ const PRIMARY_KEYS = {
   UNIT_SETTINGS: "Key",
   HYMNS: "number",
   AGENDAS: "agenda_id",
+  "ACTIVITIES": "activity_id",
+  "OTHER CHURCH PROGRAM": "program_id",
+  "PUBLIC HOLIDAY": "holiday_id",
+  "CONTACTS": "contact_id",
+  "REPORT LOG": "log_id"
 };
 
 // Columns that store JSON strings
@@ -399,6 +409,9 @@ function onOpen() {
     .addItem("Initialize / Repair Sheets", "setup")
     .addItem("Hash User Passwords", "hashUserPasswords")
     .addItem("Run Checklist Reminders", "scheduledChecklistReminders")
+    .addSeparator()
+    .addItem("Refresh Calendar & Dashboard", "refreshCalendar")
+    .addItem("Setup Calendar Triggers", "createFridayTrigger")
     .addToUi();
 }
 
@@ -500,6 +513,9 @@ function handleUpsert_(payload) {
   if (table === "PLANNERS" || table === "ASSIGNMENTS" || table === "MEMBERS") {
     recalculateMemberAnalytics_();
   }
+  if (["ACTIVITIES", "OTHER CHURCH PROGRAM", "PUBLIC HOLIDAY", "CONTACTS"].indexOf(table) >= 0) {
+    try { refreshCalendar(); } catch (e) { console.warn("refreshCalendar failed:", e); }
+  }
   return jsonResponse_({ ok: true, data: updated, ts: new Date().toISOString() });
 }
 
@@ -535,6 +551,9 @@ function handleBulkUpsert_(payload) {
   if (table === "PLANNERS" || table === "ASSIGNMENTS" || table === "MEMBERS") {
     recalculateMemberAnalytics_();
   }
+  if (["ACTIVITIES", "OTHER CHURCH PROGRAM", "PUBLIC HOLIDAY", "CONTACTS"].indexOf(table) >= 0) {
+    try { refreshCalendar(); } catch (e) { console.warn("refreshCalendar failed:", e); }
+  }
   return jsonResponse_({ ok: true, data: { updated: mergedCount }, ts: new Date().toISOString() });
 }
 
@@ -554,6 +573,12 @@ function handleDelete_(payload) {
   }
   const deleted = deleteRowById_(table, idCol, idVal);
   if (!deleted) return jsonError_("not_found", 404);
+  if (table === "PLANNERS" || table === "ASSIGNMENTS" || table === "MEMBERS") {
+    recalculateMemberAnalytics_();
+  }
+  if (["ACTIVITIES", "OTHER CHURCH PROGRAM", "PUBLIC HOLIDAY", "CONTACTS"].indexOf(table) >= 0) {
+    try { refreshCalendar(); } catch (e) { console.warn("refreshCalendar failed:", e); }
+  }
   return jsonResponse_({ ok: true, data: { deleted: true }, ts: new Date().toISOString() });
 }
 
@@ -572,6 +597,11 @@ function handleExport_() {
     REMINDERS: getAllRows_("REMINDERS"),
     HYMNS: getAllRows_("HYMNS"),
     AGENDAS: getAllRows_("AGENDAS"),
+    ACTIVITIES: getAllRows_("ACTIVITIES"),
+    "OTHER CHURCH PROGRAM": getAllRows_("OTHER CHURCH PROGRAM"),
+    "PUBLIC HOLIDAY": getAllRows_("PUBLIC HOLIDAY"),
+    CONTACTS: getAllRows_("CONTACTS"),
+    "REPORT LOG": getAllRows_("REPORT LOG"),
   };
   return jsonResponse_({ ok: true, data: db, db_version: getDbVersion_(), ts: new Date().toISOString() });
 }
@@ -595,6 +625,11 @@ function handleImport_(payload) {
     "TODOS",
     "REMINDERS",
     "AGENDAS",
+    "ACTIVITIES",
+    "OTHER CHURCH PROGRAM",
+    "PUBLIC HOLIDAY",
+    "CONTACTS",
+    "REPORT LOG",
   ];
 
   if (mode === "replace") {
@@ -687,14 +722,20 @@ function handleSyncV2_(payload) {
 
   // Recalculate member analytics if any changes to PLANNERS, ASSIGNMENTS, or MEMBERS
   let hasMod = false;
+  let hasCalendarMod = false;
   for (const item of updates) {
     if (item.table === "PLANNERS" || item.table === "ASSIGNMENTS" || item.table === "MEMBERS") hasMod = true;
+    if (["ACTIVITIES", "OTHER CHURCH PROGRAM", "PUBLIC HOLIDAY", "CONTACTS"].indexOf(item.table) >= 0) hasCalendarMod = true;
   }
   for (const item of deletes) {
     if (item.table === "PLANNERS" || item.table === "ASSIGNMENTS" || item.table === "MEMBERS") hasMod = true;
+    if (["ACTIVITIES", "OTHER CHURCH PROGRAM", "PUBLIC HOLIDAY", "CONTACTS"].indexOf(item.table) >= 0) hasCalendarMod = true;
   }
   if (hasMod) {
     recalculateMemberAnalytics_();
+  }
+  if (hasCalendarMod) {
+    try { refreshCalendar(); } catch (e) { console.warn("refreshCalendar failed:", e); }
   }
 
   incrementDbVersion_();
@@ -702,23 +743,26 @@ function handleSyncV2_(payload) {
   return jsonResponse_({ ok: true, data: results, db_version: getDbVersion_(), ts: new Date().toISOString() });
 }
 
+function normalizeHeader_(h) {
+  return String(h || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 function ensureSchemaResilient_(rawHeader, schemaHeader) {
-  const cleanRaw = String(rawHeader || "").trim().replace(/\/$/, "").trim().toLowerCase();
-  const cleanSchema = String(schemaHeader || "").trim().toLowerCase();
-  return cleanRaw === cleanSchema;
+  return normalizeHeader_(rawHeader) === normalizeHeader_(schemaHeader);
 }
 
 function ensureSchema_() {
   const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
   Object.keys(SCHEMA).forEach((name) => {
+    if (name === "REPORT LOG") return; // Bypass schema check for report log because of custom horizontal layout
     let sh = ss.getSheetByName(name);
     if (!sh) sh = ss.insertSheet(name);
 
     // Special transition: if sheet is MEMBERS and has member_id column, delete it to avoid column shifting
     if (name === "MEMBERS") {
       const currentHeaders = sh.getDataRange().getValues()[0] || [];
-      const cleanHeaders = currentHeaders.map(h => String(h || "").trim().replace(/\/$/, "").toLowerCase());
-      const colIdx = cleanHeaders.indexOf("member_id");
+      const cleanHeaders = currentHeaders.map(h => normalizeHeader_(h));
+      const colIdx = cleanHeaders.indexOf(normalizeHeader_("member_id"));
       if (colIdx >= 0) {
         console.log("[Migration] Deleting member_id column from MEMBERS sheet.");
         sh.deleteColumn(colIdx + 1); // 1-based index
@@ -761,15 +805,16 @@ function getAllRows_(table) {
   const sh = getSheet_(table);
   const data = sh.getDataRange().getValues();
   if (data.length <= 1) return [];
+  
+  if (table === "REPORT LOG") {
+    return parseReportLogs_(data);
+  }
+  
   const headers = data[0];
 
-  // Find the primary key column index in raw headers (resilient to trailing slashes)
+  // Find the primary key column index in raw headers
   const idCol = PRIMARY_KEYS[table];
-  const idx = headers.map(h => {
-    let clean = String(h || "").trim();
-    if (clean.endsWith("/")) clean = clean.slice(0, -1).trim();
-    return clean.toLowerCase();
-  }).indexOf(idCol.toLowerCase());
+  const idx = headers.map(h => normalizeHeader_(h)).indexOf(normalizeHeader_(idCol));
 
   const out = [];
   let needsWriteback = false;
@@ -780,6 +825,9 @@ function getAllRows_(table) {
 
     // Auto-generate missing primary keys (e.g. for manually pasted rows)
     if (idx >= 0 && String(row[idx] || "").trim() === "") {
+      if (table === "MEMBERS") {
+        continue; // Skip blank member rows to prevent generating fake members
+      }
       const prefix = table.slice(0, 3).toLowerCase();
       const randomId = prefix + "_" + Math.random().toString(36).substring(2, 11) + "_" + Date.now().toString(36);
       row[idx] = randomId;
@@ -802,12 +850,8 @@ function findRowById_(table, idCol, idVal) {
   const data = sh.getDataRange().getValues();
   if (data.length <= 1) return null;
   const rawHeaders = data[0];
-  const headers = rawHeaders.map(h => {
-    let clean = String(h || "").trim();
-    if (clean.endsWith("/")) clean = clean.slice(0, -1).trim();
-    return clean.toLowerCase();
-  });
-  const idx = headers.indexOf(idCol.toLowerCase());
+  const headers = rawHeaders.map(h => normalizeHeader_(h));
+  const idx = headers.indexOf(normalizeHeader_(idCol));
   if (idx === -1) return null;
   for (let r = 1; r < data.length; r++) {
     const row = data[r];
@@ -822,12 +866,8 @@ function upsertRow_(table, obj, idCol) {
   const sh = getSheet_(table);
   const data = sh.getDataRange().getValues();
   const rawHeaders = data.length ? data[0] : SCHEMA[table];
-  const headers = rawHeaders.map(h => {
-    let clean = String(h || "").trim();
-    if (clean.endsWith("/")) clean = clean.slice(0, -1).trim();
-    return clean.toLowerCase();
-  });
-  const idIdx = headers.indexOf(idCol.toLowerCase());
+  const headers = rawHeaders.map(h => normalizeHeader_(h));
+  const idIdx = headers.indexOf(normalizeHeader_(idCol));
   const idVal = String(obj[idCol]);
 
   let rowIndex = -1;
@@ -859,12 +899,8 @@ function deleteRowById_(table, idCol, idVal) {
   const data = sh.getDataRange().getValues();
   if (data.length <= 1) return false;
   const rawHeaders = data[0];
-  const headers = rawHeaders.map(h => {
-    let clean = String(h || "").trim();
-    if (clean.endsWith("/")) clean = clean.slice(0, -1).trim();
-    return clean.toLowerCase();
-  });
-  const idx = headers.indexOf(idCol.toLowerCase());
+  const headers = rawHeaders.map(h => normalizeHeader_(h));
+  const idx = headers.indexOf(normalizeHeader_(idCol));
   if (idx === -1) return false;
   for (let r = 1; r < data.length; r++) {
     if (String(data[r][idx]) === idVal) {
@@ -876,6 +912,7 @@ function deleteRowById_(table, idCol, idVal) {
 }
 
 function overwriteTable_(table, rows) {
+  if (table === "REPORT LOG") return; // Read-only from sync perspective
   const sh = getSheet_(table);
   const headers = SCHEMA[table];
   sh.clearContents();
@@ -890,6 +927,7 @@ function overwriteTable_(table, rows) {
  * Returns number of incoming rows that were valid for merge.
  */
 function mergeTable_(table, rows) {
+  if (table === "REPORT LOG") return 0; // Read-only from sync perspective
   const sh = getSheet_(table);
   const rawHeaders = SCHEMA[table];
   const idCol = PRIMARY_KEYS[table];
@@ -901,12 +939,8 @@ function mergeTable_(table, rows) {
   const orderedIds = [];
 
   const sheetHeaders = existingData.length ? existingData[0] : rawHeaders;
-  const normalizedSheetHeaders = sheetHeaders.map(h => {
-    let clean = String(h || "").trim();
-    if (clean.endsWith("/")) clean = clean.slice(0, -1).trim();
-    return clean.toLowerCase();
-  });
-  const sheetIdIdx = normalizedSheetHeaders.indexOf(idCol.toLowerCase());
+  const normalizedSheetHeaders = sheetHeaders.map(h => normalizeHeader_(h));
+  const sheetIdIdx = normalizedSheetHeaders.indexOf(normalizeHeader_(idCol));
 
   for (let r = 1; r < existingData.length; r++) {
     const row = existingData[r];
@@ -976,12 +1010,10 @@ function rowToObj_(table, headers, row) {
   const obj = {};
   const schemaHeaders = SCHEMA[table] || [];
   for (let c = 0; c < headers.length; c++) {
-    let rawKey = String(headers[c] || "").trim();
-    if (rawKey.endsWith("/")) {
-      rawKey = rawKey.slice(0, -1).trim();
-    }
-    // Find matching key in SCHEMA case-insensitively
-    const key = schemaHeaders.find(h => h.toLowerCase() === rawKey.toLowerCase()) || rawKey;
+    const rawKey = String(headers[c] || "").trim();
+    const normRawKey = normalizeHeader_(rawKey);
+    // Find matching key in SCHEMA using normalizeHeader_
+    const key = schemaHeaders.find(h => normalizeHeader_(h) === normRawKey) || rawKey;
 
     let val = row[c];
     if (JSON_FIELDS[table] && JSON_FIELDS[table].indexOf(key) >= 0) {
@@ -1008,19 +1040,16 @@ function objToRow_(table, headers, obj) {
   const row = [];
   const schemaHeaders = SCHEMA[table] || [];
   for (let c = 0; c < headers.length; c++) {
-    let rawKey = String(headers[c] || "").trim();
-    if (rawKey.endsWith("/")) {
-      rawKey = rawKey.slice(0, -1).trim();
-    }
-    // Find matching key in SCHEMA case-insensitively, or fallback
-    const key = schemaHeaders.find(h => h.toLowerCase() === rawKey.toLowerCase()) || rawKey;
+    const rawKey = String(headers[c] || "").trim();
+    const normRawKey = normalizeHeader_(rawKey);
+    // Find matching key in SCHEMA using normalizeHeader_, or fallback
+    const key = schemaHeaders.find(h => normalizeHeader_(h) === normRawKey) || rawKey;
 
     let val = obj ? (obj[key] !== undefined ? obj[key] : obj[rawKey]) : "";
     
-    // Fallback: case-insensitive match on obj keys if still undefined
+    // Fallback: match on obj keys using normalizeHeader_ if still undefined
     if (obj && val === undefined) {
-      const lowerKey = key.toLowerCase();
-      const objKey = Object.keys(obj).find(k => k.toLowerCase() === lowerKey);
+      const objKey = Object.keys(obj).find(k => normalizeHeader_(k) === normRawKey);
       if (objKey) {
         val = obj[objKey];
       }
@@ -1618,15 +1647,15 @@ function recalculateMemberAnalytics_() {
   const memData = memSheet.getDataRange().getValues();
   if (memData.length <= 1) return;
   
-  const memHeaders = memData[0].map(h => String(h || "").trim().replace(/\/$/, "").toLowerCase());
+  const memHeaders = memData[0].map(h => normalizeHeader_(h));
   
-  const nameIdx = memHeaders.indexOf("name");
-  const statusIdx = memHeaders.indexOf("status");
-  const totalIdx = memHeaders.indexOf("total_assignments");
-  const spokenIdx = memHeaders.indexOf("spoken_count");
-  const prayersIdx = memHeaders.indexOf("prayers_count");
-  const lastDateIdx = memHeaders.indexOf("last_assigned_date");
-  const readinessIdx = memHeaders.indexOf("readiness_score");
+  const nameIdx = memHeaders.indexOf(normalizeHeader_("name"));
+  const statusIdx = memHeaders.indexOf(normalizeHeader_("status"));
+  const totalIdx = memHeaders.indexOf(normalizeHeader_("total_assignments"));
+  const spokenIdx = memHeaders.indexOf(normalizeHeader_("spoken_count"));
+  const prayersIdx = memHeaders.indexOf(normalizeHeader_("prayers_count"));
+  const lastDateIdx = memHeaders.indexOf(normalizeHeader_("last_assigned_date"));
+  const readinessIdx = memHeaders.indexOf(normalizeHeader_("readiness_score"));
   
   if (nameIdx < 0) return;
   
@@ -1635,11 +1664,11 @@ function recalculateMemberAnalytics_() {
   if (assSheet) {
     const assData = assSheet.getDataRange().getValues();
     if (assData.length > 1) {
-      const assHeaders = assData[0].map(h => String(h || "").trim().toLowerCase());
-      const personIdx = assHeaders.indexOf("person");
-      const roleIdx = assHeaders.indexOf("role");
-      const dateIdx = assHeaders.indexOf("date");
-      const topicIdx = assHeaders.indexOf("topic");
+      const assHeaders = assData[0].map(h => normalizeHeader_(h));
+      const personIdx = assHeaders.indexOf(normalizeHeader_("person"));
+      const roleIdx = assHeaders.indexOf(normalizeHeader_("role"));
+      const dateIdx = assHeaders.indexOf(normalizeHeader_("date"));
+      const topicIdx = assHeaders.indexOf(normalizeHeader_("topic"));
       for (let r = 1; r < assData.length; r++) {
         const row = assData[r];
         assignments.push({
@@ -1657,9 +1686,9 @@ function recalculateMemberAnalytics_() {
   if (planSheet) {
     const planData = planSheet.getDataRange().getValues();
     if (planData.length > 1) {
-      const planHeaders = planData[0].map(h => String(h || "").trim().toLowerCase());
-      const stateIdx = planHeaders.indexOf("state");
-      const weeksIdx = planHeaders.indexOf("weeks");
+      const planHeaders = planData[0].map(h => normalizeHeader_(h));
+      const stateIdx = planHeaders.indexOf(normalizeHeader_("state"));
+      const weeksIdx = planHeaders.indexOf(normalizeHeader_("weeks"));
       for (let r = 1; r < planData.length; r++) {
         const row = planData[r];
         const state = stateIdx >= 0 ? String(row[stateIdx] || "").trim() : "";
@@ -1711,33 +1740,37 @@ function recalculateMemberAnalytics_() {
     if (!name) return "";
     return name.toLowerCase()
       .replace(/^(bishop|brother|sister|elder|president|stake|ward|br|sr)\s+/g, "")
-      .replace(/[^a-z0-9]/g, "")
+      .replace(/[^a-z0-9\s]/g, "")
       .trim();
   }
   
   function fuzzyMatch(nameA, nameB) {
-    const normA = normName(nameA);
-    const normB = normName(nameB);
-    if (normA === normB) return true;
+    const cleanA = normName(nameA);
+    const cleanB = normName(nameB);
+    if (!cleanA || !cleanB) return false;
+    if (cleanA === cleanB) return true;
     
-    const cleanA = nameA.toLowerCase().replace(/^(bishop|brother|sister|elder|president|stake|ward|br|sr)\s+/g, "").trim();
-    const cleanB = nameB.toLowerCase().replace(/^(bishop|brother|sister|elder|president|stake|ward|br|sr)\s+/g, "").trim();
-    
-    const partsA = cleanA.split(/\s+/).filter(p => p.length > 0 && !p.endsWith("."));
-    const partsB = cleanB.split(/\s+/).filter(p => p.length > 0 && !p.endsWith("."));
-    
+    const partsA = cleanA.split(/\s+/).filter(Boolean);
+    const partsB = cleanB.split(/\s+/).filter(Boolean);
     if (partsA.length === 0 || partsB.length === 0) return false;
     
-    const firstA = partsA[0];
-    const lastA = partsA[partsA.length - 1];
-    const firstB = partsB[0];
-    const lastB = partsB[partsB.length - 1];
-    
-    if (firstA === firstB && lastA === lastB) return true;
-    
-    if (normA.length > 3 && normB.length > 3 && (normA.indexOf(normB) >= 0 || normB.indexOf(normA) >= 0)) {
-      return true;
+    // Exact match of first and last name
+    if (partsA.length >= 2 && partsB.length >= 2) {
+      const firstA = partsA[0];
+      const lastA = partsA[partsA.length - 1];
+      const firstB = partsB[0];
+      const lastB = partsB[partsB.length - 1];
+      if (firstA === firstB && lastA === lastB) return true;
     }
+    
+    // Single word matching word boundaries
+    if (partsA.length === 1) {
+      return partsB.indexOf(partsA[0]) >= 0;
+    }
+    if (partsB.length === 1) {
+      return partsA.indexOf(partsB[0]) >= 0;
+    }
+    
     return false;
   }
   
@@ -1789,3 +1822,1421 @@ function recalculateMemberAnalytics_() {
   const numCols = memHeaders.length;
   memSheet.getRange(2, 1, numRows, numCols).setValues(memData.slice(1));
 }
+
+/*******************************************************************************
+ * 
+ * Obantoko Ward Calendar System Integration
+ * Appends all functions for Calendar Dashboards, Calendar Matrix and Notification Engine.
+ * 
+ ******************************************************************************/
+
+function refreshCalendar() { 
+  markCalendarActivities(); 
+  generateNext14DaysMiniTable();
+  generateNext60DaysActivities();
+  sendPendingReportEmails();   
+  generateCompletionWidget();   
+  sendReportFollowUpReminders();   
+}
+
+function toDateObject(value) {
+  if (value instanceof Date) return value;
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (!isNaN(parsed.getTime())) return parsed;
+  return null;
+}
+
+function markCalendarActivities() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  const activitySheet = ss.getSheetByName("ACTIVITIES");
+  const holidaySheet = ss.getSheetByName("PUBLIC HOLIDAY");
+  const churchProgSheet = ss.getSheetByName("OTHER CHURCH PROGRAM");
+  const calendarSheet = ss.getSheetByName("2026 CALENDAR");
+
+  if (!activitySheet || !holidaySheet || !churchProgSheet || !calendarSheet) {
+    console.warn("One or more calendar sheets missing. Skipping cell marking.");
+    return;
+  }
+
+  // COLORS
+  const COLOR_ACTIVITY = "#64e851";
+  const COLOR_HOLIDAY = "#f4cccc";
+  const COLOR_CHURCH_PROGRAM = "#d9ead3";
+  const COLOR_OVERLAP_ACTIVITY_HOLIDAY = "#f5ac1a";
+  const COLOR_OVERLAP_ACTIVITY_CHURCH = "#f90202";
+  const COLOR_OVERLAP_ALL_THREE = "#980000";
+
+  // ===== READ ACTIVITIES =====
+  const lastRowAct = activitySheet.getLastRow();
+  const actMap = {};
+  if (lastRowAct > 1) {
+    // Read columns B to D: Date (B), Activity (C), Org (D)
+    const actData = activitySheet.getRange(2, 2, lastRowAct - 1, 3).getValues();
+    actData.forEach(r => {
+      const d = toDateObject(r[0]);
+      if (d) {
+        const key = d.toDateString();
+        if (!actMap[key]) actMap[key] = [];
+        actMap[key].push(`${r[1]} — ${r[2]}`);
+      }
+    });
+  }
+
+  // ===== READ PUBLIC HOLIDAYS =====
+  const lastRowHol = holidaySheet.getLastRow();
+  const holMap = {};
+  if (lastRowHol > 1) {
+    // Read columns B to D: Date (B), Holiday (C), Theme (D)
+    const holData = holidaySheet.getRange(2, 2, lastRowHol - 1, 3).getValues();
+    holData.forEach(r => {
+      const d = toDateObject(r[0]);
+      if (d) {
+        const key = d.toDateString();
+        if (!holMap[key]) holMap[key] = [];
+        holMap[key].push(`${r[1]} (Theme: ${r[2]})`);
+      }
+    });
+  }
+
+  // ===== READ OTHER CHURCH PROGRAMS =====
+  const lastRowCh = churchProgSheet.getLastRow();
+  const chMap = {};
+  if (lastRowCh > 1) {
+    // Read columns B to D: Date (B), Program (C), Org (D)
+    const chData = churchProgSheet.getRange(2, 2, lastRowCh - 1, 3).getValues();
+    chData.forEach(r => {
+      const d = toDateObject(r[0]);
+      if (d) {
+        const key = d.toDateString();
+        if (!chMap[key]) chMap[key] = [];
+        chMap[key].push(`${r[1]} — ${r[2]}`);
+      }
+    });
+  }
+
+  // RESET CALENDAR
+  const calRange = calendarSheet.getDataRange();
+  const calValues = calRange.getValues();
+  calRange.clearNote().setBackground(null);
+
+  // PROCESS CALENDAR
+  for (let r = 0; r < calValues.length; r++) {
+    for (let c = 0; c < calValues[0].length; c++) {
+      const day = calValues[r][c];
+
+      if (typeof day === "number" && day >= 1 && day <= 31) {
+        const monthIndex = c - 1;
+        if (monthIndex >= 0 && monthIndex <= 11) {
+          const d = new Date(2026, monthIndex, day);
+          const key = d.toDateString();
+
+          const hasAct = !!actMap[key];
+          const hasHol = !!holMap[key];
+          const hasCh = !!chMap[key];
+
+          if (!hasAct && !hasHol && !hasCh) continue;
+
+          const parts = [];
+
+          if (hasHol) {
+            parts.push(`PUBLIC HOLIDAY (${holMap[key].length}):`);
+            holMap[key].forEach(i => parts.push(`• ${i}`));
+          }
+
+          if (hasCh) {
+            parts.push("");
+            parts.push(`OTHER CHURCH PROGRAM (${chMap[key].length}):`);
+            chMap[key].forEach(i => parts.push(`• ${i}`));
+          }
+
+          if (hasAct) {
+            parts.push("");
+            parts.push(`ACTIVITIES (${actMap[key].length}):`);
+            actMap[key].forEach(i => parts.push(`• ${i}`));
+          }
+
+          // DECIDE COLOR
+          let color = COLOR_ACTIVITY;
+          if (hasAct && hasHol && hasCh) color = COLOR_OVERLAP_ALL_THREE;
+          else if (hasAct && hasHol) color = COLOR_OVERLAP_ACTIVITY_HOLIDAY;
+          else if (hasAct && hasCh) color = COLOR_OVERLAP_ACTIVITY_CHURCH;
+          else if (hasHol) color = COLOR_HOLIDAY;
+          else if (hasCh) color = COLOR_CHURCH_PROGRAM;
+
+          const bullets = parts.filter(p => p.startsWith("• ")).length;
+          const header = `📅 ${bullets} item(s) on this date:\n\n`;
+
+          const cell = calendarSheet.getRange(r + 1, c + 1);
+          cell.setBackground(color);
+          cell.setNote(header + parts.join("\n"));
+        }
+      }
+    }
+  }
+  
+  drawLegend(calendarSheet);
+
+  // TIMESTAMP
+  const stamp = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd HH:mm:ss");
+  calendarSheet.getRange("Q2").setValue("Last updated: " + stamp);
+}
+
+function drawLegend(calendarSheet) {
+  // Clear old legend area
+  calendarSheet.getRange("P4:Q25").clear().setBackground(null).setBorder(false, false, false, false, false, false);
+
+  // LEGEND TITLE BAR (P4:Q4 merged)
+  calendarSheet.getRange("P4:Q4")
+    .merge()
+    .setValue("LEGEND")
+    .setFontWeight("bold")
+    .setFontSize(12)
+    .setHorizontalAlignment("center")
+    .setVerticalAlignment("middle")
+    .setBackground("#d9d9d9")
+    .setBorder(true, true, true, true, true, true);
+
+  // Legend items
+  const legend = [
+    ["#64e851", "🟩 Ward Activities"],
+    ["#f4cccc", "📅 Public Holiday"],
+    ["#d9ead3", "⛪ Other Church Program"],
+    ["#f5ac1a", "🟧 Activity + Public Holiday Overlapping"],
+    ["#f90202", "🔴 Activity + Other Church Program Overlapping"],
+    ["#980000", "🟥 ALL THREE Overlapping"]
+  ];
+
+  // Write legend rows starting at P5
+  for (let i = 0; i < legend.length; i++) {
+    let row = 5 + i;
+
+    // Color box in column P
+    calendarSheet.getRange(row, 16) // Column P
+      .setBackground(legend[i][0])
+      .setValue("")
+      .setBorder(true, true, true, true, true, true);
+
+    // Description text in column Q
+    calendarSheet.getRange(row, 17) // Column Q
+      .setValue(legend[i][1])
+      .setFontWeight("bold")
+      .setVerticalAlignment("middle")
+      .setWrap(false)
+      .setBorder(true, true, true, true, true, true);
+  }
+
+  // Adjust column widths
+  calendarSheet.setColumnWidth(16, 88);   // Column P wider (color boxes)
+  calendarSheet.setColumnWidth(17, 320);  // Column Q wider, readable
+
+  // Adjust row heights for clean alignment using sheet method
+  const startRow = 5;
+  const numRows = legend.length;
+  const rowHeight = 20;
+  calendarSheet.setRowHeights(startRow, numRows, rowHeight);
+}
+
+function generateNext60DaysActivities() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const activitiesSheet = ss.getSheetByName("ACTIVITIES");
+  const dashboard = ss.getSheetByName("CALENDAR DASHBOARD");
+
+  if (!activitiesSheet || !dashboard) return;
+
+  const titleRange = dashboard.getRange("E2:H2");
+  const headerRange = dashboard.getRange("E3:H3");
+  const startRow = 4;
+
+  dashboard.getRange("E2:H300").clear().setBackground(null).setBorder(false, false, false, false, false, false);
+
+  // TITLE BAR
+  titleRange.merge();
+  titleRange
+    .setValue("UPCOMING ACTIVITIES (NEXT 60 DAYS)")
+    .setFontFamily("Times New Roman")
+    .setFontSize(12)
+    .setFontWeight("bold")
+    .setHorizontalAlignment("center")
+    .setVerticalAlignment("middle")
+    .setBackground("#cfe2f3")
+    .setBorder(true, true, true, true, true, true, "#274e13", SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+
+  // HEADER ROW
+  headerRange
+    .setValues([["DATE", "ACTIVITIES", "ORGANIZATION", "COUNTDOWN"]])
+    .setFontFamily("Times New Roman")
+    .setFontWeight("bold")
+    .setFontSize(10)
+    .setHorizontalAlignment("center")
+    .setBorder(true, true, true, true, true, true, "#274e13", SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+
+  // Read columns B to E: Date (B), Activity (C), Org (D), Status (E)
+  const lastRow = activitiesSheet.getLastRow();
+  if (lastRow <= 1) return;
+  const dataRange = activitiesSheet.getRange(2, 2, lastRow - 1, 4).getValues();
+
+  const today = new Date();
+  const ahead60 = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 60);
+
+  let filtered = [];
+
+  dataRange.forEach(row => {
+    let date = row[0];
+    let activity = row[1];
+    let org = row[2];
+    let status = row[3]; 
+
+    if (!(date instanceof Date)) return;
+
+    // remove completed activities
+    if (status === true) return;
+
+    // remove overdue activities
+    if (date < today) return;
+
+    if (date >= today && date <= ahead60) {
+      let daysRemaining = Math.ceil((date - today) / (1000 * 60 * 60 * 24));
+
+      filtered.push([
+        date,
+        (activity || "").toString().toUpperCase(),
+        (org || "").toString().toUpperCase(),
+        daysRemaining
+      ]);
+    }
+  });
+
+  // Sort ASC
+  filtered.sort((a, b) => a[0] - b[0]);
+
+  if (filtered.length > 0) {
+    let writeData = filtered.map(row => [
+      row[0],
+      row[1],
+      row[2],
+      row[3] + " DAYS LEFT"
+    ]);
+
+    const outputRange = dashboard.getRange(startRow, 5, writeData.length, 4);
+
+    outputRange
+      .setValues(writeData)
+      .setFontFamily("Times New Roman")
+      .setFontSize(10)
+      .setVerticalAlignment("middle")
+      .setHorizontalAlignment("left")
+      .setBorder(true, true, true, true, true, true, "#274e13", SpreadsheetApp.BorderStyle.SOLID);
+
+    dashboard.setColumnWidth(5, 75);
+    dashboard.setColumnWidth(6, 400);
+    dashboard.setColumnWidth(7, 100);
+    dashboard.setColumnWidth(8, 100);
+
+    dashboard.getRange(startRow, 5, filtered.length, 1).setNumberFormat("dd-mmm-yyyy");
+
+    for (let i = 0; i < filtered.length; i++) {
+      let daysRemaining = filtered[i][3];
+      let rowRange = dashboard.getRange(startRow + i, 5, 1, 4);
+
+      if (daysRemaining < 10) rowRange.setBackground("#f4cccc");
+      else if (daysRemaining <= 20) rowRange.setBackground("#f6b26b");
+      else rowRange.setBackground("#b6d7a8");
+    }
+
+    const fullTableRange = dashboard.getRange(startRow, 5, filtered.length, 4);
+    fullTableRange.setBorder(
+      true, true, true, true, true, true,
+      "#274e13",
+      SpreadsheetApp.BorderStyle.SOLID_MEDIUM
+    );
+  }
+}
+
+function generateNext14DaysMiniTable() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const dashboard = ss.getSheetByName("CALENDAR DASHBOARD");
+  const activitiesSheet = ss.getSheetByName("ACTIVITIES");
+  const churchSheet = ss.getSheetByName("OTHER CHURCH PROGRAM");
+
+  if (!dashboard || !activitiesSheet || !churchSheet) return;
+
+  const titleRange = dashboard.getRange("A2:C2");
+  const headerRange = dashboard.getRange("A3:C3");
+  const startRow = 4;
+
+  dashboard.getRange("A2:C200").clear().setBackground(null).setBorder(false, false, false, false, false, false);
+
+  titleRange.merge();
+  titleRange
+    .setValue("NEXT 14 DAYS ACTIVITIES")
+    .setFontFamily("Times New Roman")
+    .setFontSize(11)
+    .setFontWeight("bold")
+    .setHorizontalAlignment("center")
+    .setVerticalAlignment("middle")
+    .setBackground("#cfe2f3")
+    .setBorder(true, true, true, true, true, true);
+
+  headerRange
+    .setValues([["DATE", "ITEM", "ORGANIZATION"]])
+    .setFontFamily("Times New Roman")
+    .setFontWeight("bold")
+    .setFontSize(10)
+    .setHorizontalAlignment("center")
+    .setBorder(true, true, true, true, true, true);
+
+  const today = new Date();
+  const ahead14 = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 14);
+
+  let miniList = [];
+
+  // --- ACTIVITIES (Date, Activity, Org, Status starting at column 2)
+  const actLastRow = activitiesSheet.getLastRow();
+  if (actLastRow > 1) {
+    const actData = activitiesSheet.getRange(2, 2, actLastRow - 1, 4).getValues();
+    actData.forEach(row => {
+      let date = row[0];
+      let item = row[1];
+      let org = row[2];
+      let status = row[3]; 
+
+      if (!(date instanceof Date)) return;
+
+      if (status === true) return; // exclude completed
+      if (date < today) return; // exclude overdue
+
+      if (date >= today && date <= ahead14) {
+        let finalOrg = (org || "").toString().toUpperCase();
+        if (finalOrg !== "WARD") finalOrg = "WARD " + finalOrg;
+
+        miniList.push([date, (item || "").toString().toUpperCase(), finalOrg, "ACTIVITY"]);
+      }
+    });
+  }
+
+  // --- OTHER CHURCH PROGRAM (Date, Program, Org starting at column 2)
+  const churchLastRow = churchSheet.getLastRow();
+  if (churchLastRow > 1) {
+    const churchData = churchSheet.getRange(2, 2, churchLastRow - 1, 3).getValues();
+    churchData.forEach(row => {
+      let date = row[0];
+      let item = row[1];
+      let org = row[2];
+
+      if (date instanceof Date && date >= today && date <= ahead14) {
+        miniList.push([
+          date,
+          (item || "").toString().toUpperCase(),
+          (org || "").toString().toUpperCase(),
+          "CHURCH"
+        ]);
+      }
+    });
+  }
+
+  miniList.sort((a, b) => a[0] - b[0]);
+
+  if (miniList.length === 0) {
+    const msgRange = dashboard.getRange("A4:C6");
+    msgRange.merge();
+    msgRange
+      .setValue("NO ACTIVITIES AVAILABLE FOR THE NEXT 14 DAYS")
+      .setFontFamily("Times New Roman")
+      .setFontSize(12)
+      .setFontWeight("bold")
+      .setHorizontalAlignment("center")
+      .setVerticalAlignment("middle")
+      .setBorder(true, true, true, true, true, true);
+    return;
+  }
+
+  let writeData = miniList.map(row => [row[0], row[1], row[2]]);
+
+  const outputRange = dashboard.getRange(startRow, 1, writeData.length, 3);
+  outputRange
+    .setValues(writeData)
+    .setFontFamily("Times New Roman")
+    .setFontSize(10)
+    .setVerticalAlignment("middle")
+    .setHorizontalAlignment("left")
+    .setBorder(true, true, true, true, true, true);
+
+  dashboard.getRange(startRow, 1, writeData.length, 1).setNumberFormat("dd-mmm-yyyy");
+
+  for (let i = 0; i < miniList.length; i++) {
+    let source = miniList[i][3];
+    let rowRange = dashboard.getRange(startRow + i, 1, 1, 3);
+
+    if (source === "ACTIVITY") rowRange.setBackground("#64e851");
+    else rowRange.setBackground("#6d9eeb");
+  }
+
+  const fullTable = dashboard.getRange(startRow, 1, writeData.length, 3);
+  fullTable.setBorder(true, true, true, true, true, true, "#000000", SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+
+  dashboard.setColumnWidth(1, 90);
+  dashboard.setColumnWidth(2, 300);
+  dashboard.setColumnWidth(3, 160);
+}
+
+function generateCompletionWidget() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const dash = ss.getSheetByName("CALENDAR DASHBOARD");
+  const sheet = ss.getSheetByName("ACTIVITIES");
+
+  if (!sheet || !dash) {
+    console.error("Missing sheet: ACTIVITIES or CALENDAR DASHBOARD");
+    return;
+  }
+
+  // Read columns B to H (Date (B), Activity (C), Org (D), Status (E), EmailStatus (F), ForWhom (G), ReportSubmitted (H))
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 3) return;
+
+  const data = sheet.getRange(2, 2, lastRow - 1, 7).getValues();
+
+  let total = 0;
+  let completed = 0;
+  let pending = 0;
+  let notDone = 0;
+  let reportsSubmitted = 0;
+  let overdueReports = 0;
+
+  let dueActivities = 0;   
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  data.forEach(row => {
+    const date = row[0];
+    const activityName = row[1];
+    const status = row[3];
+    const reportStatusRaw = row[6];
+
+    if (!activityName) return; 
+
+    total++;
+
+    let isDue = false;
+
+    if (date instanceof Date) {
+      const activityDate = new Date(date);
+      activityDate.setHours(0, 0, 0, 0);
+
+      isDue = (activityDate <= today);
+    }
+
+    if (isDue) dueActivities++;
+
+    if (status === true) {
+      completed++;
+
+      const reportStatus = (reportStatusRaw || "").toString().trim().toUpperCase();
+
+      if (reportStatus === "YES") reportsSubmitted++;
+      else if (reportStatus === "NO") overdueReports++;
+
+      return; 
+    }
+
+    if (date instanceof Date) {
+      let activityDate = new Date(date);
+      activityDate.setHours(0, 0, 0, 0);
+
+      if (activityDate < today) notDone++;
+      else pending++;
+    }
+  });
+
+  const rate = (dueActivities > 0) ? (completed / dueActivities) * 100 : 0;
+
+  // Write to dashboard
+  dash.getRange("J2").setValue("ACTIVITY COMPLETION SUMMARY");
+  dash.getRange("J3").setValue("Total Activities");
+  dash.getRange("J4").setValue("Completed");
+  dash.getRange("J5").setValue("Pending");
+  dash.getRange("J6").setValue("Not Done");
+  dash.getRange("J7").setValue("Completion Rate");
+  dash.getRange("J8").setValue("Reports Submitted");
+  dash.getRange("J9").setValue("Overdue Reports");
+
+  dash.getRange("K3").setValue(total);
+  dash.getRange("K4").setValue(completed);
+  dash.getRange("K5").setValue(pending);
+  dash.getRange("K6").setValue(notDone);
+  dash.getRange("K7").setValue(rate.toFixed(1) + "%");
+  dash.getRange("K8").setValue(reportsSubmitted);
+  dash.getRange("K9").setValue(overdueReports);
+}
+
+function parseListField(text) {
+  if (!text) return [];
+  return text.toString()
+    .split(";")
+    .map(s => s.trim())
+    .filter(s => s.length);
+}
+
+function normalizeOrgName(s) {
+  if (!s) return "";
+  return s.toString().trim().toUpperCase();
+}
+
+function formatDateShort(d) {
+  if (!(d instanceof Date)) return "";   
+  return Utilities.formatDate(
+    d,
+    SpreadsheetApp.getActive().getSpreadsheetTimeZone(),
+    "dd-MMM-yyyy"
+  );
+}
+
+function getActivitiesFromSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName("ACTIVITIES");
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  // Columns starting at column 2 (B): Date, Activity, Organisation, Status
+  const rows = sh.getRange(2, 2, last - 1, 4).getValues();
+  return rows.map(r => ({
+    date: r[0] instanceof Date ? r[0] : null,
+    activity: (r[1] || "").toString(),
+    org: normalizeOrgName(r[2]),
+    status: r[3] === true
+  }));
+}
+
+function getOtherChurchPrograms() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName("OTHER CHURCH PROGRAM");
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  // Columns starting at column 2 (B): Date, Program, Organisation
+  const rows = sh.getRange(2, 2, last - 1, 3).getValues();
+  return rows.map(r => ({
+    date: r[0] instanceof Date ? r[0] : null,
+    activity: (r[1] || "").toString(),
+    org: normalizeOrgName(r[2]),
+    status: false  
+  }));
+}
+
+function getUpcomingActivities(days) {
+  const today = new Date();
+  const end = new Date(); end.setDate(today.getDate() + days);
+  const acts = getActivitiesFromSheet().filter(a => a.date && a.date >= today && a.date <= end && a.status !== true);
+  const ch = getOtherChurchPrograms().filter(a => a.date && a.date >= today && a.date <= end);
+  return acts.concat(ch);
+}
+
+function getContacts() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName("CONTACTS");
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+
+  // Read columns B to G (columns 2 to 7): Name, Calling, Org, Upcoming, Report, Email
+  const rows = sh.getRange(2, 2, last - 1, 6).getValues();
+
+  return rows
+    .map(r => ({
+      name: (r[0] || "").toString(),
+      calling: (r[1] || "").toString(),
+      organisation: normalizeOrgName(r[2]),
+      upcoming: parseListField(r[3]).map(s => s.toUpperCase()),
+      report: parseListField(r[4]).map(s => s.toUpperCase()),
+      email: (r[5] || "").trim()
+    }))
+    .filter(c =>
+      c.name !== "" &&
+      c.email !== "" &&
+      c.upcoming !== undefined &&
+      c.report !== undefined
+    );
+}
+
+function filterActivitiesForContact(contact, days) {
+  const requested = contact.upcoming.map(s => s.toUpperCase());
+  const allActs = getUpcomingActivities(days);
+
+  if (requested.some(r => r === "ALL ACTIVITIES")) {
+    return allActs;
+  }
+
+  const allowedOrgs = requested.map(s => s.trim().toUpperCase());
+  return allActs.filter(a => {
+    if (!a.org) return false;
+    return allowedOrgs.some(allowed => {
+      if (allowed === "WARD") return a.org === "WARD";
+      return a.org === allowed;
+    });
+  });
+}
+
+function buildHtmlTableForActivities(list) {
+  if (!list || list.length === 0) return "<p>No items.</p>";
+  let html = '<table style="border-collapse:collapse; width:100%; font-family: Arial, sans-serif;">';
+  html += '<thead><tr style="background:#cfe2f3;"><th style="border:1px solid #ddd;padding:6px;text-align:left;">Date</th><th style="border:1px solid #ddd;padding:6px;text-align:left;">Activity</th><th style="border:1px solid #ddd;padding:6px;text-align:left;">Organization</th></tr></thead><tbody>';
+  list.forEach(it => {
+    const date = it.date ? formatDateShort(it.date) : "";
+    html += `<tr><td style="border:1px solid #ddd;padding:6px;">${date}</td><td style="border:1px solid #ddd;padding:6px;">${escapeHtml(it.activity)}</td><td style="border:1px solid #ddd;padding:6px;">${escapeHtml(it.org)}</td></tr>`;
+  });
+  html += '</tbody></table>';
+  return html;
+}
+
+function escapeHtml(text) {
+  if (text == null) return "";
+  return text.toString()
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function sendHtmlEmail(toEmail, subject, htmlBody) {
+  MailApp.sendEmail({
+    to: toEmail,
+    subject: subject,
+    htmlBody: htmlBody
+  });
+}
+
+function sendWeeklyUpcomingEmails() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const contacts = getContacts();
+  if (!contacts.length) return;
+
+  contacts.forEach(contact => {
+    try {
+      const next14 = filterActivitiesForContact(contact, 14);
+      const next60 = filterActivitiesForContact(contact, 60);
+
+      if (next14.length === 0 && next60.length === 0) return;
+
+      let html = `<div style="font-family: Arial, sans-serif; color:#1a1a1a;">
+        <h2 style="color:#274e13;">Upcoming Activities — ${contact.name}</h2>
+        <p>Dear ${escapeHtml(contact.name)},</p>
+        <p>Below are the upcoming activities relevant to your role.</p>`;
+
+      if (next14.length) {
+        html += `<h3 style="color:#274e13;">Next 14 days</h3>`;
+        html += buildHtmlTableForActivities(next14);
+        html += `<br/>`;
+      } else {
+        html += `<p><strong>No upcoming ward event for the next 14 days.</strong></p>`;
+      }
+
+      if (next60.length) {
+        html += `<h3 style="color:#274e13;">Next 60 days</h3>`;
+        html += buildHtmlTableForActivities(next60);
+        html += `<br/>`;
+      } else {
+        html += `<p><em>No items in the next 60 days.</em></p>`;
+      }
+
+      html += `<p style="color:#666;">If an item requires special attention, please coordinate with the responsible leader.</p>`;
+      html += `<p style="font-size:12px;color:#888;">Sent by Obantoko Ward Calendar System</p>`;
+      html += `</div>`;
+
+      const subject = `Upcoming Activities — ${contact.name} (Next 14 & 60 days)`;
+
+      let sendStatus = "SUCCESS";
+      const timestamp = Utilities.formatDate(
+        new Date(),
+        ss.getSpreadsheetTimeZone(),
+        "dd-MMM-yyyy hh:mm a"
+      );
+
+      try {
+        sendHtmlEmail(contact.email, subject, html);
+      } catch (err) {
+        sendStatus = "FAILED";
+        console.error("Error sending weekly email to", contact.email, err);
+      }
+
+      logWeeklyUpcomingEmail(contact.name, sendStatus, timestamp);
+
+    } catch (err) {
+      console.error("Error processing contact:", contact.name, err);
+    }
+  });
+}
+
+function handleActivityCompletion(activityRowObj) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const contacts = getContacts();
+
+  const org = activityRowObj.org;
+  const activityName = activityRowObj.activity;
+  const dateStr = activityRowObj.date ? formatDateShort(activityRowObj.date) : "";
+
+  contacts.forEach(contact => {
+    contact.report.forEach(tokenRaw => {
+      const token = tokenRaw.toUpperCase();
+      const isFollowUp = token.includes("(FU)");
+      const plainToken = token.replace(/\(FU\)/gi, "").trim();
+
+      if (plainToken !== "ALL ACTIVITIES" && plainToken !== org) return;
+
+      let html = `<div style="font-family: Arial, sans-serif;">`;
+      html += `<h3 style="color:#980000;">ACTIVITY COMPLETED — ${escapeHtml(activityName)}</h3>`;
+      html += `<p>Date: ${escapeHtml(dateStr)}</p>`;
+      html += `<p>Organization: ${escapeHtml(org)}</p>`;
+      html += `<p>Dear ${escapeHtml(contact.name)},</p>`;
+
+      if (isFollowUp) {
+        html += `<p>This is a <strong>follow-up notice</strong> to inform you that this activity has been successfully completed. We kindly request that you follow up with the responsible leader(s) to ensure that all related reports and documentation are submitted promptly. Your cooperation in keeping records accurate and up-to-date is greatly appreciated.</p>`;
+      } else {
+        html += `<p>This activity has been successfully completed. We kindly ask that you <strong>submit your report</strong> as soon as possible. Timely submission helps maintain accurate records and allows the Ward leadership to review progress and plan future activities efficiently. Thank you for your prompt attention to this matter.</p>`;
+      }
+
+      html += `<hr><p style="font-size:12px;color:#666;">If received in error, contact the Ward Clerk.</p></div>`;
+
+      const subj = isFollowUp
+        ? `FOLLOW-UP: ${activityName} (${dateStr})`
+        : `REPORT REQUEST: ${activityName} (${dateStr})`;
+
+      let sendStatus = "SUCCESS";
+      try {
+        sendHtmlEmail(contact.email, subj, html);
+      } catch (err) {
+        sendStatus = "FAILED";
+        console.error("Email failed for", contact.email, err);
+      }
+
+      logToReportLog(
+        isFollowUp ? "Follow-Up Notice" : "Report Request",
+        [{
+          name: contact.name,
+          status: sendStatus
+        }]
+      );
+    });
+  });
+}
+
+function onStatusEdit(e) {
+  const sh = e.range.getSheet();
+  const row = e.range.getRow();
+  const col = e.range.getColumn();
+  const sheetName = sh.getName();
+
+  if (sheetName !== "ACTIVITIES") return;
+  if (col !== 5) return; // STATUS is Column E (5)
+  if (row < 3) return; // Ignore headers
+
+  const value = e.range.getValue();
+  if (value !== true) return;
+
+  // Read Column B to E (2 to 5) to get Date, Activity, Org, Status
+  const rowVals = sh.getRange(row, 2, 1, 4).getValues()[0];
+  const date = rowVals[0];
+  const activity = rowVals[1];
+  const org = rowVals[2];
+
+  if (!(date instanceof Date)) return;
+
+  handleActivityCompletion({
+    date: date,
+    activity: activity,
+    org: normalizeOrgName(org),
+    rowNumber: row
+  });
+}
+
+function onEditInstallable(e) {
+  onStatusEdit(e);
+}
+
+function createFridayTrigger() {
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(t => {
+    if (t.getHandlerFunction() === "sendWeeklyUpcomingEmails") ScriptApp.deleteTrigger(t);
+  });
+
+  ScriptApp.newTrigger("sendWeeklyUpcomingEmails")
+    .timeBased()
+    .onWeekDay(ScriptApp.WeekDay.FRIDAY)
+    .atHour(9)
+    .create();
+
+  const hasOnEditInstallable = triggers.some(t => t.getHandlerFunction() === "onEditInstallable");
+  if (!hasOnEditInstallable) {
+    ScriptApp.newTrigger("onEditInstallable").forSpreadsheet(SpreadsheetApp.getActive()).onEdit().create();
+  }
+}
+
+function testSendWeeklyEmails() {
+  sendWeeklyUpcomingEmails();
+}
+
+function testReportEmailForRow() {
+  const rowNumber = 7;   
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName("ACTIVITIES");
+
+  if (!sh) throw new Error("ERROR: Sheet 'ACTIVITIES' not found.");
+
+  const lastRow = sh.getLastRow();
+  if (rowNumber > lastRow) throw new Error("ERROR: Row number is beyond available data.");
+
+  // Read starting at Column 2 (B) for 4 columns: Date, Activity, Org, Status
+  const rowVals = sh.getRange(rowNumber, 2, 1, 4).getValues()[0];
+  const date = rowVals[0];
+  const activity = rowVals[1];
+  const org = rowVals[2];
+  const status = rowVals[3];
+
+  if (!(date instanceof Date)) throw new Error("ERROR: Row " + rowNumber + " does not contain a valid date.");
+  if (!activity) throw new Error("ERROR: Row " + rowNumber + " has no activity name.");
+  if (!org) throw new Error("ERROR: Row " + rowNumber + " has no organisation.");
+  if (status !== true) throw new Error("ERROR: STATUS is not checked (TRUE).");
+
+  handleActivityCompletion({
+    date: date,
+    activity: activity.toString(),
+    org: normalizeOrgName(org),
+    rowNumber: rowNumber
+  });
+}
+
+function sendPendingReportEmails() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName("ACTIVITIES");
+  if (!sh) return;
+
+  const last = sh.getLastRow();
+  if (last < 3) return;
+
+  // Read starting at Column 2 (B) for 5 columns: Date (B), Activity (C), Org (D), Status (E), EmailSent (F)
+  const data = sh.getRange(2, 2, last - 1, 5).getValues();  
+
+  for (let i = 0; i < data.length; i++) {
+    const rowNum = i + 2;
+    const date = data[i][0];
+    const activity = data[i][1];
+    const org = normalizeOrgName(data[i][2]);
+    const status = data[i][3];
+    const emailSent = data[i][4];
+
+    if (!(date instanceof Date)) continue;
+    if (!activity || !org) continue;
+
+    if (status === true && emailSent !== true) {
+      handleActivityCompletion({
+        date: date,
+        activity: activity,
+        org: org,
+        rowNumber: rowNum
+      });
+
+      // Update Column F (6)
+      sh.getRange(rowNum, 6).setValue(true);
+    }
+  }
+}
+
+function formatWhatsappActivityUniversal(activityObj, index) {
+  const dateStr = activityObj.date;
+  const rawName = activityObj.activity || "";
+  const org = (activityObj.org || "").toUpperCase();
+  const forWhom = (activityObj.forWhom || "").toString();
+
+  const wardActivityName = rawName.toUpperCase().startsWith("WARD") ? rawName : "WARD " + rawName;
+
+  let audience = "all members"; 
+
+  if (/YOUTH|YM|YW/i.test(forWhom) || /YOUTH/i.test(org)) audience = "all youths";
+  if (/RELIEF/i.test(forWhom) || /RELIEF/i.test(org)) audience = "all Relief Society sisters";
+  if (/ELDER/i.test(forWhom) || /ELDER/i.test(org)) audience = "all Elders Quorum members";
+  if (/PRIMARY/i.test(forWhom) || /PRIMARY/i.test(org)) audience = "all Primary children and leaders";
+  if (/YOUNG WOMEN|YW/i.test(forWhom)) audience = "all Young Women";
+  if (/YOUNG MEN|YM/i.test(forWhom)) audience = "all Young Men";
+
+  return (
+    `${index}️⃣ *${wardActivityName}*\n` +
+    `${capitalize(audience)} are invited to the *${wardActivityName}* coming up on *${dateStr}* at *The Obantoko Ward*.\n` +
+    `Time: __________________\n`
+  );
+}
+
+function capitalize(txt) {
+  return txt.charAt(0).toUpperCase() + txt.slice(1);
+}
+
+function formatActivityWhatsapp(item, timezone) {
+  const today = new Date();
+  const sunday = new Date(today);
+  sunday.setDate(today.getDate() + ((7 - today.getDay()) % 7)); 
+  sunday.setHours(0,0,0,0);
+
+  const activityDate = new Date(item.dateObj);
+  activityDate.setHours(0,0,0,0);
+
+  const diffDays = Math.round((activityDate - sunday) / (1000*60*60*24));
+
+  let phrasing = "";
+
+  if (diffDays >= 0 && diffDays <= 6) {
+    const weekday = Utilities.formatDate(activityDate, timezone, "EEEE");
+    phrasing = `coming up this ${weekday.toLowerCase()}, *${item.date}*`;
+  } else if (diffDays >= 7 && diffDays <= 13) {
+    const weekday = Utilities.formatDate(activityDate, timezone, "EEEE");
+    phrasing = `coming up next week ${weekday.toLowerCase()}, *${item.date}*`;
+  } else {
+    const weekday = Utilities.formatDate(activityDate, timezone, "EEEE");
+    phrasing = `coming up on ${weekday.toLowerCase()}, *${item.date}*`;
+  }
+
+  return (
+    `• All ${item.forWhom.toLowerCase()} are invited to the *Ward ${item.activity}* ` +
+    `${phrasing} at *The Obantoko Ward*.\n` +
+    `Time: __________________\n`
+  );
+}
+
+function normalizeGroupName(raw) {
+  if (!raw) return "all members";
+  const txt = raw.toString().trim().toLowerCase();
+
+  const map = {
+    "all members": "all members",
+    "members": "all members",
+    "all youths": "all youths",
+    "youths": "all youths",
+    "youth": "all youths",
+    "all primary children": "all primary children",
+    "primary": "all primary children",
+    "primary children": "all primary children",
+    "relief society": "relief society sisters",
+    "relief society sisters": "relief society sisters",
+    "elders quorum": "elders quorum brethren",
+    "elders": "elders quorum brethren",
+    "friends": "all members and friends",
+    "all members and friends": "all members and friends"
+  };
+
+  return map[txt] || raw.toString().trim().toLowerCase();
+}
+
+function describeDate(dateObj, timezone) {
+  const today = new Date();
+  const sunday = new Date(today);
+  sunday.setDate(today.getDate() + ((7 - today.getDay()) % 7)); 
+  sunday.setHours(0,0,0,0);
+
+  const d = new Date(dateObj);
+  d.setHours(0,0,0,0);
+
+  const diffDays = Math.round((d - sunday) / (1000*60*60*24));
+  const weekday = Utilities.formatDate(d, timezone, "EEEE").toLowerCase();
+  const cleanDate = Utilities.formatDate(d, timezone, "dd-MMM-yyyy");
+
+  if (diffDays >= 0 && diffDays <= 6) {
+    return `coming up this ${weekday}, *${cleanDate}*`;
+  }
+  if (diffDays >= 7 && diffDays <= 13) {
+    return `coming up next week ${weekday}, *${cleanDate}*`;
+  }
+  return `coming up on ${weekday}, *${cleanDate}*`;
+}
+
+function formatActivityBlock(item, timezone) {
+  const dateObj = item.dateObj;
+  const rawActivity = (item.activity || "").toString().trim();
+  const rawAudience = (item.forWhom || "").toString().trim();
+  const timeText = item.time ? item.time.toString().trim() : "";
+
+  let activityTitle = rawActivity.toUpperCase();
+  if (!activityTitle.startsWith("WARD ")) {
+    activityTitle = "WARD " + activityTitle;
+  }
+
+  let audience = rawAudience.replace(/^ALL\s+/i, "").trim().toLowerCase();
+  if (!audience) audience = "members";
+
+  const today = new Date();
+  today.setHours(0,0,0,0);
+
+  const eventDate = new Date(dateObj);
+  eventDate.setHours(0,0,0,0);
+
+  const diffDays = Math.round((eventDate - today) / (1000*60*60*24));
+  const weekday = eventDate.toLocaleDateString("en-GB", { weekday: "long" });
+  const formattedDate = Utilities.formatDate(eventDate, timezone, "dd-MMM-yyyy");
+
+  let datePhrase;
+  if (diffDays >= 0 && diffDays <= 6) {
+    datePhrase = `coming up this ${weekday.toLowerCase()}, *${formattedDate}*`;
+  } else if (diffDays >= 7 && diffDays <= 13) {
+    datePhrase = `coming up next week ${weekday.toLowerCase()}, *${formattedDate}*`;
+  } else {
+    datePhrase = `coming up on ${weekday.toLowerCase()}, *${formattedDate}*`;
+  }
+
+  const timeLine = timeText ? `Time: ${timeText}` : `Time: __________________`;
+
+  return (
+`*${activityTitle}*
+• All ${audience} are invited to the *${activityTitle}* ${datePhrase} at the *Obantoko Ward*.
+${timeLine}\n\n`
+  );
+}
+
+function sendBishopricWhatsappNotification() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const actSh = ss.getSheetByName("ACTIVITIES");
+  const conSh = ss.getSheetByName("CONTACTS");
+  const timezone = ss.getSpreadsheetTimeZone();
+
+  if (!actSh || !conSh) {
+    throw new Error("Missing ACTIVITIES or CONTACTS sheet.");
+  }
+
+  // Read starting at Column 2 (B) for 6 columns: Name (B), Calling (C), Org (D), Upcoming (E), Report (F), Email (G)
+  const contacts = conSh
+    .getRange(2, 2, conSh.getLastRow() - 1, 6)
+    .getValues()
+    .map(r => ({
+      name: r[0],
+      org: r[2],
+      email: r[5]
+    }))
+    .filter(c => (c.org || "").toString().toUpperCase() === "BISHOPRIC");
+
+  if (contacts.length === 0) return;
+
+  // Read starting at Column 2 (B) for 8 columns: Date (B), Activity (C), Org (D), Status (E), EmailSent (F), ForWhom (G), ReportSubmitted (H), Time (I)
+  const rows = actSh.getRange(3, 2, actSh.getLastRow() - 2, 8).getValues();
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const DAYS_AHEAD = 50;
+  const upcoming = [];
+
+  rows.forEach(r => {
+    const date = r[0];
+    const activity = r[1];
+    const forWhom = r[5];
+    const time = r[7];
+
+    if (!(date instanceof Date) || !activity) return;
+
+    const eventDate = new Date(date);
+    eventDate.setHours(0, 0, 0, 0);
+
+    const diffDays = Math.floor((eventDate - today) / (1000 * 60 * 60 * 24));
+
+    if (diffDays >= 0 && diffDays <= DAYS_AHEAD) {
+      upcoming.push({
+        dateObj: eventDate,
+        activity: activity.toString().trim(),
+        forWhom: (forWhom || "").toString().trim(),
+        time: (time || "").toString().trim()
+      });
+    }
+  });
+
+  let body = `WHATSAPP NOTIFICATION\n\n*WARD ACTIVITIES*\n\n`;
+
+  if (upcoming.length === 0) {
+    body += `No upcoming ward activities in the next ${DAYS_AHEAD} days.\n\n`;
+  } else {
+    upcoming.forEach(item => {
+      body += buildWhatsappBlock(item, timezone);
+    });
+  }
+
+  body += `Please verify, update, and post this (with the Stake announcement) in the Ward Members WhatsApp group immediately after the Sacrament meeting tomorrow.`;
+
+  let overallStatus = "SUCCESS";
+
+  contacts.forEach(c => {
+    try {
+      sendHtmlEmail(
+        c.email,
+        "WhatsApp Weekly Ward Activities — Bishopric",
+        `<pre style="font-family:Arial; font-size:14px; white-space:pre-wrap;">${body}</pre>`
+      );
+    } catch (err) {
+      overallStatus = "FAILED";
+      console.error("WhatsApp notification failed for:", c.email, err);
+    }
+  });
+
+  logToReportLog(
+    "Bishopric WhatsApp Notification",
+    [{
+      name: "Bishopric",
+      status: overallStatus
+    }]
+  );
+}
+
+function buildWhatsappBlock(item, timezone) {
+  let title = item.activity.toUpperCase();
+  title = title.replace(/^WARD\s+/i, "");
+  title = "WARD " + title;
+
+  let audience = item.forWhom.replace(/^ALL\s+/i, "").trim().toLowerCase();
+  if (!audience) audience = "members";
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const eventDate = item.dateObj;
+  const diff = Math.floor((eventDate - today) / (1000 * 60 * 60 * 24));
+
+  const weekday = eventDate.toLocaleDateString("en-GB", { weekday: "long" });
+  const dateText = Utilities.formatDate(eventDate, timezone, "dd-MMM-yyyy");
+
+  let datePhrase;
+  if (diff >= 0 && diff <= 6) {
+    datePhrase = `coming up this ${weekday}, *${dateText}*`;
+  } else if (diff >= 7 && diff <= 13) {
+    datePhrase = `coming up next week ${weekday}, *${dateText}*`;
+  } else {
+    datePhrase = `coming up on ${weekday}, *${dateText}*`;
+  }
+
+  const timeText = item.time ? item.time : "TBD";
+
+  return (
+`*${title}*
+• All ${audience} are invited to the *${title}* ${datePhrase} at the *Obantoko Ward*.
+Time: ${timeText}\n\n`
+  );
+}
+
+function logWeeklyUpcomingEmail(contactName, status, timestamp) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName("REPORT LOG");
+  if (!sh) return;
+
+  const today = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "dd-MMM-yyyy");
+  let lastRow = sh.getLastRow();
+
+  let rowToUse = 0;
+  if (lastRow >= 1) {
+    const lastDate = sh.getRange(lastRow, 1).getValue();
+    try {
+      const lastDateStr = Utilities.formatDate(new Date(lastDate), ss.getSpreadsheetTimeZone(), "dd-MMM-yyyy");
+      if (lastDateStr === today) {
+        rowToUse = lastRow;   
+      }
+    } catch(e) {}
+  }
+
+  if (rowToUse === 0) {
+    rowToUse = lastRow + 1;
+    sh.getRange(rowToUse, 1).setValue(today);
+  }
+
+  let col = 2;
+  while (sh.getRange(rowToUse, col).getValue() !== "") {
+    col++;
+  }
+
+  const entry =
+    contactName + "\n" +
+    "Status: " + status + "\n" +
+    "Timestamp: " + timestamp;
+
+  sh.getRange(rowToUse, col).setValue(entry);
+}
+
+function sendReportFollowUpReminders() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const actSh = ss.getSheetByName("ACTIVITIES");
+  if (!actSh) return;
+
+  const lastRow = actSh.getLastRow();
+  if (lastRow < 3) return;
+
+  // Read B to J (columns 2 to 10): Date (B), Activity (C), Org (D), Status (E), EmailSent (F), ForWhom (G), ReportSubmitted (H), Time (I), LastReminder (J)
+  const data = actSh.getRange(3, 2, lastRow - 2, 9).getValues();
+  const now = new Date();
+  const ms48hrs = 48 * 60 * 60 * 1000;
+  const ms5days = 5 * 24 * 60 * 60 * 1000;
+  const timezone = ss.getSpreadsheetTimeZone();
+
+  data.forEach((row, i) => {
+    const rowNum = i + 3; 
+
+    const date = row[0];
+    const activityName = row[1];
+    const org = row[2];
+    const status = row[3];        
+    const reportStatus = (row[6] || "").toString().trim().toUpperCase();
+    const lastReminder = row[8];  // Column J
+
+    if (!activityName || !(date instanceof Date)) return;
+    if (reportStatus === "YES" || reportStatus === "N/A") return;
+    if (status !== true) return;
+
+    let shouldSend = false;
+
+    if (!lastReminder) {
+      if (now - date >= ms48hrs) {
+        shouldSend = true;
+      }
+    } else {
+      const last = new Date(lastReminder);
+      if (now - last >= ms5days) {
+        shouldSend = true;
+      }
+    }
+
+    if (!shouldSend) return;
+
+    const contacts = getContacts(); 
+    const recipients = contacts.filter(c =>
+      c.report.map(r => r.toUpperCase()).includes(org.toUpperCase())
+    );
+
+    const loggedRecipients = [];
+    recipients.forEach(contact => {
+      const subject = `Follow-Up Reminder: ${activityName}`;
+      const html = `
+        <div style="font-family:Arial;font-size:14px;">
+          <p>Dear ${contact.name},</p>
+          <p>The following activity was completed but the report has not been submitted:</p>
+          <h3>${activityName}</h3>
+          <p>Date: <b>${Utilities.formatDate(date, timezone, "dd-MMM-yyyy")}</b></p>
+          <p>Please submit your report as soon as possible.</p>
+          <hr>
+          <p style="font-size:12px;color:#777;">Obantoko Ward Calendar System</p>
+        </div>
+      `;
+
+      let sendStatus = "SUCCESS";
+
+      try {
+        sendHtmlEmail(contact.email, subject, html);
+      } catch (err) {
+        sendStatus = "FAILED";
+        console.error("Error sending follow-up to", contact.email, err);
+      }
+
+      loggedRecipients.push({ name: contact.name, status: sendStatus });
+    });
+
+    if (loggedRecipients.length > 0) {
+      logToReportLog(`Reminder: ${activityName}`, loggedRecipients);
+    }
+
+    actSh.getRange(rowNum, 10).setValue(new Date());
+  });
+}
+
+function logToReportLog(type, recipients) {
+  if (!Array.isArray(recipients) || recipients.length === 0) return;
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const logSh = ss.getSheetByName("REPORT LOG");
+  if (!logSh) return;
+  const timezone = ss.getSpreadsheetTimeZone();
+
+  const timestamp = Utilities.formatDate(
+    new Date(),
+    timezone,
+    "dd-MMM-yyyy hh:mm a"
+  );
+
+  const row = [];
+  row[0] = timestamp;   
+  row[1] = type;        
+
+  let colIndex = 2;     
+
+  recipients.forEach(rec => {
+    row[colIndex] = `${rec.name}\nStatus: ${rec.status}\nTimestamp: ${timestamp}`;
+    colIndex++;
+  });
+
+  logSh.appendRow(row);
+  const rowNumber = logSh.getLastRow();
+  formatReportLogRow(logSh, rowNumber, colIndex - 1);
+}
+
+function formatReportLogRow(sheet, row, lastCol) {
+  const headerColor = "#1c4587";
+  const successColor = "#d9ead3";
+  const failColor = "#f4cccc";
+
+  sheet.getRange(row, 1)
+    .setBackground("#f0f0f0")
+    .setFontWeight("bold");
+
+  sheet.getRange(row, 2)
+    .setBackground(headerColor)
+    .setFontColor("white")
+    .setFontWeight("bold");
+
+  for (let col = 3; col <= lastCol + 1; col++) {
+    const cell = sheet.getRange(row, col);
+    const text = cell.getValue().toString().toUpperCase();
+
+    cell
+      .setBackground(text.includes("FAILED") ? failColor : successColor)
+      .setWrap(true)
+      .setVerticalAlignment("top");
+  }
+}
+
+function parseReportLogs_(data) {
+  const out = [];
+  for (let r = 1; r < data.length; r++) {
+    const row = data[r];
+    if (row.every(v => String(v || "").trim() === "")) continue;
+    
+    const valA = String(row[0] || "").trim();
+    const valB = String(row[1] || "").trim();
+    if (!valA) continue;
+    
+    let type = "System Notification";
+    let startCol = 1;
+    
+    if (valB.indexOf("\n") >= 0 || valB.toUpperCase().indexOf("STATUS:") >= 0) {
+      type = "Weekly Upcoming Email";
+      startCol = 1;
+    } else {
+      type = valB || "System Notification";
+      startCol = 2;
+    }
+    
+    for (let c = startCol; c < row.length; c++) {
+      const cellVal = String(row[c] || "").trim();
+      if (!cellVal) continue;
+      
+      const lines = cellVal.split("\n");
+      const recipient = lines[0].trim();
+      let status = "SUCCESS";
+      let timestamp = valA;
+      
+      lines.forEach(line => {
+        const uLine = line.toUpperCase();
+        if (uLine.indexOf("STATUS:") >= 0) {
+          if (uLine.indexOf("FAILED") >= 0) status = "FAILED";
+        }
+        if (uLine.indexOf("TIMESTAMP:") >= 0) {
+          timestamp = line.replace(/timestamp:/i, "").trim();
+        }
+      });
+      
+      out.push({
+        log_id: "log_" + r + "_" + c + "_" + valA.replace(/[^a-zA-Z0-9]/g, ""),
+        date: valA.split(" ")[0] || valA,
+        type: type,
+        recipient: recipient,
+        status: status,
+        timestamp: timestamp
+      });
+    }
+  }
+  return out.reverse();
+}
+

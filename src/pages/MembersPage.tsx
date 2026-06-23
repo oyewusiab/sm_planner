@@ -60,6 +60,12 @@ type AnalyticsMember = Member & {
   readiness: number;
   diversityScore?: number;
   roleBreadth?: { category: string; count: number }[];
+  // Current Calendar Year specific fields
+  yearlyTotal: number;
+  yearlyDone: number;
+  yearlyDoing: number;
+  yearlyWillDo: number;
+  yearlyLastDate: string | null;
 };
 
 type OrgMetric = { total: number; idleCount: number };
@@ -92,6 +98,24 @@ type AgeGroupMetric = {
   rate: number;
 };
 type ConflictItem = { date: string; type: string; members: string[]; detail: string };
+type CalendarMonthPoint = {
+  monthIndex: number;
+  label: string;
+  done: number;
+  doing: number;
+  willDo: number;
+};
+type WeeklyAssignment = {
+  date: string;
+  person: string;
+  role: string;
+  topic?: string;
+};
+type FutureMeeting = {
+  date: string;
+  filledRoles: number;
+  totalRoles: number;
+};
 type AnalyticsData = {
   members: AnalyticsMember[];
   orgMetrics: Record<string, OrgMetric>;
@@ -110,6 +134,12 @@ type AnalyticsData = {
   conflicts: ConflictItem[];
   readySpeakers: AnalyticsMember[];
   totalAssignments: number;
+  // Current Calendar Year specific fields
+  currentYear: number;
+  yearlySegment: { done: number; doing: number; willDo: number };
+  calendarYearTimeline: CalendarMonthPoint[];
+  currentWeekAssignments: WeeklyAssignment[];
+  futureMeetings: FutureMeeting[];
 };
 
 const emptyAnalyticsData: AnalyticsData = {
@@ -130,6 +160,11 @@ const emptyAnalyticsData: AnalyticsData = {
   conflicts: [],
   readySpeakers: [],
   totalAssignments: 0,
+  currentYear: new Date().getFullYear(),
+  yearlySegment: { done: 0, doing: 0, willDo: 0 },
+  calendarYearTimeline: [],
+  currentWeekAssignments: [],
+  futureMeetings: [],
 };
 
 export function MembersPage({
@@ -147,6 +182,7 @@ export function MembersPage({
   const [q, setQ] = useState("");
   const [org, setOrg] = useState("ALL");
   const [filterMode, setFilterMode] = useState<string | null>(null);
+  const [recRole, setRecRole] = useState<string>("speaker");
 
   const organisations = useMemo(() => {
     const set = new Set<string>();
@@ -163,6 +199,22 @@ export function MembersPage({
     }
 
     const now = new Date();
+    const currentYear = now.getFullYear();
+    const yearStr = String(currentYear);
+    
+    // Helper to get Sunday and Saturday dates for the current week (Sunday to Saturday)
+    const getWeekDates = (d: Date) => {
+      const current = new Date(d);
+      const day = current.getDay(); // Sunday is 0
+      const diff = current.getDate() - day; // adjust to Sunday
+      const sun = new Date(current.setDate(diff));
+      const sat = new Date(current.setDate(diff + 6));
+      const toStr = (dateVal: Date) => 
+        `${dateVal.getFullYear()}-${String(dateVal.getMonth() + 1).padStart(2, "0")}-${String(dateVal.getDate()).padStart(2, "0")}`;
+      return { sunday: toStr(sun), saturday: toStr(sat) };
+    };
+    
+    const currentWeekDates = getWeekDates(now);
     const threeMonthsAgo = new Date();
     threeMonthsAgo.setMonth(now.getMonth() - 3);
 
@@ -179,7 +231,23 @@ export function MembersPage({
       topics: { topic: string; date: string }[];
       roleHistory: { date: string; type: string; label: string; topic?: string }[];
       roleDatesByType: Record<string, string[]>; // type -> sorted dates
+      yearlyTotal: number;
+      yearlyDone: number;
+      yearlyDoing: number;
+      yearlyWillDo: number;
+      yearlyLastDate: string | null;
     }> = {};
+
+    const yearlySegment = { done: 0, doing: 0, willDo: 0 };
+    const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const calendarYearTimeline: CalendarMonthPoint[] = MONTH_LABELS.map((label, index) => ({
+      monthIndex: index,
+      label,
+      done: 0,
+      doing: 0,
+      willDo: 0
+    }));
+    const currentWeekAssignments: WeeklyAssignment[] = [];
 
     const orgMetrics: Record<string, { total: number; idleCount: number }> = {};
     const topicUsageByDate: Record<string, string[]> = {}; // topic -> [date, date]
@@ -187,7 +255,6 @@ export function MembersPage({
     const statusStats: Record<string, number> = { "ACTIVE": 0, "LESS-ACTIVE": 0 };
     const genderStats: Record<string, number> = { "M": 0, "F": 0 };
     const globalMonthlyTrend: Record<string, number> = {}; // year-month -> total roles
-    const surnameLastDate: Record<string, string | null> = {};
     const genderByRole: Record<string, { M: number; F: number }> = {};
     
     // Member id lookup map
@@ -205,6 +272,11 @@ export function MembersPage({
         topics: [],
         roleHistory: [],
         roleDatesByType: {},
+        yearlyTotal: 0,
+        yearlyDone: 0,
+        yearlyDoing: 0,
+        yearlyWillDo: 0,
+        yearlyLastDate: null
       };
     }
 
@@ -215,33 +287,37 @@ export function MembersPage({
         if (!name) return "";
         return name.toLowerCase()
           .replace(/^(bishop|brother|sister|elder|president|stake|ward|br|sr)\s+/g, "")
-          .replace(/[^a-z0-9]/g, "")
+          .replace(/[^a-z0-9\s]/g, "")
           .trim();
       };
       
       const fuzzyMatch = (nameA: string, nameB: string): boolean => {
-        const normA = normName(nameA);
-        const normB = normName(nameB);
-        if (normA === normB) return true;
+        const cleanA = normName(nameA);
+        const cleanB = normName(nameB);
+        if (!cleanA || !cleanB) return false;
+        if (cleanA === cleanB) return true;
         
-        const cleanA = nameA.toLowerCase().replace(/^(bishop|brother|sister|elder|president|stake|ward|br|sr)\s+/g, "").trim();
-        const cleanB = nameB.toLowerCase().replace(/^(bishop|brother|sister|elder|president|stake|ward|br|sr)\s+/g, "").trim();
-        
-        const partsA = cleanA.split(/\s+/).filter(p => p.length > 0 && !p.endsWith("."));
-        const partsB = cleanB.split(/\s+/).filter(p => p.length > 0 && !p.endsWith("."));
-        
+        const partsA = cleanA.split(/\s+/).filter(Boolean);
+        const partsB = cleanB.split(/\s+/).filter(Boolean);
         if (partsA.length === 0 || partsB.length === 0) return false;
         
-        const firstA = partsA[0];
-        const lastA = partsA[partsA.length - 1];
-        const firstB = partsB[0];
-        const lastB = partsB[partsB.length - 1];
-        
-        if (firstA === firstB && lastA === lastB) return true;
-        
-        if (normA.length > 3 && normB.length > 3 && (normA.indexOf(normB) >= 0 || normB.indexOf(normA) >= 0)) {
-          return true;
+        // Exact match of first and last name
+        if (partsA.length >= 2 && partsB.length >= 2) {
+          const firstA = partsA[0];
+          const lastA = partsA[partsA.length - 1];
+          const firstB = partsB[0];
+          const lastB = partsB[partsB.length - 1];
+          if (firstA === firstB && lastA === lastB) return true;
         }
+        
+        // Single word matching word boundaries in the other
+        if (partsA.length === 1) {
+          return partsB.includes(partsA[0]);
+        }
+        if (partsB.length === 1) {
+          return partsA.includes(partsB[0]);
+        }
+        
         return false;
       };
 
@@ -271,6 +347,33 @@ export function MembersPage({
 
     const processItem = (ra: { n: string; t: string; topic?: string; date: string }) => {
       if (!ra.n) return;
+
+      const isCurrentYear = ra.date.startsWith(yearStr);
+      const mIndex = isCurrentYear ? parseInt(ra.date.slice(5, 7), 10) - 1 : -1;
+      const isCurrentWeek = isCurrentYear && ra.date >= currentWeekDates.sunday && ra.date <= currentWeekDates.saturday;
+      const isPast = isCurrentYear && ra.date < currentWeekDates.sunday;
+      const isFuture = isCurrentYear && ra.date > currentWeekDates.saturday;
+
+      // Accumulate global timeline counters (even for guest names not in MEMBERS sheet)
+      if (isCurrentYear) {
+        if (isCurrentWeek) {
+          yearlySegment.doing++;
+          if (mIndex >= 0 && mIndex < 12) calendarYearTimeline[mIndex].doing++;
+          currentWeekAssignments.push({
+            date: ra.date,
+            person: ra.n,
+            role: ROLE_LABELS[ra.t] || ra.t,
+            topic: ra.topic
+          });
+        } else if (isPast) {
+          yearlySegment.done++;
+          if (mIndex >= 0 && mIndex < 12) calendarYearTimeline[mIndex].done++;
+        } else if (isFuture) {
+          yearlySegment.willDo++;
+          if (mIndex >= 0 && mIndex < 12) calendarYearTimeline[mIndex].willDo++;
+        }
+      }
+
       const mid = findMid(ra.n);
       if (mid) {
         const s = memberStats[mid];
@@ -307,6 +410,15 @@ export function MembersPage({
           if (!genderByRole[ra.t]) genderByRole[ra.t] = { M: 0, F: 0 };
           if (g === "M") genderByRole[ra.t].M++;
           else if (g === "F") genderByRole[ra.t].F++;
+        }
+
+        // Track current year member stats
+        if (isCurrentYear) {
+          s.yearlyTotal++;
+          if (isCurrentWeek) s.yearlyDoing++;
+          else if (isPast) s.yearlyDone++;
+          else if (isFuture) s.yearlyWillDo++;
+          if (!s.yearlyLastDate || dateStr > s.yearlyLastDate) s.yearlyLastDate = dateStr;
         }
       }
     };
@@ -376,7 +488,16 @@ export function MembersPage({
 
       const isNewcomer = m.created_date ? new Date(m.created_date) > threeMonthsAgo : false;
       const monthsSinceLast = s.lastDate ? Math.floor((now.getTime() - new Date(s.lastDate).getTime()) / (1000 * 60 * 60 * 24 * 30)) : 99;
-      const isDoubleDipped = Object.values(s.monthlyAssignments).some(count => count > 1);
+      const rolesByDate: Record<string, string[]> = {};
+      for (const h of s.roleHistory) {
+        if (!rolesByDate[h.date]) rolesByDate[h.date] = [];
+        rolesByDate[h.date].push(h.type);
+      }
+      const isDoubleDipped = Object.entries(rolesByDate).some(([_, types]) => {
+        if (types.length <= 1) return false;
+        const isAllSacrament = types.every(t => t === "preparing" || t === "blessing" || t === "passing");
+        return !isAllSacrament;
+      });
 
       let readiness = 0;
       if (status === "ACTIVE") {
@@ -384,10 +505,6 @@ export function MembersPage({
         if (monthsSinceLast >= 3) readiness += 30;
         if (s.speakers < 2) readiness += 20;
         if (!isNewcomer) readiness += 10;
-      }
-
-      if (!surnameLastDate[surname] || (s.lastDate && s.lastDate > (surnameLastDate[surname] || ""))) {
-        surnameLastDate[surname] = s.lastDate;
       }
 
       return {
@@ -440,18 +557,12 @@ export function MembersPage({
       .filter(([_, dates]) => dates.filter(d => new Date(d) > twoMonthsAgo).length >= 3)
       .map(([topic]) => topic);
 
-    // 9. ROLE DIVERSITY INDEX — breadth of role participation per member
-    const ROLE_CATEGORIES = [
-      { key: "speaker", label: "Speaking" },
-      { key: "prayer", label: "Prayer" },
-      { key: "sacrament", label: "Sacrament" },
-      { key: "music", label: "Music" },
-    ];
+    // 9. ROLE DIVERSITY INDEX
     const processedMembersWithDiversity = processedMembers.map(m => {
       const s = memberStats[m.member_id];
-      const prayerCount = s.invocation + s.benediction;
-      const sacramentCount = s.sacrament.preparing + s.sacrament.blessing + s.sacrament.passing;
-      const musicCount = s.music.director + s.music.accompanist;
+      const prayerCount = s.yearlyTotal ? (s.invocation + s.benediction) : 0;
+      const sacramentCount = s.yearlyTotal ? (s.sacrament.preparing + s.sacrament.blessing + s.sacrament.passing) : 0;
+      const musicCount = s.yearlyTotal ? (s.music.director + s.music.accompanist) : 0;
       const roleBreadth = [
         { category: "Speaking", count: s.speakers },
         { category: "Prayer", count: prayerCount },
@@ -459,9 +570,8 @@ export function MembersPage({
         { category: "Music", count: musicCount },
       ];
       const categoriesUsed = roleBreadth.filter(r => r.count > 0).length;
-      const diversityScore = Math.round((categoriesUsed / ROLE_CATEGORIES.length) * 100);
-      const sortedHistory = [...s.roleHistory].sort((a, b) => b.date.localeCompare(a.date));
-      return { ...m, diversityScore, roleBreadth, roleHistory: sortedHistory };
+      const diversityScore = Math.round((categoriesUsed / 4) * 100);
+      return { ...m, diversityScore, roleBreadth };
     });
 
     // 10. ASSIGNMENT PREDICTION ENGINE
@@ -508,7 +618,7 @@ export function MembersPage({
       return { ...band, memberCount: inBand.length, assignedCount, totalAssignments: totalAssignmentsInBand, rate };
     });
 
-    // 12. NEVER BEEN ASKED — active, joined 3+ months ago, ZERO assignments ever
+    // 12. NEVER BEEN ASKED
     const threeMonthsAgo2 = new Date();
     threeMonthsAgo2.setMonth(now.getMonth() - 3);
     const neverAsked = processedMembers
@@ -516,13 +626,12 @@ export function MembersPage({
       .sort((a, b) => (a.created_date || "").localeCompare(b.created_date || ""))
       .slice(0, 15);
 
-    // 13. CONFLICT DETECTOR — family conflicts and double assignments
+    // 13. CONFLICT DETECTOR
     const conflicts: { date: string; type: string; members: string[]; detail: string }[] = [];
     for (const p of db.PLANNERS) {
       if (p.state === "DRAFT") continue;
       for (const w of p.weeks) {
         if (!w.date) continue;
-        // Gather all names in this week
         const weekAssignees: { name: string; role: string }[] = [
           ...w.speakers.map(s => ({ name: s.name, role: "Speaker" })),
           { name: w.prayers.invocation, role: "Invocation" },
@@ -532,7 +641,6 @@ export function MembersPage({
           ...w.sacrament.passing.map(n => ({ name: n, role: "Sacr. Passing" })),
         ].filter(a => !!a.name);
 
-        // Family conflict: same surname, different people, both assigned
         const surnameBuckets: Record<string, { name: string; role: string }[]> = {};
         for (const a of weekAssignees) {
           const sn = getSurname(a.name);
@@ -552,7 +660,6 @@ export function MembersPage({
           }
         }
 
-        // Same person assigned twice in same meeting
         const nameCounts: Record<string, string[]> = {};
         for (const a of weekAssignees) {
           if (!nameCounts[a.name]) nameCounts[a.name] = [];
@@ -570,7 +677,7 @@ export function MembersPage({
       }
     }
 
-    // 14. Extended org participation rate
+    // 14. Org participation
     const membersByOrg: Record<string, number> = {};
     for (const m of db.MEMBERS) {
       const orgs2 = (m.organisation || "").split(",").map(o => o.trim()).filter(Boolean);
@@ -588,6 +695,74 @@ export function MembersPage({
         ? Math.round(((membersByOrg[org] - metrics.idleCount) / membersByOrg[org]) * 100)
         : 0,
     })).sort((a, b) => b.participationRate - a.participationRate);
+
+    // 15. Future Meetings Pipeline Filled Statistics
+    const getWeekFilledStats = (w: any) => {
+      let filled = 0;
+      let total = 0;
+      const checkField = (val: any) => {
+        total++;
+        if (val && String(val).trim()) filled++;
+      };
+
+      checkField(w.presiding);
+      checkField(w.conducting_officer);
+      checkField(w.prayers?.invocation);
+      checkField(w.prayers?.benediction);
+      checkField(w.music?.director);
+      checkField(w.music?.accompanist);
+
+      if (Array.isArray(w.speakers)) {
+        w.speakers.forEach((s: any) => {
+          total++;
+          if (s?.name && String(s.name).trim()) filled++;
+        });
+      } else {
+        total += 3;
+      }
+
+      if (w.sacrament) {
+        if (Array.isArray(w.sacrament.preparing)) {
+          total += w.sacrament.preparing.length || 2;
+          w.sacrament.preparing.forEach((n: any) => { if (n && String(n).trim()) filled++; });
+        } else {
+          total += 2;
+        }
+        if (Array.isArray(w.sacrament.blessing)) {
+          total += w.sacrament.blessing.length || 2;
+          w.sacrament.blessing.forEach((n: any) => { if (n && String(n).trim()) filled++; });
+        } else {
+          total += 2;
+        }
+        if (Array.isArray(w.sacrament.passing)) {
+          total += w.sacrament.passing.length || 4;
+          w.sacrament.passing.forEach((n: any) => { if (n && String(n).trim()) filled++; });
+        } else {
+          total += 4;
+        }
+      } else {
+        total += 8;
+      }
+
+      return { filled, total };
+    };
+
+    const futureMeetings: FutureMeeting[] = [];
+    for (const p of db.PLANNERS) {
+      if (p.state === "DRAFT") continue;
+      if (!p.weeks) continue;
+      for (const w of p.weeks) {
+        if (w.date && w.date.startsWith(yearStr) && w.date > currentWeekDates.saturday) {
+          const stats = getWeekFilledStats(w);
+          futureMeetings.push({
+            date: w.date,
+            filledRoles: stats.filled,
+            totalRoles: stats.total
+          });
+        }
+      }
+    }
+    futureMeetings.sort((a, b) => a.date.localeCompare(b.date));
 
     return {
       members: processedMembersWithDiversity,
@@ -609,9 +784,14 @@ export function MembersPage({
         .filter(m => m.status === "ACTIVE" && m.readiness > 60)
         .sort((a, b) => b.readiness - a.readiness)
         .slice(0, 8),
-      totalAssignments: processedMembers.reduce((a, b) => a + b.total, 0)
+      totalAssignments: processedMembers.reduce((a, b) => a + b.total, 0),
+      currentYear,
+      yearlySegment,
+      calendarYearTimeline,
+      currentWeekAssignments,
+      futureMeetings
     };
-  }, [db.MEMBERS, db.PLANNERS, db.CHECKLISTS, db.ASSIGNMENTS]);
+  }, [db.MEMBERS, db.PLANNERS, db.CHECKLISTS, db.ASSIGNMENTS, tab, filterMode]);
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -627,6 +807,20 @@ export function MembersPage({
       base = base.filter(m => upperText(m.status) === "ACTIVE");
     } else if (filterMode === "LESS_ACTIVE_MEMBER") {
       base = base.filter(m => upperText(m.status) === "LESS-ACTIVE");
+    } else if (filterMode === "YOUTH") {
+      base = base.filter(m => m.age && m.age >= 12 && m.age <= 18);
+    } else if (filterMode === "MUSIC") {
+      const musicIds = analyticsData.members.filter(m => m.music.director > 0 || m.music.accompanist > 0).map(m => m.member_id);
+      base = base.filter(m => musicIds.includes(m.member_id));
+    } else if (filterMode === "INACTIVE_6M") {
+      const inactiveIds = analyticsData.inactiveMembers.map(m => m.member_id);
+      base = base.filter(m => inactiveIds.includes(m.member_id));
+    } else if (filterMode === "NEWCOMER_NO_ROLE") {
+      const newcomerIds = analyticsData.members.filter(m => m.isNewcomer && m.total === 0).map(m => m.member_id);
+      base = base.filter(m => newcomerIds.includes(m.member_id));
+    } else if (filterMode?.startsWith("ORG_")) {
+      const targetOrg = filterMode.replace("ORG_", "");
+      base = base.filter(m => asText(m.organisation).split(",").map(o => o.trim().toLowerCase()).includes(targetOrg.toLowerCase()));
     } else if (filterMode?.startsWith("SURNAME_")) {
       const surname = filterMode.replace("SURNAME_", "");
       base = base.filter(m => getSurname(asText(m.name)) === surname);
@@ -812,91 +1006,331 @@ export function MembersPage({
       ) : (
         /* Analytics View */
         <div className="space-y-8 animate-fade-in pb-12">
-          {/* Top Level Summary Cards */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
-            <div 
-              onClick={() => { setTab("directory"); setFilterMode("ACTIVE_MEMBER"); }}
-              className="stat-card p-5 animate-scale-in stagger-1 cursor-pointer hover:border-emerald-200 group transition-all"
-            >
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 group-hover:text-emerald-600 transition-colors">Active engagement</div>
-              <div className="mt-2 text-3xl font-black text-slate-800">
-                {(analyticsData.statusStats || {})["ACTIVE"] || 0} <span className="text-sm font-normal text-slate-400">/ {analyticsData.totalAssignments || 0}</span>
-              </div>
-              <div className="mt-1 text-xs font-semibold text-emerald-600">Roles given to ACTIVE</div>
+          {/* Header Section */}
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-50 p-6 rounded-2xl border border-slate-100 shadow-sm">
+            <div>
+              <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
+                <span>📊</span> Calendar Year Analytics ({analyticsData.currentYear})
+              </h2>
+              <p className="text-xs text-slate-500 font-medium mt-1">
+                Tracking assignments, active engagement, and future plans from January 1st to December 31st, {analyticsData.currentYear}.
+              </p>
             </div>
-
-            <div 
-              onClick={() => { setTab("directory"); setFilterMode("LESS_ACTIVE_MEMBER"); }}
-              className="stat-card p-5 animate-scale-in stagger-2 cursor-pointer hover:border-rose-200 group transition-all"
-            >
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 group-hover:text-rose-600 transition-colors">Less-Active Inclusion</div>
-              <div className="grow mt-2 flex items-end gap-2">
-                <div className="text-3xl font-black text-slate-800">{(analyticsData.statusStats || {})["LESS-ACTIVE"] || 0}</div>
-                <div className="mb-1 text-xs font-bold text-rose-500">
-                  {Math.round((((analyticsData.statusStats || {})["LESS-ACTIVE"] || 0) / (analyticsData.totalAssignments || 1)) * 100)}%
-                </div>
-              </div>
-              <div className="mt-1 text-xs font-semibold text-slate-400">Roles to LESS-ACTIVE</div>
-            </div>
-
-            <div 
-              onClick={() => { setTab("directory"); setFilterMode("DOUBLE_DIPPED"); }}
-              className="stat-card p-5 animate-scale-in stagger-3 cursor-pointer hover:border-blue-200 group transition-all bg-gradient-to-br from-white to-blue-50/30"
-            >
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 group-hover:text-blue-600 transition-colors">Double-Dip Load</div>
-              <div className="mt-2 text-3xl font-black text-blue-600">
-                {analyticsData.members.filter(m => m.isDoubleDipped).length}
-                <span className="text-sm font-normal text-slate-400 ml-1">members</span>
-              </div>
-              <div className="mt-1 text-xs font-semibold text-slate-400">Multiple orgs same month</div>
-            </div>
-
-            <div 
-              className="stat-card p-5 animate-scale-in stagger-4 cursor-pointer hover:border-sky-200 group transition-all"
-            >
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 group-hover:text-sky-600 transition-colors">Meeting Reliability</div>
-              <div className="mt-2 text-3xl font-black text-sky-500">
-                {analyticsData.reliabilityIndex}%
-              </div>
-              <div className="mt-1 text-xs font-semibold text-slate-400">Checklist Completion</div>
-            </div>
+            <Badge tone="blue" className="bg-blue-600/10 text-blue-700 border-blue-200/50 px-4 py-1.5 rounded-full font-black text-xs">
+              Active Year: {analyticsData.currentYear}
+            </Badge>
           </div>
 
-          {/* Activity Trend Timeline */}
-          <Card className="animate-fade-in stagger-2 bg-gradient-to-r from-slate-900 to-slate-800 border-none shadow-xl overflow-hidden">
-            <CardBody className="p-6">
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <h3 className="text-lg font-black text-white">Participation Momentum</h3>
-                  <p className="text-xs text-slate-400">Total assignments across all meeting categories (Last 12 Months)</p>
+          {/* Progress Overview & Stacked Timeline Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left Column: Annual Segmented Progress (Done, Doing, Will Do) */}
+            <Card className="lg:col-span-1 bg-gradient-to-br from-slate-900 via-slate-850 to-slate-800 text-white border-none shadow-xl flex flex-col justify-between p-6">
+              <div>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Annual Activity Progress</h3>
+                    <div className="mt-1.5 text-3xl font-black tracking-tight text-white">
+                      {analyticsData.yearlySegment.done + analyticsData.yearlySegment.doing + analyticsData.yearlySegment.willDo}
+                      <span className="text-xs text-slate-400 font-normal ml-2">Total Roles</span>
+                    </div>
+                  </div>
+                  <Badge className="bg-emerald-500/20 text-emerald-300 border-none font-bold text-[10px]">
+                    {analyticsData.currentYear} Goal
+                  </Badge>
                 </div>
-                <Badge tone="blue" className="bg-blue-500/20 text-blue-300 border-none px-3 py-1 font-black">
-                  {analyticsData.totalAssignments} Total Assignments
-                </Badge>
+
+                {/* horizontal segmented progress bar */}
+                <div className="mt-8 space-y-2">
+                  <div className="flex justify-between text-xs font-semibold text-slate-300">
+                    <span>Progress Breakdown</span>
+                    <span>{Math.round(((analyticsData.yearlySegment.done) / (analyticsData.yearlySegment.done + analyticsData.yearlySegment.doing + analyticsData.yearlySegment.willDo || 1)) * 100)}% Done</span>
+                  </div>
+                  
+                  <div className="h-4 w-full bg-slate-700/50 rounded-full flex overflow-hidden p-0.5 border border-slate-700">
+                    {/* Done */}
+                    <div 
+                      className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-l-full transition-all"
+                      style={{ width: `${(analyticsData.yearlySegment.done / (analyticsData.yearlySegment.done + analyticsData.yearlySegment.doing + analyticsData.yearlySegment.willDo || 1)) * 100}%` }}
+                      title={`Done: ${analyticsData.yearlySegment.done}`}
+                    />
+                    {/* Doing */}
+                    <div 
+                      className="h-full bg-gradient-to-r from-amber-500 to-orange-400 transition-all"
+                      style={{ width: `${(analyticsData.yearlySegment.doing / (analyticsData.yearlySegment.done + analyticsData.yearlySegment.doing + analyticsData.yearlySegment.willDo || 1)) * 100}%` }}
+                      title={`Doing: ${analyticsData.yearlySegment.doing}`}
+                    />
+                    {/* Will Do */}
+                    <div 
+                      className="h-full bg-gradient-to-r from-indigo-500 to-blue-400 rounded-r-full transition-all"
+                      style={{ width: `${(analyticsData.yearlySegment.willDo / (analyticsData.yearlySegment.done + analyticsData.yearlySegment.doing + analyticsData.yearlySegment.willDo || 1)) * 100}%` }}
+                      title={`Will Do: ${analyticsData.yearlySegment.willDo}`}
+                    />
+                  </div>
+                </div>
+
+                {/* Detailed Legend Stats */}
+                <div className="mt-8 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-700/50 pb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="h-3 w-3 rounded-full bg-emerald-500" />
+                      <span className="text-xs font-semibold text-slate-300">Done (Past Roles)</span>
+                    </div>
+                    <span className="text-sm font-bold text-white">{analyticsData.yearlySegment.done} <span className="text-[10px] text-slate-400 font-normal">roles</span></span>
+                  </div>
+                  <div className="flex items-center justify-between border-b border-slate-700/50 pb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="h-3 w-3 rounded-full bg-amber-500" />
+                      <span className="text-xs font-semibold text-slate-300">Doing (This Week)</span>
+                    </div>
+                    <span className="text-sm font-bold text-white">{analyticsData.yearlySegment.doing} <span className="text-[10px] text-slate-400 font-normal">roles</span></span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="h-3 w-3 rounded-full bg-indigo-500" />
+                      <span className="text-xs font-semibold text-slate-300">Will Do (Future Planned)</span>
+                    </div>
+                    <span className="text-sm font-bold text-white">{analyticsData.yearlySegment.willDo} <span className="text-[10px] text-slate-400 font-normal">roles</span></span>
+                  </div>
+                </div>
               </div>
-              <div className="flex items-end justify-between gap-1 h-32">
-                {analyticsData.trendTimeline.map((t) => {
-                  const max = Math.max(...analyticsData.trendTimeline.map(m => m.count)) || 1;
-                  const height = Math.max(5, (t.count / max) * 100);
-                  return (
-                    <div key={t.month} className="group relative flex-1 flex flex-col items-center">
-                      <div 
-                        className="w-full rounded-t-sm bg-blue-500/40 group-hover:bg-blue-400 transition-all cursor-crosshair"
-                        style={{ height: `${height}%` }}
-                      >
-                        <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-white text-slate-900 text-[10px] font-black px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg z-20">
-                          {t.count} Roles
+
+              <div className="mt-6 pt-4 border-t border-slate-800/80 text-[10px] text-slate-500 font-bold uppercase tracking-wider text-center">
+                January 1st – December 31st
+              </div>
+            </Card>
+
+            {/* Right Column: Month-by-Month Jan-Dec Stacked Timeline Bar Chart */}
+            <Card className="lg:col-span-2 bg-gradient-to-r from-slate-900 to-slate-850 border-none shadow-xl text-white flex flex-col justify-between p-6">
+              <div>
+                <div className="flex justify-between items-center mb-6">
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Monthly Stacked Activity Timeline</h3>
+                    <p className="text-xs text-slate-500 mt-1">Done (green), Doing (amber), and Will Do (indigo) assignments distribution</p>
+                  </div>
+                </div>
+
+                {/* 12-Month Stacked Bar Chart */}
+                <div className="flex items-end justify-between gap-1.5 sm:gap-3 h-48 mt-4">
+                  {analyticsData.calendarYearTimeline.map((t) => {
+                    const mTotal = t.done + t.doing + t.willDo;
+                    const maxMonthTotal = Math.max(...analyticsData.calendarYearTimeline.map(m => m.done + m.doing + m.willDo)) || 1;
+                    const totalHeight = Math.max(5, (mTotal / maxMonthTotal) * 100);
+                    
+                    const donePct = mTotal > 0 ? (t.done / mTotal) * 100 : 0;
+                    const doingPct = mTotal > 0 ? (t.doing / mTotal) * 100 : 0;
+                    const willDoPct = mTotal > 0 ? (t.willDo / mTotal) * 100 : 0;
+
+                    return (
+                      <div key={t.label} className="group relative flex-1 flex flex-col items-center h-full justify-end">
+                        {/* Stacked Vertical Bar */}
+                        <div 
+                          className="w-full rounded-sm overflow-hidden flex flex-col justify-end transition-all cursor-pointer hover:brightness-110"
+                          style={{ height: `${totalHeight}%` }}
+                        >
+                          {/* Will Do (Top) */}
+                          {t.willDo > 0 && (
+                            <div 
+                              className="bg-indigo-500 w-full"
+                              style={{ height: `${willDoPct}%` }}
+                            />
+                          )}
+                          {/* Doing (Middle) */}
+                          {t.doing > 0 && (
+                            <div 
+                              className="bg-amber-500 w-full animate-pulse"
+                              style={{ height: `${doingPct}%` }}
+                            />
+                          )}
+                          {/* Done (Bottom) */}
+                          {t.done > 0 && (
+                            <div 
+                              className="bg-emerald-500 w-full"
+                              style={{ height: `${donePct}%` }}
+                            />
+                          )}
+                          {/* If empty bar, render a small line */}
+                          {mTotal === 0 && (
+                            <div className="bg-slate-800 w-full h-1" />
+                          )}
+                        </div>
+
+                        {/* Hover details tooltip */}
+                        <div className="absolute -top-16 left-1/2 -translate-x-1/2 bg-white text-slate-900 text-[10px] font-black p-2 rounded shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-30 pointer-events-none border border-slate-100">
+                          <div className="text-slate-800 font-bold border-b pb-1 mb-1">{t.label} {analyticsData.currentYear}</div>
+                          <div className="flex items-center gap-1.5 text-emerald-600">● Done: {t.done}</div>
+                          <div className="flex items-center gap-1.5 text-amber-500">● Doing: {t.doing}</div>
+                          <div className="flex items-center gap-1.5 text-indigo-600">● Will Do: {t.willDo}</div>
+                          <div className="text-slate-500 mt-0.5 pt-0.5 border-t">Total: {mTotal} roles</div>
+                        </div>
+
+                        {/* Month Label */}
+                        <div className="mt-3 text-[10px] font-bold text-slate-500 uppercase tracking-tighter">
+                          {t.label}
                         </div>
                       </div>
-                      <div className="mt-2 text-[8px] font-bold text-slate-500 uppercase tracking-tighter">
-                        {t.month.split('-')[1] === '01' ? t.month.split('-')[0] : t.month.split('-')[1]}
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
-            </CardBody>
-          </Card>
+
+              <div className="mt-4 flex items-center justify-center gap-6 text-[10px] text-slate-400 font-bold">
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Done (Completed)</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> Doing (Current Week)</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-indigo-500" /> Will Do (Planned)</span>
+              </div>
+            </Card>
+          </div>
+
+          {/* Current Week (Doing) & Upcoming Pipeline (Will Do) & Counters */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Card A: Doing Now (Current Week's Assignments) */}
+            <Card className="bg-white border-slate-100 shadow-sm flex flex-col justify-between">
+              <CardHeader className="pb-3 border-b border-slate-50">
+                <CardTitle className="text-slate-800 flex items-center gap-2 text-sm">
+                  <span>⚡</span> Doing Now (This Week)
+                </CardTitle>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
+                  Active assignments for the current week
+                </p>
+              </CardHeader>
+              <CardBody className="grow p-0">
+                <div className="max-h-[300px] overflow-auto divide-y divide-slate-100">
+                  {analyticsData.currentWeekAssignments.length === 0 ? (
+                    <div className="py-12 px-6 text-center text-slate-400 text-xs italic">
+                      No assignments scheduled for this week (Sunday to Saturday).
+                    </div>
+                  ) : (
+                    analyticsData.currentWeekAssignments.map((a, idx) => (
+                      <div 
+                        key={`${a.person}-${a.role}-${idx}`}
+                        onClick={() => { setTab("directory"); setQ(a.person); }}
+                        className="p-3.5 hover:bg-slate-50/80 transition-colors cursor-pointer flex justify-between items-start group"
+                      >
+                        <div className="min-w-0 pr-2">
+                          <div className="text-xs font-black text-slate-800 group-hover:text-blue-600 transition-colors truncate">
+                            {a.person}
+                          </div>
+                          <div className="text-[10px] text-slate-400 mt-1 font-semibold flex items-center gap-1">
+                            <span>📅 {a.date}</span>
+                            {a.topic && <span className="truncate max-w-[150px] italic">({a.topic})</span>}
+                          </div>
+                        </div>
+                        <Badge tone="amber" className="text-[8px] font-extrabold px-1.5 py-0.5 uppercase tracking-wide shrink-0">
+                          {a.role}
+                        </Badge>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </CardBody>
+            </Card>
+
+            {/* Card B: Future Meeting Pipeline (Will Do) */}
+            <Card className="bg-white border-slate-100 shadow-sm flex flex-col justify-between">
+              <CardHeader className="pb-3 border-b border-slate-50">
+                <CardTitle className="text-slate-800 flex items-center gap-2 text-sm">
+                  <span>🚀</span> Will Do (Upcoming Pipeline)
+                </CardTitle>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
+                  Planned sacramental meeting coverage
+                </p>
+              </CardHeader>
+              <CardBody className="grow p-0">
+                <div className="max-h-[300px] overflow-auto divide-y divide-slate-100">
+                  {analyticsData.futureMeetings.length === 0 ? (
+                    <div className="py-12 px-6 text-center text-slate-400 text-xs italic">
+                      No future meetings planned in this calendar year.
+                    </div>
+                  ) : (
+                    analyticsData.futureMeetings.slice(0, 6).map((m, idx) => {
+                      const pct = Math.round((m.filledRoles / (m.totalRoles || 1)) * 100);
+                      return (
+                        <div 
+                          key={`${m.date}-${idx}`}
+                          className="p-3.5 hover:bg-slate-50/50 transition-colors flex flex-col gap-2"
+                        >
+                          <div className="flex justify-between items-center text-xs">
+                            <span className="font-extrabold text-slate-700">📅 {m.date}</span>
+                            <span className="text-[10px] font-black text-slate-500">
+                              {m.filledRoles} / {m.totalRoles} Roles ({pct}%)
+                            </span>
+                          </div>
+                          <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden border border-slate-200/50">
+                            <div 
+                              className={cn("h-full rounded-full transition-all", 
+                                pct === 100 ? "bg-gradient-to-r from-emerald-500 to-teal-400" : 
+                                pct >= 50 ? "bg-gradient-to-r from-amber-500 to-orange-400" : 
+                                "bg-gradient-to-r from-rose-500 to-red-400"
+                              )} 
+                              style={{ width: `${pct}%` }} 
+                            />
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </CardBody>
+            </Card>
+
+            {/* Card C: Annual Statistics Overview Grid */}
+            <div className="grid grid-cols-2 gap-4">
+              <div 
+                onClick={() => { setTab("directory"); setFilterMode("ACTIVE_MEMBER"); }}
+                className="stat-card p-4 animate-scale-in stagger-1 cursor-pointer hover:border-emerald-200 group transition-all bg-white border border-slate-100 rounded-2xl flex flex-col justify-between"
+              >
+                <div className="text-[9px] font-bold uppercase tracking-widest text-slate-400 group-hover:text-emerald-600 transition-colors">Active members</div>
+                <div className="mt-3 text-2xl font-black text-slate-800">
+                  {(analyticsData.statusStats || {})["ACTIVE"] || 0} <span className="text-xs font-normal text-slate-400">roles</span>
+                </div>
+                <div className="mt-2 text-[10px] font-bold text-emerald-600 bg-emerald-50 w-fit px-1.5 py-0.5 rounded">
+                  Active engagement
+                </div>
+              </div>
+
+              <div 
+                onClick={() => { setTab("directory"); setFilterMode("LESS_ACTIVE_MEMBER"); }}
+                className="stat-card p-4 animate-scale-in stagger-2 cursor-pointer hover:border-rose-200 group transition-all bg-white border border-slate-100 rounded-2xl flex flex-col justify-between"
+              >
+                <div className="text-[9px] font-bold uppercase tracking-widest text-slate-400 group-hover:text-rose-600 transition-colors">Less-Active roles</div>
+                <div className="grow mt-3 flex items-end gap-1.5">
+                  <div className="text-2xl font-black text-slate-800">{(analyticsData.statusStats || {})["LESS-ACTIVE"] || 0}</div>
+                  <div className="mb-0.5 text-[10px] font-extrabold text-rose-500">
+                    {Math.round((((analyticsData.statusStats || {})["LESS-ACTIVE"] || 0) / (analyticsData.totalAssignments || 1)) * 100)}%
+                  </div>
+                </div>
+                <div className="mt-2 text-[10px] font-bold text-rose-600 bg-rose-50 w-fit px-1.5 py-0.5 rounded">
+                  Inclusion rate
+                </div>
+              </div>
+
+              <div 
+                onClick={() => { setTab("directory"); setFilterMode("DOUBLE_DIPPED"); }}
+                className="stat-card p-4 animate-scale-in stagger-3 cursor-pointer hover:border-blue-200 group transition-all bg-white border border-slate-100 rounded-2xl flex flex-col justify-between"
+              >
+                <div className="text-[9px] font-bold uppercase tracking-widest text-slate-400 group-hover:text-blue-600 transition-colors">Double-Dip Load</div>
+                <div className="mt-3 text-2xl font-black text-blue-600">
+                  {analyticsData.members.filter(m => m.isDoubleDipped).length}
+                  <span className="text-xs font-normal text-slate-400 ml-1">members</span>
+                </div>
+                <div className="mt-2 text-[10px] font-bold text-blue-600 bg-blue-50 w-fit px-1.5 py-0.5 rounded">
+                  Same-day conflicts
+                </div>
+              </div>
+
+              <div 
+                className="stat-card p-4 animate-scale-in stagger-4 cursor-pointer hover:border-sky-200 group transition-all bg-white border border-slate-100 rounded-2xl flex flex-col justify-between"
+              >
+                <div className="text-[9px] font-bold uppercase tracking-widest text-slate-400 group-hover:text-sky-600 transition-colors">Reliability Index</div>
+                <div className="mt-3 text-2xl font-black text-sky-500">
+                  {analyticsData.reliabilityIndex}%
+                </div>
+                <div className="mt-2 text-[10px] font-bold text-sky-600 bg-sky-50 w-fit px-1.5 py-0.5 rounded">
+                  Checklist completion
+                </div>
+              </div>
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Speaker Frequency & Load Dashboard */}
@@ -904,8 +1338,8 @@ export function MembersPage({
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <div>
-                    <CardTitle>Member Assignment Load</CardTitle>
-                    <p className="text-xs text-slate-500 mt-0.5">Comprehensive tracking of all member participation.</p>
+                    <CardTitle>Member Assignment Load ({analyticsData.currentYear})</CardTitle>
+                    <p className="text-xs text-slate-500 mt-0.5">Year-to-date tracking of member participation from Jan 1st to Dec 31st.</p>
                   </div>
                   <Badge tone="blue">Analysis of {analyticsData.members.length} Members</Badge>
                 </CardHeader>
@@ -915,28 +1349,35 @@ export function MembersPage({
                       <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm border-b">
                         <tr>
                           <th className="p-4 font-bold text-slate-600">Member</th>
-                          <th className="p-4 font-bold text-slate-600 text-center">Spoken</th>
-                          <th className="p-4 font-bold text-slate-600 text-center">Prayers</th>
-                          <th className="p-4 font-bold text-slate-600 text-center">Sacr/Music</th>
-                          <th className="p-4 font-bold text-slate-600 text-right">Last</th>
+                          <th className="p-4 font-bold text-slate-600 text-center">Done</th>
+                          <th className="p-4 font-bold text-slate-600 text-center">Doing</th>
+                          <th className="p-4 font-bold text-slate-600 text-center">Will Do</th>
+                          <th className="p-4 font-bold text-slate-600 text-center">Total</th>
+                          <th className="p-4 font-bold text-slate-600 text-right">Last Assigned</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {analyticsData.members.map((m) => (
                           <tr key={m.member_id} className="hover:bg-slate-50/50 transition-colors">
                             <td className="p-4">
-                              <div className="font-semibold text-slate-800 truncate max-w-[150px]">{m.name}</div>
+                              <div 
+                                onClick={() => { setTab("directory"); setQ(m.name); }}
+                                className="font-semibold text-slate-850 truncate max-w-[150px] cursor-pointer hover:text-blue-600 hover:underline transition-colors"
+                              >
+                                {m.name}
+                              </div>
                               <div className="flex gap-1.5 mt-0.5 items-center">
                                 <Badge tone={m.status === "ACTIVE" ? "green" : "rose"} className="text-[7px] px-1 py-0">{m.status || "Unknown"}</Badge>
                                 {m.isDoubleDipped && <Badge tone="amber" className="text-[7px] px-1 py-0">Double-Dipped</Badge>}
                               </div>
                             </td>
-                            <td className="p-4 text-center font-bold text-slate-700">{m.speakers}</td>
-                            <td className="p-4 text-center text-slate-600">{m.invocation}/{m.benediction}</td>
-                            <td className="p-4 text-center text-slate-600">{(m.sacrament.preparing+m.sacrament.blessing+m.sacrament.passing)}/{m.music.director+m.music.accompanist}</td>
+                            <td className="p-4 text-center font-bold text-slate-700">{m.yearlyDone}</td>
+                            <td className="p-4 text-center font-bold text-amber-600">{m.yearlyDoing}</td>
+                            <td className="p-4 text-center font-bold text-indigo-600">{m.yearlyWillDo}</td>
+                            <td className="p-4 text-center font-black text-slate-800">{m.yearlyTotal}</td>
                             <td className="p-4 text-right">
-                              <div className={cn("text-xs font-bold", m.monthsSinceLast > 6 ? "text-rose-500" : "text-slate-400")}>
-                                {m.monthsSinceLast === 99 ? "Never" : `${m.monthsSinceLast}m ago`}
+                              <div className={cn("text-xs font-bold", m.monthsSinceLast > 6 ? "text-rose-500" : "text-slate-450")}>
+                                {m.yearlyLastDate || "Never"}
                               </div>
                             </td>
                           </tr>
@@ -947,30 +1388,86 @@ export function MembersPage({
                 </CardBody>
               </Card>
 
-              {/* Speaker Pipeline */}
-              <Card className="bg-gradient-to-br from-white to-indigo-50/20 border-indigo-100">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <span className="text-indigo-600">🎙️</span> Speaker Readiness Pipeline
-                  </CardTitle>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Top candidates for next month's sacrament meeting</p>
+              {/* Smart Role Recommendations */}
+              <Card className="bg-gradient-to-br from-white to-indigo-50/20 border-indigo-100 shadow-sm">
+                <CardHeader className="pb-2">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+                    <div>
+                      <CardTitle className="flex items-center gap-2 text-indigo-900">
+                        <span>💡</span> Smart Role Recommendations
+                      </CardTitle>
+                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">
+                        Top active candidates based on assignment history and readiness
+                      </p>
+                    </div>
+                    <Select
+                      value={recRole}
+                      onChange={(e) => setRecRole(e.target.value)}
+                      className="w-full sm:w-48 text-xs font-bold border-indigo-200 bg-white text-indigo-700 focus:ring-indigo-500"
+                    >
+                      <option value="speaker">🎙️ Speaker</option>
+                      <option value="invocation">🙏 Invocation Prayer</option>
+                      <option value="benediction">🙏 Benediction Prayer</option>
+                      <option value="director">🎵 Music Director</option>
+                      <option value="accompanist">🎹 Organist/Accompanist</option>
+                      <option value="preparing">🍞 Sacrament: Preparing</option>
+                      <option value="blessing">🍷 Sacrament: Blessing</option>
+                      <option value="passing">⛪ Sacrament: Passing</option>
+                    </Select>
+                  </div>
                 </CardHeader>
                 <CardBody>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {analyticsData.readySpeakers.map((m, idx) => (
-                      <div key={m.member_id || `rs-${idx}`} className="p-3 rounded-xl bg-white border border-indigo-50 shadow-sm flex items-center justify-between group hover:shadow-md transition-all">
-                        <div className="min-w-0">
-                          <div className="text-xs font-black text-slate-800 truncate">{m.name}</div>
-                          <div className="text-[10px] text-slate-400 font-bold">{m.monthsSinceLast === 99 ? "Never spoken" : `${m.monthsSinceLast}m since last assignment`}</div>
-                        </div>
-                        <div className="flex flex-col items-end gap-1">
-                          <div className="h-1.5 w-16 bg-slate-100 rounded-full overflow-hidden">
-                            <div className="h-full bg-indigo-500" style={{ width: `${m.readiness}%` }} />
+                    {(() => {
+                      const pred = analyticsData.predictions.find(p => p.role === recRole);
+                      const candidates = pred ? pred.candidates : [];
+                      
+                      if (candidates.length === 0) {
+                        return (
+                          <div className="col-span-2 py-8 text-center text-slate-400 text-xs italic">
+                            No candidates found for this role. Ensure members are ACTIVE and have gender/age settings configured.
                           </div>
-                          <span className="text-[8px] font-black text-indigo-600 uppercase tracking-tighter">{m.readiness}% Ready</span>
-                        </div>
-                      </div>
-                    ))}
+                        );
+                      }
+                      
+                      return candidates.map((c, idx) => {
+                        return (
+                          <div 
+                            key={c.member_id || `rec-${idx}`} 
+                            onClick={() => { setTab("directory"); setQ(c.name); }}
+                            className="p-3.5 rounded-xl bg-white border border-indigo-50 shadow-sm flex items-center justify-between group hover:shadow-md hover:border-indigo-200 transition-all cursor-pointer"
+                          >
+                            <div className="min-w-0 flex-1 pr-3">
+                              <div className="text-xs font-black text-slate-800 truncate group-hover:text-indigo-600 transition-colors flex items-center gap-1.5">
+                                {c.name}
+                                <span className="text-[9px] font-normal text-slate-400">({c.totalForRole}x)</span>
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-bold mt-1">
+                                {c.daysSinceLast === 9999 ? "Never filled this role" : (
+                                  c.daysSinceLast >= 30 
+                                    ? `${Math.floor(c.daysSinceLast / 30)}m since last time` 
+                                    : `${c.daysSinceLast}d since last time`
+                                )}
+                              </div>
+                              {c.overdueDays > 0 && (
+                                <span className="inline-block text-[8px] font-extrabold text-emerald-600 uppercase tracking-wide bg-emerald-50 px-1.5 py-0.5 rounded mt-1.5">
+                                  {c.overdueDays} days overdue
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex flex-col items-end gap-1.5 shrink-0">
+                              <Badge 
+                                tone={c.confidence === "High" ? "green" : c.confidence === "Medium" ? "amber" : "gray"}
+                                className="text-[8px] font-extrabold px-1.5 py-0.5"
+                              >
+                                {c.confidence} fit
+                              </Badge>
+                              <span className="text-[8px] font-bold text-slate-400">Avg int: {c.avgInterval}d</span>
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
                   </div>
                 </CardBody>
               </Card>
@@ -978,7 +1475,7 @@ export function MembersPage({
               {/* Advanced Tracking Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Youth Milestone Tracker */}
-                <Card>
+                <Card onClick={() => { setTab("directory"); setFilterMode("YOUTH"); }} className="cursor-pointer hover:border-blue-200 hover:shadow-md transition-all">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                        <span>👦</span> Youth Milestone Tracker (12-18)
@@ -987,7 +1484,11 @@ export function MembersPage({
                   <CardBody>
                     <div className="space-y-4">
                       {analyticsData.members.filter(m => m.age && m.age >= 12 && m.age <= 18).slice(0, 5).map((m, idx) => (
-                        <div key={m.member_id || `y-${idx}`} className="space-y-2">
+                        <div 
+                          key={m.member_id || `y-${idx}`} 
+                          onClick={(e) => { e.stopPropagation(); setTab("directory"); setQ(m.name); }}
+                          className="space-y-2 hover:bg-slate-50 p-1.5 rounded-lg transition-colors cursor-pointer"
+                        >
                           <div className="flex justify-between items-center">
                             <span className="text-xs font-bold text-slate-700">{m.name} ({m.age})</span>
                             <div className="flex gap-1">
@@ -1011,7 +1512,7 @@ export function MembersPage({
                 </Card>
 
                 {/* Music Volunteer Load */}
-                <Card>
+                <Card onClick={() => { setTab("directory"); setFilterMode("MUSIC"); }} className="cursor-pointer hover:border-indigo-200 hover:shadow-md transition-all">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                        <span>🎵</span> Music Volunteer Load
@@ -1020,18 +1521,22 @@ export function MembersPage({
                   <CardBody>
                     <div className="space-y-4">
                        {analyticsData.members.filter(m => m.music.director > 0 || m.music.accompanist > 0).map((m, idx) => (
-                         <div key={m.member_id || `mu-${idx}`} className="flex items-center justify-between">
-                            <div className="min-w-0">
-                               <div className="text-xs font-bold text-slate-800 truncate">{m.name}</div>
-                               <div className="text-[10px] text-slate-400 uppercase font-bold">
-                                 {m.music.director}x Director • {m.music.accompanist}x Accompanist
-                               </div>
-                            </div>
-                            <div className="flex gap-1 items-center">
-                               <div className="h-2 w-2 rounded-full bg-blue-500" style={{ opacity: Math.min(1, (m.music.director+m.music.accompanist)/5) }} />
-                               <span className="text-xs font-black text-slate-600">{m.music.director + m.music.accompanist}</span>
-                            </div>
-                         </div>
+                          <div 
+                            key={m.member_id || `mu-${idx}`} 
+                            onClick={(e) => { e.stopPropagation(); setTab("directory"); setQ(m.name); }}
+                            className="flex items-center justify-between hover:bg-slate-50 p-1.5 rounded-lg transition-colors cursor-pointer"
+                          >
+                             <div className="min-w-0">
+                                <div className="text-xs font-bold text-slate-800 truncate">{m.name}</div>
+                                <div className="text-[10px] text-slate-400 uppercase font-bold">
+                                  {m.music.director}x Director • {m.music.accompanist}x Accompanist
+                                </div>
+                             </div>
+                             <div className="flex gap-1 items-center">
+                                <div className="h-2 w-2 rounded-full bg-blue-500" style={{ opacity: Math.min(1, (m.music.director+m.music.accompanist)/5) }} />
+                                <span className="text-xs font-black text-slate-600">{m.music.director + m.music.accompanist}</span>
+                             </div>
+                          </div>
                        ))}
                        {analyticsData.members.filter(m => m.music.director > 0 || m.music.accompanist > 0).length === 0 && (
                           <p className="text-center text-slate-400 text-xs py-4 italic">No music assignments recorded.</p>
@@ -1052,7 +1557,11 @@ export function MembersPage({
                       {Object.entries(analyticsData.orgMetrics).sort((a, b) => b[1].total - a[1].total).map(([org, metrics]) => {
                         const pct = Math.round((metrics.total / (analyticsData.totalAssignments || 1)) * 100);
                         return (
-                          <div key={org} className="space-y-1.5">
+                          <div 
+                            key={org} 
+                            onClick={() => { setTab("directory"); setFilterMode("ORG_" + org); }}
+                            className="space-y-1.5 hover:bg-slate-50 p-1.5 rounded-lg transition-colors cursor-pointer"
+                          >
                             <div className="flex justify-between text-[10px] font-bold">
                               <span className="text-slate-700 truncate mr-2">{org}</span>
                               <span className="text-slate-500 shrink-0">{metrics.total} assigns • {metrics.idleCount} IDLE</span>
@@ -1076,7 +1585,11 @@ export function MembersPage({
                       {analyticsData.surnameStats.slice(0, 6).map(([surname, count]) => {
                         const pct = Math.round((count / (analyticsData.totalAssignments || 1)) * 100);
                         return (
-                          <div key={surname} className="space-y-1.5">
+                          <div 
+                            key={surname} 
+                            onClick={() => { setTab("directory"); setFilterMode("SURNAME_" + surname); }}
+                            className="space-y-1.5 hover:bg-slate-50 p-1.5 rounded-lg transition-colors cursor-pointer"
+                          >
                             <div className="flex justify-between text-[10px] font-bold">
                               <span className="text-slate-700">{surname} Family</span>
                               <span className="text-slate-500">{count} roles ({pct}%)</span>
@@ -1114,7 +1627,7 @@ export function MembersPage({
               )}
 
               {/* Newcomer Spotlight */}
-              <Card className="border-blue-100 bg-blue-50/20">
+              <Card onClick={() => { setTab("directory"); setFilterMode("NEWCOMER_NO_ROLE"); }} className="border-blue-100 bg-blue-50/20 cursor-pointer hover:border-blue-300 hover:shadow-md transition-all">
                 <CardHeader>
                   <CardTitle className="text-blue-900 flex items-center gap-2">
                     <span>✨</span> Newcomer Spotlight
@@ -1126,7 +1639,11 @@ export function MembersPage({
                       .filter(m => m.isNewcomer && m.total === 0)
                       .slice(0, 5)
                       .map((m, idx) => (
-                        <div key={m.member_id || `new-${idx}`} className="p-3 flex items-center justify-between hover:bg-blue-100/30 transition-colors">
+                        <div 
+                          key={m.member_id || `new-${idx}`} 
+                          onClick={(e) => { e.stopPropagation(); setTab("directory"); setQ(m.name); }}
+                          className="p-3 flex items-center justify-between hover:bg-blue-100/30 transition-colors cursor-pointer"
+                        >
                           <div className="min-w-0">
                             <div className="font-bold text-blue-900 truncate">{m.name}</div>
                             <div className="text-[10px] text-blue-600 uppercase font-bold tracking-tight">Joined recently • No roles yet</div>
@@ -1140,10 +1657,10 @@ export function MembersPage({
                   </div>
                 </CardBody>
               </Card>
-
+ 
                {/* Inactive Members Alert */}
                {analyticsData.inactiveMembers.length > 0 && (
-                <Card className="border-rose-100 bg-rose-50/30">
+                <Card onClick={() => { setTab("directory"); setFilterMode("INACTIVE_6M"); }} className="border-rose-100 bg-rose-50/30 cursor-pointer hover:border-rose-300 hover:shadow-md transition-all">
                   <CardHeader>
                     <CardTitle className="text-rose-800 text-sm flex items-center gap-2">
                        <span>⏳</span> Inactive Members Alert
@@ -1155,7 +1672,7 @@ export function MembersPage({
                         <div
                           key={m.member_id}
                           className="p-3 flex items-center justify-between hover:bg-rose-50 transition-colors cursor-pointer"
-                          onClick={() => { setTab("directory"); setQ(m.name); }}
+                          onClick={(e) => { e.stopPropagation(); setTab("directory"); setQ(m.name); }}
                         >
                           <div className="min-w-0">
                             <div className="font-bold text-rose-900 truncate">{m.name}</div>
@@ -1171,9 +1688,9 @@ export function MembersPage({
                   </CardBody>
                 </Card>
                )}
-
+ 
               {/* Double-Dip Alerts */}
-              <Card className="border-rose-100 bg-rose-50/20">
+              <Card onClick={() => { setTab("directory"); setFilterMode("DOUBLE_DIPPED"); }} className="border-rose-100 bg-rose-50/20 cursor-pointer hover:border-rose-300 hover:shadow-md transition-all">
                 <CardHeader>
                   <CardTitle className="text-rose-900 flex items-center gap-2">
                     <span>⚠️</span> Multi-Organisation "Double-Dip"
@@ -1185,7 +1702,11 @@ export function MembersPage({
                       .filter(m => m.isDoubleDipped)
                       .slice(0, 5)
                       .map((m, idx) => (
-                        <div key={m.member_id || `dd-${idx}`} className="p-3 flex items-center justify-between hover:bg-rose-100/30 transition-colors">
+                        <div 
+                          key={m.member_id || `dd-${idx}`} 
+                          onClick={(e) => { e.stopPropagation(); setTab("directory"); setQ(m.name); }}
+                          className="p-3 flex items-center justify-between hover:bg-rose-100/30 transition-colors cursor-pointer"
+                        >
                           <div className="min-w-0">
                             <div className="font-bold text-rose-900 truncate">{m.name}</div>
                             <div className="text-[10px] text-rose-600 uppercase font-bold tracking-tight">Assigned in {m.orgs.length} orgs same month</div>

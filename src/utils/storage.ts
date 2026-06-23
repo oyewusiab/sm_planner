@@ -13,6 +13,11 @@ import type {
   UnitSettings,
   User,
   Agenda,
+  CalendarActivity,
+  OtherChurchProgram,
+  PublicHoliday,
+  CalendarContact,
+  CalendarReportLog,
 } from "../types";
 import { backendEnabled, exportRemoteDB, importRemoteDB, apiPost, pingBackend } from "./backend";
 
@@ -32,6 +37,11 @@ export type DB = {
   REMINDERS: ReminderJob[];
   HYMNS: Hymn[];
   AGENDAS: Agenda[];
+  ACTIVITIES: CalendarActivity[];
+  "OTHER CHURCH PROGRAM": OtherChurchProgram[];
+  "PUBLIC HOLIDAY": PublicHoliday[];
+  CONTACTS: CalendarContact[];
+  "REPORT LOG": CalendarReportLog[];
 };
 
 const nowISO = () => new Date().toISOString();
@@ -43,7 +53,30 @@ let suppressRemoteSync = 0;
 let hasPendingPush = false; // Track if local changes are waiting to be sent
 
 let cachedDB: DB | null = null;
+const LAST_SYNCED_KEY = "sac_meeting_planner_last_synced_v1";
 let lastSyncedDB: DB | null = null;
+try {
+  const raw = localStorage.getItem(LAST_SYNCED_KEY);
+  if (raw) {
+    lastSyncedDB = JSON.parse(raw);
+  }
+} catch (e) {
+  console.warn("Failed to load lastSyncedDB from localStorage:", e);
+}
+
+function setLastSyncedDB(db: DB | null) {
+  lastSyncedDB = db;
+  try {
+    if (db) {
+      localStorage.setItem(LAST_SYNCED_KEY, JSON.stringify(db));
+    } else {
+      localStorage.removeItem(LAST_SYNCED_KEY);
+    }
+  } catch (e) {
+    console.warn("Failed to save lastSyncedDB to localStorage:", e);
+  }
+}
+
 let syncListeners: ((syncing: boolean) => void)[] = [];
 
 const SYNC_TABLES: { name: keyof DB; idCol: string }[] = [
@@ -59,9 +92,23 @@ const SYNC_TABLES: { name: keyof DB; idCol: string }[] = [
   { name: "REMINDERS", idCol: "reminder_id" },
   { name: "HYMNS", idCol: "number" },
   { name: "AGENDAS", idCol: "agenda_id" },
+  { name: "ACTIVITIES", idCol: "activity_id" },
+  { name: "OTHER CHURCH PROGRAM", idCol: "program_id" },
+  { name: "PUBLIC HOLIDAY", idCol: "holiday_id" },
+  { name: "CONTACTS", idCol: "contact_id" },
+  { name: "REPORT LOG", idCol: "log_id" },
 ];
 
-const REMOTE_DELETABLE_TABLES = new Set<keyof DB>(["MEMBERS", "NOTIFICATIONS", "TODOS"]);
+const REMOTE_DELETABLE_TABLES = new Set<keyof DB>([
+  "MEMBERS",
+  "NOTIFICATIONS",
+  "TODOS",
+  "ACTIVITIES",
+  "OTHER CHURCH PROGRAM",
+  "PUBLIC HOLIDAY",
+  "CONTACTS",
+  "REPORT LOG"
+]);
 
 const dbListeners = new Set<() => void>();
 function notifyDBListeners() {
@@ -331,6 +378,11 @@ function normalizeDB(raw: any): DB {
     REMINDERS: Array.isArray(raw?.REMINDERS) ? raw.REMINDERS : [],
     HYMNS: Array.isArray(raw?.HYMNS) ? raw.HYMNS : [],
     AGENDAS,
+    ACTIVITIES: Array.isArray(raw?.ACTIVITIES) ? raw.ACTIVITIES : [],
+    "OTHER CHURCH PROGRAM": Array.isArray(raw?.["OTHER CHURCH PROGRAM"]) ? raw["OTHER CHURCH PROGRAM"] : [],
+    "PUBLIC HOLIDAY": Array.isArray(raw?.["PUBLIC HOLIDAY"]) ? raw["PUBLIC HOLIDAY"] : [],
+    CONTACTS: Array.isArray(raw?.CONTACTS) ? raw.CONTACTS : [],
+    "REPORT LOG": Array.isArray(raw?.["REPORT LOG"]) ? raw["REPORT LOG"] : [],
   };
   return base;
 }
@@ -348,7 +400,12 @@ function isEmptyDB(db: DB): boolean {
     db.TODOS.length === 0 &&
     db.REMINDERS.length === 0 &&
     db.HYMNS.length === 0 &&
-    db.AGENDAS.length === 0
+    db.AGENDAS.length === 0 &&
+    db.ACTIVITIES.length === 0 &&
+    db["OTHER CHURCH PROGRAM"].length === 0 &&
+    db["PUBLIC HOLIDAY"].length === 0 &&
+    db.CONTACTS.length === 0 &&
+    db["REPORT LOG"].length === 0
   );
 }
 
@@ -445,7 +502,7 @@ async function pushAllToBackend() {
       }
     }
     hasPendingPush = false; // Successfully pushed
-    lastSyncedDB = serializeDBForRemote(getDB()); // Keep baseline in backend-comparable shape
+    setLastSyncedDB(serializeDBForRemote(getDB())); // Keep baseline in backend-comparable shape
     console.log("[Sync] Push successful.");
   } catch (err) {
     console.warn("[Sync] Push failed:", err);
@@ -608,7 +665,7 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
     const comparableRemote = serializeDBForRemote(normalizedRemote);
     
     // Set the baseline in backend-comparable shape. This is critical for computing diffs later.
-    lastSyncedDB = comparableRemote;
+    setLastSyncedDB(comparableRemote);
 
     console.log(`[Sync] Remote data: ${normalizedRemote.USERS.length} users, ${normalizedRemote.PLANNERS.length} planners`);
 
@@ -627,7 +684,7 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
     try {
       setDBInternal(merged, true);
       // Keep baseline in backend-comparable form so row diffs use the same key/value shape as the server.
-      lastSyncedDB = comparableRemote;
+      setLastSyncedDB(comparableRemote);
       if (remoteVersion) {
         setLocalDBVersion(remoteVersion);
       }
@@ -695,6 +752,11 @@ export function getDB(): DB {
     REMINDERS: [],
     HYMNS: [],
     AGENDAS: [],
+    ACTIVITIES: [],
+    "OTHER CHURCH PROGRAM": [],
+    "PUBLIC HOLIDAY": [],
+    CONTACTS: [],
+    "REPORT LOG": [],
   };
   localStorage.setItem(APP_KEY, JSON.stringify(fresh));
   cachedDB = fresh;

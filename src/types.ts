@@ -384,3 +384,50 @@ export type Agenda = {
   confirmations: { name: string; confirmed_by: string; confirmed_by_office: string }[];
   fellowships: string[];
 };
+
+export type CalendarActivity = {
+  activity_id: string;
+  date: string; // YYYY-MM-DD
+  activity: string;
+  organisation: string;
+  status: boolean; // completed
+  email_sent: boolean;
+  those_involved: string;
+  report_submitted: "YES" | "NO" | "N/A";
+  time: string;
+  last_reminder?: string;
+};
+
+export type OtherChurchProgram = {
+  program_id: string;
+  date: string; // YYYY-MM-DD
+  program: string;
+  organisation: string;
+};
+
+export type PublicHoliday = {
+  holiday_id: string;
+  date: string; // YYYY-MM-DD
+  holiday: string;
+  theme?: string;
+};
+
+export type CalendarContact = {
+  contact_id: string;
+  name: string;
+  calling: string;
+  organisation: string;
+  upcoming: string;
+  report: string;
+  email: string;
+};
+
+export type CalendarReportLog = {
+  log_id: string;
+  date: string;
+  type: string; // "Follow-Up Notice", "Report Request", etc.
+  recipient: string;
+  status: "SUCCESS" | "FAILED";
+  timestamp: string;
+};
+
