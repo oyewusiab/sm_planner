@@ -321,7 +321,7 @@ const SCHEMA = {
     "archive_method",
     "archive_date"
   ],
-  "ACTIVITIES": ["date", "activity", "organisation", "status", "email_sent", "those_involved", "report_submitted", "last_reminder", "time", "activity_id"],
+  "ACTIVITIES": ["date", "activity", "organisation", "time", "status", "email_sent", "those_involved", "report_submitted", "last_reminder", "activity_id"],
   "OTHER CHURCH PROGRAM": ["date", "program", "organisation", "program_id"],
   "PUBLIC HOLIDAY": ["date", "holiday", "theme", "holiday_id"],
   "CONTACTS": ["name", "calling", "organisation", "upcoming", "report", "email", "contact_id"],
@@ -762,7 +762,10 @@ function handleSyncV2_(payload) {
 }
 
 function normalizeHeader_(h) {
-  return String(h || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  const s = String(h || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (s === "activityprogram") return "activity";
+  if (s === "organization" || s === "org") return "organisation";
+  return s;
 }
 
 function ensureSchemaResilient_(rawHeader, schemaHeader) {
@@ -2110,10 +2113,10 @@ function generateNext60DaysActivities() {
     .setHorizontalAlignment("center")
     .setBorder(true, true, true, true, true, true, "#274e13", SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
 
-  // Read columns A to D: Date (A), Activity (B), Org (C), Status (D)
+  // Read columns A to E: Date (A), Activity (B), Org (C), Time (D), Status (E)
   const lastRow = activitiesSheet.getLastRow();
   if (lastRow <= 1) return;
-  const dataRange = activitiesSheet.getRange(2, 1, lastRow - 1, 4).getValues();
+  const dataRange = activitiesSheet.getRange(2, 1, lastRow - 1, 5).getValues();
 
   const today = new Date();
   const ahead60 = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 60);
@@ -2124,7 +2127,7 @@ function generateNext60DaysActivities() {
     let date = row[0];
     let activity = row[1];
     let org = row[2];
-    let status = row[3]; 
+    let status = row[4]; 
 
     if (!(date instanceof Date)) return;
 
@@ -2230,15 +2233,15 @@ function generateNext14DaysMiniTable() {
 
   let miniList = [];
 
-  // --- ACTIVITIES (Date, Activity, Org, Status starting at column 1)
+  // --- ACTIVITIES (Date, Activity, Org, Time, Status starting at column 1)
   const actLastRow = activitiesSheet.getLastRow();
   if (actLastRow > 1) {
-    const actData = activitiesSheet.getRange(2, 1, actLastRow - 1, 4).getValues();
+    const actData = activitiesSheet.getRange(2, 1, actLastRow - 1, 5).getValues();
     actData.forEach(row => {
       let date = row[0];
       let item = row[1];
       let org = row[2];
-      let status = row[3]; 
+      let status = row[4]; 
 
       if (!(date instanceof Date)) return;
 
@@ -2329,11 +2332,11 @@ function generateCompletionWidget() {
     return;
   }
 
-  // Read columns A to G (Date (A), Activity (B), Org (C), Status (D), EmailStatus (E), ForWhom (F), ReportSubmitted (G))
+  // Read columns A to H (Date (A), Activity (B), Org (C), Time (D), Status (E), EmailStatus (F), ForWhom (G), ReportSubmitted (H))
   const lastRow = sheet.getLastRow();
   if (lastRow < 3) return;
 
-  const data = sheet.getRange(2, 1, lastRow - 1, 7).getValues();
+  const data = sheet.getRange(2, 1, lastRow - 1, 8).getValues();
 
   let total = 0;
   let completed = 0;
@@ -2350,8 +2353,8 @@ function generateCompletionWidget() {
   data.forEach(row => {
     const date = row[0];
     const activityName = row[1];
-    const status = row[3];
-    const reportStatusRaw = row[6];
+    const status = row[4];
+    const reportStatusRaw = row[7];
 
     if (!activityName) return; 
 
@@ -2436,13 +2439,13 @@ function getActivitiesFromSheet() {
   const sh = ss.getSheetByName("ACTIVITIES");
   const last = sh.getLastRow();
   if (last < 2) return [];
-  // Columns starting at column 1 (A): Date, Activity, Organisation, Status
-  const rows = sh.getRange(2, 1, last - 1, 4).getValues();
+  // Columns starting at column 1 (A): Date, Activity, Organisation, Time, Status
+  const rows = sh.getRange(2, 1, last - 1, 5).getValues();
   return rows.map(r => ({
     date: r[0] instanceof Date ? r[0] : null,
     activity: (r[1] || "").toString(),
     org: normalizeOrgName(r[2]),
-    status: r[3] === true
+    status: r[4] === true
   }));
 }
 
@@ -2668,8 +2671,8 @@ function onStatusEdit(e) {
   const value = e.range.getValue();
   if (value !== true) return;
 
-  // Read Column B to E (2 to 5) to get Date, Activity, Org, Status
-  const rowVals = sh.getRange(row, 2, 1, 4).getValues()[0];
+  // Read Column A to C (1 to 3) to get Date, Activity, Org
+  const rowVals = sh.getRange(row, 1, 1, 3).getValues()[0];
   const date = rowVals[0];
   const activity = rowVals[1];
   const org = rowVals[2];
@@ -2748,16 +2751,16 @@ function sendPendingReportEmails() {
   const last = sh.getLastRow();
   if (last < 3) return;
 
-  // Read starting at Column 1 (A) for 5 columns: Date (A), Activity (B), Org (C), Status (D), EmailSent (E)
-  const data = sh.getRange(2, 1, last - 1, 5).getValues();  
+  // Read starting at Column 1 (A) for 6 columns: Date (A), Activity (B), Org (C), Time (D), Status (E), EmailSent (F)
+  const data = sh.getRange(2, 1, last - 1, 6).getValues();  
 
   for (let i = 0; i < data.length; i++) {
     const rowNum = i + 2;
     const date = data[i][0];
     const activity = data[i][1];
     const org = normalizeOrgName(data[i][2]);
-    const status = data[i][3];
-    const emailSent = data[i][4];
+    const status = data[i][4];
+    const emailSent = data[i][5];
 
     if (!(date instanceof Date)) continue;
     if (!activity || !org) continue;
@@ -2770,8 +2773,8 @@ function sendPendingReportEmails() {
         rowNumber: rowNum
       });
 
-      // Update Column E (5)
-      sh.getRange(rowNum, 5).setValue(true);
+      // Update Column F (6)
+      sh.getRange(rowNum, 6).setValue(true);
     }
   }
 }
@@ -3094,8 +3097,8 @@ function sendReportFollowUpReminders() {
   const lastRow = actSh.getLastRow();
   if (lastRow < 3) return;
 
-  // Read A to H (columns 1 to 8): Date (A), Activity (B), Org (C), Status (D), EmailSent (E), ForWhom (F), ReportSubmitted (G), LastReminder (H)
-  const data = actSh.getRange(3, 1, lastRow - 2, 8).getValues();
+  // Read A to I (columns 1 to 9): Date (A), Activity (B), Org (C), Time (D), Status (E), EmailSent (F), ForWhom (G), ReportSubmitted (H), LastReminder (I)
+  const data = actSh.getRange(3, 1, lastRow - 2, 9).getValues();
   const now = new Date();
   const ms48hrs = 48 * 60 * 60 * 1000;
   const ms5days = 5 * 24 * 60 * 60 * 1000;
@@ -3107,9 +3110,9 @@ function sendReportFollowUpReminders() {
     const date = row[0];
     const activityName = row[1];
     const org = row[2];
-    const status = row[3];        
-    const reportStatus = (row[6] || "").toString().trim().toUpperCase();
-    const lastReminder = row[7];  // Column H (8)
+    const status = row[4];        
+    const reportStatus = (row[7] || "").toString().trim().toUpperCase();
+    const lastReminder = row[8];  // Column I (9)
 
     if (!activityName || !(date instanceof Date)) return;
     if (reportStatus === "YES" || reportStatus === "N/A") return;
@@ -3166,7 +3169,7 @@ function sendReportFollowUpReminders() {
       logToReportLog(`Reminder: ${activityName}`, loggedRecipients);
     }
 
-    actSh.getRange(rowNum, 8).setValue(new Date());
+    actSh.getRange(rowNum, 9).setValue(new Date());
   });
 }
 
