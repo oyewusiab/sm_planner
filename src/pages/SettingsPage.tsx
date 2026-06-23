@@ -74,6 +74,9 @@ export function SettingsPage({
   });
   const [checklistTaskText, setChecklistTaskText] = useState((unit.prefs?.checklist_tasks || []).join("\n"));
 
+  const [customGsUrl, setCustomGsUrl] = useState(() => localStorage.getItem("custom_gs_base_url") || "");
+  const [customGsKey, setCustomGsKey] = useState(() => localStorage.getItem("custom_gs_api_key") || "");
+
   const [flash, setFlash] = useState<{ tone: "success" | "error"; msg: string } | null>(null);
   const [newUser, setNewUser] = useState({
     name: "",
@@ -83,6 +86,31 @@ export function SettingsPage({
     gender: "M" as "M" | "F",
   });
   const [busy, setBusy] = useState<string | null>(null);
+
+  function saveBackendSettings() {
+    setFlash(null);
+    const url = customGsUrl.trim();
+    const key = customGsKey.trim();
+
+    if (url) {
+      if (!url.startsWith("http://") && !url.startsWith("https://")) {
+        setFlash({ tone: "error", msg: "Invalid Script URL. It must start with http:// or https://" });
+        return;
+      }
+      localStorage.setItem("custom_gs_base_url", url);
+    } else {
+      localStorage.removeItem("custom_gs_base_url");
+    }
+
+    if (key) {
+      localStorage.setItem("custom_gs_api_key", key);
+    } else {
+      localStorage.removeItem("custom_gs_api_key");
+    }
+
+    setFlash({ tone: "success", msg: "Backend connection settings saved successfully." });
+    onChanged();
+  }
   const [broadcastRole, setBroadcastRole] = useState<BroadcastRole>("ALL");
   const [broadcastTitle, setBroadcastTitle] = useState("General announcement");
   const [broadcastBody, setBroadcastBody] = useState("");
@@ -611,62 +639,123 @@ export function SettingsPage({
 
       <Card>
         <CardHeader>
-          <CardTitle>Backend</CardTitle>
+          <CardTitle>Backend Integration</CardTitle>
         </CardHeader>
-        <CardBody>
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="inline-flex items-center gap-2 rounded-full border border-[color:var(--border)] bg-white px-3 py-1 text-xs text-slate-500">
-                <span
-                  className={
-                    "h-2 w-2 rounded-full " +
-                    (backendStatus === "online"
-                      ? "bg-emerald-500"
-                      : backendStatus === "connecting"
-                        ? "bg-amber-400"
-                        : backendStatus === "error"
-                          ? "bg-rose-500"
-                          : "bg-slate-300")
-                  }
-                />
-                <span>
-                  {backendStatus === "online"
-                    ? "Backend connected"
+        <CardBody className="space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="inline-flex items-center gap-2 rounded-full border border-[color:var(--border)] bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm">
+              <span
+                className={
+                  "h-2.5 w-2.5 rounded-full " +
+                  (backendStatus === "online"
+                    ? "bg-emerald-500 animate-pulse"
                     : backendStatus === "connecting"
-                      ? "Connecting to backend"
+                      ? "bg-amber-400 animate-pulse"
                       : backendStatus === "error"
-                        ? "Backend error (Check Script URL or API Key)"
-                        : import.meta.env.PROD
-                          ? "Backend disabled (Check VITE_ environment variables)"
-                          : "Backend disabled"}
+                        ? "bg-rose-500"
+                        : "bg-slate-300")
+                }
+              />
+              <span>
+                {backendStatus === "online"
+                  ? "Backend connected and active"
+                  : backendStatus === "connecting"
+                    ? "Connecting to Apps Script..."
+                    : backendStatus === "error"
+                      ? "Backend connection failure"
+                      : "Backend integration disabled"}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                onClick={onSyncNow}
+                disabled={syncing || backendStatus === "disabled" || backendStatus === "connecting"}
+              >
+                {syncingAction === "sync_now" ? "Syncing Members..." : "Sync Members List"}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={onSyncHymns}
+                disabled={syncing || backendStatus === "disabled" || backendStatus === "connecting"}
+              >
+                {syncingAction === "sync_hymns" ? "Syncing Hymns..." : "Sync Hymns"}
+              </Button>
+            </div>
+          </div>
+
+          {backendStatus === "error" && (
+            <div className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800 border border-rose-100 space-y-2">
+              <strong className="font-semibold text-rose-900">Connection Troubleshooting:</strong>
+              <ul className="list-disc list-inside space-y-1 text-xs">
+                <li>Verify your <strong>Google Apps Script Web App URL</strong> is correct and starts with <code>https://script.google.com/macros/s/</code>.</li>
+                <li>Verify that the <strong>API Key</strong> configured here matches the <code>API_KEY</code> constant defined in the Apps Script project.</li>
+                <li>Make sure the Apps Script deployment is configured with <strong>Execute as: Me</strong> and <strong>Who has access: Anyone</strong>.</li>
+              </ul>
+            </div>
+          )}
+
+          <Divider />
+
+          <div className="space-y-4">
+            <h4 className="text-sm font-bold text-slate-800">Connection Settings</h4>
+            <p className="text-xs text-slate-500">
+              Configure dynamic connection settings for the Google Sheets Apps Script API. Overrides will be saved to your browser session (localStorage) and take priority over environment variables.
+            </p>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="gs_web_app_url">Google Apps Script Web App URL</Label>
+                <Input
+                  id="gs_web_app_url"
+                  placeholder={import.meta.env.VITE_GS_BASE_URL || "https://script.google.com/macros/s/.../exec"}
+                  value={customGsUrl}
+                  onChange={(e) => setCustomGsUrl(e.target.value)}
+                />
+                <span className="text-[10px] text-slate-400 block mt-1">
+                  {import.meta.env.VITE_GS_BASE_URL
+                    ? `Active default: ${import.meta.env.VITE_GS_BASE_URL}`
+                    : "No system default configured."}
                 </span>
               </div>
-              {backendStatus === "error" && (
-                <div className="w-full mt-2 rounded-lg bg-rose-50 p-3 text-xs text-rose-800 border border-rose-100">
-                  <strong>Troubleshooting:</strong>
-                  <ul className="mt-1 list-disc list-inside space-y-1">
-                    <li>Ensure the <strong>Web App URL</strong> is correct.</li>
-                    <li>Verify the <strong>API Key</strong> matches <code>gs.md</code>.</li>
-                    <li>Check if the script is deployed as a <strong>Web App</strong> and accessible to "Anyone".</li>
-                  </ul>
-                </div>
-              )}
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="secondary"
-                  onClick={onSyncNow}
-                  disabled={syncing || backendStatus === "disabled" || backendStatus === "connecting"}
-                >
-                  {syncingAction === "sync_now" ? "Syncing..." : "Sync Members List"}
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={onSyncHymns}
-                  disabled={syncing || backendStatus === "disabled" || backendStatus === "connecting"}
-                >
-                  {syncingAction === "sync_hymns" ? "Syncing..." : "Sync Hymns"}
-                </Button>
+
+              <div className="space-y-1">
+                <Label htmlFor="gs_api_key">API Access Key</Label>
+                <Input
+                  id="gs_api_key"
+                  type="password"
+                  placeholder={import.meta.env.VITE_GS_API_KEY ? "•••••••• (Using system default)" : "Enter API Key"}
+                  value={customGsKey}
+                  onChange={(e) => setCustomGsKey(e.target.value)}
+                />
+                <span className="text-[10px] text-slate-400 block mt-1">
+                  {import.meta.env.VITE_GS_API_KEY
+                    ? "System default API Key is active when override is empty."
+                    : "No default API Key configured."}
+                </span>
               </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              {(localStorage.getItem("custom_gs_base_url") || localStorage.getItem("custom_gs_api_key")) && (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    localStorage.removeItem("custom_gs_base_url");
+                    localStorage.removeItem("custom_gs_api_key");
+                    setCustomGsUrl("");
+                    setCustomGsKey("");
+                    setFlash({ tone: "success", msg: "Cleared custom overrides. Reverted to environment defaults." });
+                    onChanged();
+                  }}
+                >
+                  Clear Overrides
+                </Button>
+              )}
+              <Button onClick={saveBackendSettings}>
+                Save Connection Settings
+              </Button>
             </div>
           </div>
         </CardBody>

@@ -120,6 +120,22 @@ const CONFIG = {
   API_KEY: "ThisIsMySecretKey123!@", // required in ?key= or JSON body {key: "..."}
 };
 
+function getSpreadsheet_(id) {
+  const ss = id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) return null;
+  ss.getSheetByName = function(name) {
+    const sheets = this.getSheets();
+    const lowerName = name.toLowerCase();
+    for (let i = 0; i < sheets.length; i++) {
+      if (sheets[i].getName().toLowerCase() === lowerName) {
+        return sheets[i];
+      }
+    }
+    return null;
+  };
+  return ss;
+}
+
 // Sheet schemas (header row 1)
 const SCHEMA = {
   PLANNERS: [
@@ -462,6 +478,8 @@ function route_(e, method) {
         return jsonResponse_({ ok: true, data: syncLdsHymns(), ts: new Date().toISOString() });
       case "sync_v2":
         return handleSyncV2_(payload);
+      case "listSheets":
+        return jsonResponse_({ ok: true, data: SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID).getSheets().map(s => s.getName()), ts: new Date().toISOString() });
       default:
         return jsonError_("unknown_action", 400);
     }
@@ -752,9 +770,13 @@ function ensureSchemaResilient_(rawHeader, schemaHeader) {
 }
 
 function ensureSchema_() {
-  const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  const ss = getSpreadsheet_(CONFIG.SPREADSHEET_ID);
   Object.keys(SCHEMA).forEach((name) => {
-    if (name === "REPORT LOG") return; // Bypass schema check for report log because of custom horizontal layout
+    if (name === "REPORT LOG") {
+      let sh = ss.getSheetByName(name);
+      if (!sh) sh = ss.insertSheet(name);
+      return; // Bypass schema check for report log because of custom horizontal layout
+    }
     let sh = ss.getSheetByName(name);
     if (!sh) sh = ss.insertSheet(name);
 
@@ -1072,7 +1094,7 @@ function normalizeTable_(name) {
 }
 
 function getSheet_(table) {
-  const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  const ss = getSpreadsheet_(CONFIG.SPREADSHEET_ID);
   const sh = ss.getSheetByName(table);
   if (!sh) throw new Error("missing_sheet_" + table);
   return sh;
@@ -1183,7 +1205,7 @@ function formatUnitSettingValue_(key, val) {
 }
 
 function hashUserPasswords() {
-  const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  const ss = getSpreadsheet_(CONFIG.SPREADSHEET_ID);
   const sh = ss.getSheetByName("USERS");
   if (!sh) throw new Error("USERS sheet not found");
 
@@ -1638,7 +1660,7 @@ function syncLdsHymns() {
 }
 
 function recalculateMemberAnalytics_() {
-  const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  const ss = getSpreadsheet_(CONFIG.SPREADSHEET_ID);
   const memSheet = ss.getSheetByName("MEMBERS");
   if (!memSheet) return;
   
@@ -1848,7 +1870,7 @@ function toDateObject(value) {
 }
 
 function markCalendarActivities() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet_();
 
   const activitySheet = ss.getSheetByName("ACTIVITIES");
   const holidaySheet = ss.getSheetByName("PUBLIC HOLIDAY");
@@ -2039,7 +2061,7 @@ function drawLegend(calendarSheet) {
 }
 
 function generateNext60DaysActivities() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet_();
   const activitiesSheet = ss.getSheetByName("ACTIVITIES");
   const dashboard = ss.getSheetByName("CALENDAR DASHBOARD");
 
@@ -2155,7 +2177,7 @@ function generateNext60DaysActivities() {
 }
 
 function generateNext14DaysMiniTable() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet_();
   const dashboard = ss.getSheetByName("CALENDAR DASHBOARD");
   const activitiesSheet = ss.getSheetByName("ACTIVITIES");
   const churchSheet = ss.getSheetByName("OTHER CHURCH PROGRAM");
@@ -2282,7 +2304,7 @@ function generateNext14DaysMiniTable() {
 }
 
 function generateCompletionWidget() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet_();
   const dash = ss.getSheetByName("CALENDAR DASHBOARD");
   const sheet = ss.getSheetByName("ACTIVITIES");
 
@@ -2394,7 +2416,7 @@ function formatDateShort(d) {
 }
 
 function getActivitiesFromSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet_();
   const sh = ss.getSheetByName("ACTIVITIES");
   const last = sh.getLastRow();
   if (last < 2) return [];
@@ -2409,7 +2431,7 @@ function getActivitiesFromSheet() {
 }
 
 function getOtherChurchPrograms() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet_();
   const sh = ss.getSheetByName("OTHER CHURCH PROGRAM");
   const last = sh.getLastRow();
   if (last < 2) return [];
@@ -2432,7 +2454,7 @@ function getUpcomingActivities(days) {
 }
 
 function getContacts() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet_();
   const sh = ss.getSheetByName("CONTACTS");
   const last = sh.getLastRow();
   if (last < 2) return [];
@@ -2504,7 +2526,7 @@ function sendHtmlEmail(toEmail, subject, htmlBody) {
 }
 
 function sendWeeklyUpcomingEmails() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet_();
   const contacts = getContacts();
   if (!contacts.length) return;
 
@@ -2565,7 +2587,7 @@ function sendWeeklyUpcomingEmails() {
 }
 
 function handleActivityCompletion(activityRowObj) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet_();
   const contacts = getContacts();
 
   const org = activityRowObj.org;
@@ -2674,7 +2696,7 @@ function testSendWeeklyEmails() {
 
 function testReportEmailForRow() {
   const rowNumber = 7;   
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet_();
   const sh = ss.getSheetByName("ACTIVITIES");
 
   if (!sh) throw new Error("ERROR: Sheet 'ACTIVITIES' not found.");
@@ -2703,7 +2725,7 @@ function testReportEmailForRow() {
 }
 
 function sendPendingReportEmails() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet_();
   const sh = ss.getSheetByName("ACTIVITIES");
   if (!sh) return;
 
@@ -2886,7 +2908,7 @@ ${timeLine}\n\n`
 }
 
 function sendBishopricWhatsappNotification() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet_();
   const actSh = ss.getSheetByName("ACTIVITIES");
   const conSh = ss.getSheetByName("CONTACTS");
   const timezone = ss.getSpreadsheetTimeZone();
@@ -3012,7 +3034,7 @@ Time: ${timeText}\n\n`
 }
 
 function logWeeklyUpcomingEmail(contactName, status, timestamp) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet_();
   const sh = ss.getSheetByName("REPORT LOG");
   if (!sh) return;
 
@@ -3049,7 +3071,7 @@ function logWeeklyUpcomingEmail(contactName, status, timestamp) {
 }
 
 function sendReportFollowUpReminders() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet_();
   const actSh = ss.getSheetByName("ACTIVITIES");
   if (!actSh) return;
 
@@ -3135,7 +3157,7 @@ function sendReportFollowUpReminders() {
 function logToReportLog(type, recipients) {
   if (!Array.isArray(recipients) || recipients.length === 0) return;
 
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = getSpreadsheet_();
   const logSh = ss.getSheetByName("REPORT LOG");
   if (!logSh) return;
   const timezone = ss.getSpreadsheetTimeZone();

@@ -1,7 +1,12 @@
-const BASE_URL = (import.meta.env.VITE_GS_BASE_URL || "").trim();
-const API_KEY = (import.meta.env.VITE_GS_API_KEY || "").trim();
+export function getGsConfig() {
+  const localUrl = localStorage.getItem("custom_gs_base_url") || "";
+  const localKey = localStorage.getItem("custom_gs_api_key") || "";
+  const base_url = localUrl.trim() || (import.meta.env.VITE_GS_BASE_URL || "").trim();
+  const api_key = localKey.trim() || (import.meta.env.VITE_GS_API_KEY || "").trim();
+  return { base_url, api_key };
+}
 
-if (!BASE_URL && import.meta.env.PROD) {
+if (!getGsConfig().base_url && import.meta.env.PROD) {
   console.warn("VITE_GS_BASE_URL is missing in production environment!");
 }
 
@@ -16,13 +21,15 @@ type ApiResponse<T> = {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function backendEnabled() {
-  return Boolean(BASE_URL);
+  const { base_url } = getGsConfig();
+  return Boolean(base_url);
 }
 
 function buildUrl(params: Record<string, string>) {
-  const url = new URL(BASE_URL);
+  const { base_url, api_key } = getGsConfig();
+  const url = new URL(base_url);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  if (API_KEY) url.searchParams.set("key", API_KEY);
+  if (api_key) url.searchParams.set("key", api_key);
   return url.toString();
 }
 
@@ -38,14 +45,15 @@ async function apiGet<T>(params: Record<string, string>): Promise<ApiResponse<T>
 }
 
 export async function apiPost<T>(body: any): Promise<ApiResponse<T>> {
+  const { base_url, api_key } = getGsConfig();
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), 25000); // 25s timeout
   try {
-    const res = await fetch(BASE_URL, {
+    const res = await fetch(base_url, {
       method: "POST",
       // Use text/plain to avoid CORS preflight on Apps Script web apps.
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(API_KEY ? { ...body, key: API_KEY } : body),
+      body: JSON.stringify(api_key ? { ...body, key: api_key } : body),
       signal: controller.signal,
     });
     return await res.json();

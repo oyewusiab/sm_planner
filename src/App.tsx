@@ -271,7 +271,7 @@ export function App() {
     if (!isSyncing) {
       void refreshBackendStatus();
     }
-  }, [booting, isSyncing]);
+  }, [booting, isSyncing, dbTick]);
 
   useEffect(() => {
     if (booting || !user || user.role !== "ADMIN") return;
