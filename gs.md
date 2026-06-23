@@ -321,10 +321,10 @@ const SCHEMA = {
     "archive_method",
     "archive_date"
   ],
-  "ACTIVITIES": ["activity_id", "date", "activity", "organisation", "status", "email_sent", "those_involved", "report_submitted", "time", "last_reminder"],
-  "OTHER CHURCH PROGRAM": ["program_id", "date", "program", "organisation"],
-  "PUBLIC HOLIDAY": ["holiday_id", "date", "holiday", "theme"],
-  "CONTACTS": ["contact_id", "name", "calling", "organisation", "upcoming", "report", "email"],
+  "ACTIVITIES": ["date", "activity", "organisation", "status", "email_sent", "those_involved", "report_submitted", "last_reminder", "time", "activity_id"],
+  "OTHER CHURCH PROGRAM": ["date", "program", "organisation", "program_id"],
+  "PUBLIC HOLIDAY": ["date", "holiday", "theme", "holiday_id"],
+  "CONTACTS": ["name", "calling", "organisation", "upcoming", "report", "email", "contact_id"],
   "REPORT LOG": ["log_id", "date", "type", "recipient", "status", "timestamp"]
 };
 
@@ -875,9 +875,10 @@ function findRowById_(table, idCol, idVal) {
   const headers = rawHeaders.map(h => normalizeHeader_(h));
   const idx = headers.indexOf(normalizeHeader_(idCol));
   if (idx === -1) return null;
+  const normIdVal = String(idVal || "").trim().toLowerCase();
   for (let r = 1; r < data.length; r++) {
     const row = data[r];
-    if (String(row[idx]) === idVal) {
+    if (String(row[idx] || "").trim().toLowerCase() === normIdVal) {
       return rowToObj_(table, rawHeaders, row);
     }
   }
@@ -890,12 +891,13 @@ function upsertRow_(table, obj, idCol) {
   const rawHeaders = data.length ? data[0] : SCHEMA[table];
   const headers = rawHeaders.map(h => normalizeHeader_(h));
   const idIdx = headers.indexOf(normalizeHeader_(idCol));
-  const idVal = String(obj[idCol]);
+  const idVal = String(obj[idCol] || "").trim();
 
   let rowIndex = -1;
-  if (data.length > 1) {
+  if (data.length > 1 && idIdx >= 0) {
+    const normIdVal = idVal.toLowerCase();
     for (let r = 1; r < data.length; r++) {
-      if (String(data[r][idIdx]) === idVal) {
+      if (String(data[r][idIdx] || "").trim().toLowerCase() === normIdVal) {
         rowIndex = r + 1; // 1-based
         break;
       }
@@ -924,8 +926,9 @@ function deleteRowById_(table, idCol, idVal) {
   const headers = rawHeaders.map(h => normalizeHeader_(h));
   const idx = headers.indexOf(normalizeHeader_(idCol));
   if (idx === -1) return false;
+  const normIdVal = String(idVal || "").trim().toLowerCase();
   for (let r = 1; r < data.length; r++) {
-    if (String(data[r][idx]) === idVal) {
+    if (String(data[r][idx] || "").trim().toLowerCase() === normIdVal) {
       sh.deleteRow(r + 1);
       return true;
     }
@@ -959,6 +962,7 @@ function mergeTable_(table, rows) {
   const existingData = sh.getDataRange().getValues();
   const existingMap = {};
   const orderedIds = [];
+  const seenIds = new Set();
 
   const sheetHeaders = existingData.length ? existingData[0] : rawHeaders;
   const normalizedSheetHeaders = sheetHeaders.map(h => normalizeHeader_(h));
@@ -968,9 +972,13 @@ function mergeTable_(table, rows) {
     const row = existingData[r];
     const idVal = sheetIdIdx >= 0 ? String(row[sheetIdIdx] || "").trim() : "";
     if (!idVal) continue;
+    const normIdVal = idVal.toLowerCase();
     const obj = rowToObj_(table, sheetHeaders, row);
-    existingMap[idVal] = obj;
-    orderedIds.push(idVal);
+    existingMap[normIdVal] = obj;
+    if (!seenIds.has(normIdVal)) {
+      seenIds.add(normIdVal);
+      orderedIds.push(idVal);
+    }
   }
 
   let validCount = 0;
@@ -980,15 +988,23 @@ function mergeTable_(table, rows) {
     const idVal = String(incoming[idCol] || "").trim();
     if (!idVal) continue;
     validCount++;
-    if (!existingMap[idVal]) orderedIds.push(idVal);
-    existingMap[idVal] = Object.assign({}, existingMap[idVal] || {}, incoming);
+    const normIdVal = idVal.toLowerCase();
+    if (!existingMap[normIdVal]) {
+      existingMap[normIdVal] = incoming;
+      if (!seenIds.has(normIdVal)) {
+        seenIds.add(normIdVal);
+        orderedIds.push(idVal);
+      }
+    } else {
+      existingMap[normIdVal] = Object.assign({}, existingMap[normIdVal], incoming);
+    }
   }
 
   sh.clearContents();
   sh.getRange(1, 1, 1, rawHeaders.length).setValues([rawHeaders]);
   if (orderedIds.length === 0) return validCount;
 
-  const out = orderedIds.map((id) => objToRow_(table, rawHeaders, existingMap[id]));
+  const out = orderedIds.map((id) => objToRow_(table, rawHeaders, existingMap[id.toLowerCase()]));
   sh.getRange(2, 1, out.length, rawHeaders.length).setValues(out);
   return validCount;
 }
@@ -1894,8 +1910,8 @@ function markCalendarActivities() {
   const lastRowAct = activitySheet.getLastRow();
   const actMap = {};
   if (lastRowAct > 1) {
-    // Read columns B to D: Date (B), Activity (C), Org (D)
-    const actData = activitySheet.getRange(2, 2, lastRowAct - 1, 3).getValues();
+    // Read columns A to C: Date (A), Activity (B), Org (C)
+    const actData = activitySheet.getRange(2, 1, lastRowAct - 1, 3).getValues();
     actData.forEach(r => {
       const d = toDateObject(r[0]);
       if (d) {
@@ -1910,8 +1926,8 @@ function markCalendarActivities() {
   const lastRowHol = holidaySheet.getLastRow();
   const holMap = {};
   if (lastRowHol > 1) {
-    // Read columns B to D: Date (B), Holiday (C), Theme (D)
-    const holData = holidaySheet.getRange(2, 2, lastRowHol - 1, 3).getValues();
+    // Read columns A to C: Date (A), Holiday (B), Theme (C)
+    const holData = holidaySheet.getRange(2, 1, lastRowHol - 1, 3).getValues();
     holData.forEach(r => {
       const d = toDateObject(r[0]);
       if (d) {
@@ -1926,8 +1942,8 @@ function markCalendarActivities() {
   const lastRowCh = churchProgSheet.getLastRow();
   const chMap = {};
   if (lastRowCh > 1) {
-    // Read columns B to D: Date (B), Program (C), Org (D)
-    const chData = churchProgSheet.getRange(2, 2, lastRowCh - 1, 3).getValues();
+    // Read columns A to C: Date (A), Program (B), Org (C)
+    const chData = churchProgSheet.getRange(2, 1, lastRowCh - 1, 3).getValues();
     chData.forEach(r => {
       const d = toDateObject(r[0]);
       if (d) {
@@ -2094,10 +2110,10 @@ function generateNext60DaysActivities() {
     .setHorizontalAlignment("center")
     .setBorder(true, true, true, true, true, true, "#274e13", SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
 
-  // Read columns B to E: Date (B), Activity (C), Org (D), Status (E)
+  // Read columns A to D: Date (A), Activity (B), Org (C), Status (D)
   const lastRow = activitiesSheet.getLastRow();
   if (lastRow <= 1) return;
-  const dataRange = activitiesSheet.getRange(2, 2, lastRow - 1, 4).getValues();
+  const dataRange = activitiesSheet.getRange(2, 1, lastRow - 1, 4).getValues();
 
   const today = new Date();
   const ahead60 = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 60);
@@ -2214,10 +2230,10 @@ function generateNext14DaysMiniTable() {
 
   let miniList = [];
 
-  // --- ACTIVITIES (Date, Activity, Org, Status starting at column 2)
+  // --- ACTIVITIES (Date, Activity, Org, Status starting at column 1)
   const actLastRow = activitiesSheet.getLastRow();
   if (actLastRow > 1) {
-    const actData = activitiesSheet.getRange(2, 2, actLastRow - 1, 4).getValues();
+    const actData = activitiesSheet.getRange(2, 1, actLastRow - 1, 4).getValues();
     actData.forEach(row => {
       let date = row[0];
       let item = row[1];
@@ -2238,10 +2254,10 @@ function generateNext14DaysMiniTable() {
     });
   }
 
-  // --- OTHER CHURCH PROGRAM (Date, Program, Org starting at column 2)
+  // --- OTHER CHURCH PROGRAM (Date, Program, Org starting at column 1)
   const churchLastRow = churchSheet.getLastRow();
   if (churchLastRow > 1) {
-    const churchData = churchSheet.getRange(2, 2, churchLastRow - 1, 3).getValues();
+    const churchData = churchSheet.getRange(2, 1, churchLastRow - 1, 3).getValues();
     churchData.forEach(row => {
       let date = row[0];
       let item = row[1];
@@ -2313,11 +2329,11 @@ function generateCompletionWidget() {
     return;
   }
 
-  // Read columns B to H (Date (B), Activity (C), Org (D), Status (E), EmailStatus (F), ForWhom (G), ReportSubmitted (H))
+  // Read columns A to G (Date (A), Activity (B), Org (C), Status (D), EmailStatus (E), ForWhom (F), ReportSubmitted (G))
   const lastRow = sheet.getLastRow();
   if (lastRow < 3) return;
 
-  const data = sheet.getRange(2, 2, lastRow - 1, 7).getValues();
+  const data = sheet.getRange(2, 1, lastRow - 1, 7).getValues();
 
   let total = 0;
   let completed = 0;
@@ -2420,8 +2436,8 @@ function getActivitiesFromSheet() {
   const sh = ss.getSheetByName("ACTIVITIES");
   const last = sh.getLastRow();
   if (last < 2) return [];
-  // Columns starting at column 2 (B): Date, Activity, Organisation, Status
-  const rows = sh.getRange(2, 2, last - 1, 4).getValues();
+  // Columns starting at column 1 (A): Date, Activity, Organisation, Status
+  const rows = sh.getRange(2, 1, last - 1, 4).getValues();
   return rows.map(r => ({
     date: r[0] instanceof Date ? r[0] : null,
     activity: (r[1] || "").toString(),
@@ -2435,8 +2451,8 @@ function getOtherChurchPrograms() {
   const sh = ss.getSheetByName("OTHER CHURCH PROGRAM");
   const last = sh.getLastRow();
   if (last < 2) return [];
-  // Columns starting at column 2 (B): Date, Program, Organisation
-  const rows = sh.getRange(2, 2, last - 1, 3).getValues();
+  // Columns starting at column 1 (A): Date, Program, Organisation
+  const rows = sh.getRange(2, 1, last - 1, 3).getValues();
   return rows.map(r => ({
     date: r[0] instanceof Date ? r[0] : null,
     activity: (r[1] || "").toString(),
@@ -2459,8 +2475,8 @@ function getContacts() {
   const last = sh.getLastRow();
   if (last < 2) return [];
 
-  // Read columns B to G (columns 2 to 7): Name, Calling, Org, Upcoming, Report, Email
-  const rows = sh.getRange(2, 2, last - 1, 6).getValues();
+  // Read columns A to F (columns 1 to 6): Name, Calling, Org, Upcoming, Report, Email
+  const rows = sh.getRange(2, 1, last - 1, 6).getValues();
 
   return rows
     .map(r => ({
@@ -2732,8 +2748,8 @@ function sendPendingReportEmails() {
   const last = sh.getLastRow();
   if (last < 3) return;
 
-  // Read starting at Column 2 (B) for 5 columns: Date (B), Activity (C), Org (D), Status (E), EmailSent (F)
-  const data = sh.getRange(2, 2, last - 1, 5).getValues();  
+  // Read starting at Column 1 (A) for 5 columns: Date (A), Activity (B), Org (C), Status (D), EmailSent (E)
+  const data = sh.getRange(2, 1, last - 1, 5).getValues();  
 
   for (let i = 0; i < data.length; i++) {
     const rowNum = i + 2;
@@ -2754,8 +2770,8 @@ function sendPendingReportEmails() {
         rowNumber: rowNum
       });
 
-      // Update Column F (6)
-      sh.getRange(rowNum, 6).setValue(true);
+      // Update Column E (5)
+      sh.getRange(rowNum, 5).setValue(true);
     }
   }
 }
@@ -3078,8 +3094,8 @@ function sendReportFollowUpReminders() {
   const lastRow = actSh.getLastRow();
   if (lastRow < 3) return;
 
-  // Read B to J (columns 2 to 10): Date (B), Activity (C), Org (D), Status (E), EmailSent (F), ForWhom (G), ReportSubmitted (H), Time (I), LastReminder (J)
-  const data = actSh.getRange(3, 2, lastRow - 2, 9).getValues();
+  // Read A to H (columns 1 to 8): Date (A), Activity (B), Org (C), Status (D), EmailSent (E), ForWhom (F), ReportSubmitted (G), LastReminder (H)
+  const data = actSh.getRange(3, 1, lastRow - 2, 8).getValues();
   const now = new Date();
   const ms48hrs = 48 * 60 * 60 * 1000;
   const ms5days = 5 * 24 * 60 * 60 * 1000;
@@ -3093,7 +3109,7 @@ function sendReportFollowUpReminders() {
     const org = row[2];
     const status = row[3];        
     const reportStatus = (row[6] || "").toString().trim().toUpperCase();
-    const lastReminder = row[8];  // Column J
+    const lastReminder = row[7];  // Column H (8)
 
     if (!activityName || !(date instanceof Date)) return;
     if (reportStatus === "YES" || reportStatus === "N/A") return;
@@ -3150,7 +3166,7 @@ function sendReportFollowUpReminders() {
       logToReportLog(`Reminder: ${activityName}`, loggedRecipients);
     }
 
-    actSh.getRange(rowNum, 10).setValue(new Date());
+    actSh.getRange(rowNum, 8).setValue(new Date());
   });
 }
 
