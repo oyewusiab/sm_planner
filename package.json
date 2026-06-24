@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "clsx": "2.1.1",
+    "firebase": "^12.15.0",
     "html2canvas-pro": "^2.0.4",
     "html2pdf.js": "^0.14.0",
     "react": "19.2.3",

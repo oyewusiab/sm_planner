@@ -74,9 +74,6 @@ export function SettingsPage({
   });
   const [checklistTaskText, setChecklistTaskText] = useState((unit.prefs?.checklist_tasks || []).join("\n"));
 
-  const [customGsUrl, setCustomGsUrl] = useState(() => localStorage.getItem("custom_gs_base_url") || "");
-  const [customGsKey, setCustomGsKey] = useState(() => localStorage.getItem("custom_gs_api_key") || "");
-
   const [flash, setFlash] = useState<{ tone: "success" | "error"; msg: string } | null>(null);
   const [newUser, setNewUser] = useState({
     name: "",
@@ -86,31 +83,6 @@ export function SettingsPage({
     gender: "M" as "M" | "F",
   });
   const [busy, setBusy] = useState<string | null>(null);
-
-  function saveBackendSettings() {
-    setFlash(null);
-    const url = customGsUrl.trim();
-    const key = customGsKey.trim();
-
-    if (url) {
-      if (!url.startsWith("http://") && !url.startsWith("https://")) {
-        setFlash({ tone: "error", msg: "Invalid Script URL. It must start with http:// or https://" });
-        return;
-      }
-      localStorage.setItem("custom_gs_base_url", url);
-    } else {
-      localStorage.removeItem("custom_gs_base_url");
-    }
-
-    if (key) {
-      localStorage.setItem("custom_gs_api_key", key);
-    } else {
-      localStorage.removeItem("custom_gs_api_key");
-    }
-
-    setFlash({ tone: "success", msg: "Backend connection settings saved successfully." });
-    onChanged();
-  }
   const [broadcastRole, setBroadcastRole] = useState<BroadcastRole>("ALL");
   const [broadcastTitle, setBroadcastTitle] = useState("General announcement");
   const [broadcastBody, setBroadcastBody] = useState("");
@@ -639,7 +611,7 @@ export function SettingsPage({
 
       <Card>
         <CardHeader>
-          <CardTitle>Backend Integration</CardTitle>
+          <CardTitle>Firebase Database Backend</CardTitle>
         </CardHeader>
         <CardBody className="space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -658,40 +630,33 @@ export function SettingsPage({
               />
               <span>
                 {backendStatus === "online"
-                  ? "Backend connected and active"
+                  ? "Real-time Firebase Connection Active"
                   : backendStatus === "connecting"
-                    ? "Connecting to Apps Script..."
+                    ? "Connecting to Firebase..."
                     : backendStatus === "error"
-                      ? "Backend connection failure"
-                      : "Backend integration disabled"}
+                      ? "Firebase connection failure"
+                      : "Firebase integration disabled"}
               </span>
             </div>
 
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="secondary"
-                onClick={onSyncNow}
-                disabled={syncing || backendStatus === "disabled" || backendStatus === "connecting"}
-              >
-                {syncingAction === "sync_now" ? "Syncing Members..." : "Sync Members List"}
-              </Button>
-              <Button
-                variant="secondary"
                 onClick={onSyncHymns}
                 disabled={syncing || backendStatus === "disabled" || backendStatus === "connecting"}
               >
-                {syncingAction === "sync_hymns" ? "Syncing Hymns..." : "Sync Hymns"}
+                {syncingAction === "sync_hymns" ? "Syncing Hymns..." : "Bootstrap Hymns"}
               </Button>
             </div>
           </div>
 
           {backendStatus === "error" && (
             <div className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800 border border-rose-100 space-y-2">
-              <strong className="font-semibold text-rose-900">Connection Troubleshooting:</strong>
+              <strong className="font-semibold text-rose-900">Database Troubleshooting:</strong>
               <ul className="list-disc list-inside space-y-1 text-xs">
-                <li>Verify your <strong>Google Apps Script Web App URL</strong> is correct and starts with <code>https://script.google.com/macros/s/</code>.</li>
-                <li>Verify that the <strong>API Key</strong> configured here matches the <code>API_KEY</code> constant defined in the Apps Script project.</li>
-                <li>Make sure the Apps Script deployment is configured with <strong>Execute as: Me</strong> and <strong>Who has access: Anyone</strong>.</li>
+                <li>Verify your network connection.</li>
+                <li>Make sure you have enabled the <strong>Email/Password</strong> provider in your Firebase Authentication console.</li>
+                <li>Ensure Firestore security rules and databases are fully deployed.</li>
               </ul>
             </div>
           )}
@@ -699,63 +664,28 @@ export function SettingsPage({
           <Divider />
 
           <div className="space-y-4">
-            <h4 className="text-sm font-bold text-slate-800">Connection Settings</h4>
+            <h4 className="text-sm font-bold text-slate-800">Connection Information</h4>
             <p className="text-xs text-slate-500">
-              Configure dynamic connection settings for the Google Sheets Apps Script API. Overrides will be saved to your browser session (localStorage) and take priority over environment variables.
+              The application is configured to synchronize database tables and user authentication directly with Firebase Cloud Services.
             </p>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="gs_web_app_url">Google Apps Script Web App URL</Label>
-                <Input
-                  id="gs_web_app_url"
-                  placeholder={import.meta.env.VITE_GS_BASE_URL || "https://script.google.com/macros/s/.../exec"}
-                  value={customGsUrl}
-                  onChange={(e) => setCustomGsUrl(e.target.value)}
-                />
-                <span className="text-[10px] text-slate-400 block mt-1">
-                  {import.meta.env.VITE_GS_BASE_URL
-                    ? `Active default: ${import.meta.env.VITE_GS_BASE_URL}`
-                    : "No system default configured."}
-                </span>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 text-xs">
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 space-y-1">
+                <span className="font-semibold text-slate-600 block">Project ID</span>
+                <span className="font-mono text-slate-800">{import.meta.env.VITE_FIREBASE_PROJECT_ID || "—"}</span>
               </div>
-
-              <div className="space-y-1">
-                <Label htmlFor="gs_api_key">API Access Key</Label>
-                <Input
-                  id="gs_api_key"
-                  type="password"
-                  placeholder={import.meta.env.VITE_GS_API_KEY ? "•••••••• (Using system default)" : "Enter API Key"}
-                  value={customGsKey}
-                  onChange={(e) => setCustomGsKey(e.target.value)}
-                />
-                <span className="text-[10px] text-slate-400 block mt-1">
-                  {import.meta.env.VITE_GS_API_KEY
-                    ? "System default API Key is active when override is empty."
-                    : "No default API Key configured."}
-                </span>
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 space-y-1">
+                <span className="font-semibold text-slate-600 block">Auth Domain</span>
+                <span className="font-mono text-slate-800">{import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "—"}</span>
               </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              {(localStorage.getItem("custom_gs_base_url") || localStorage.getItem("custom_gs_api_key")) && (
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    localStorage.removeItem("custom_gs_base_url");
-                    localStorage.removeItem("custom_gs_api_key");
-                    setCustomGsUrl("");
-                    setCustomGsKey("");
-                    setFlash({ tone: "success", msg: "Cleared custom overrides. Reverted to environment defaults." });
-                    onChanged();
-                  }}
-                >
-                  Clear Overrides
-                </Button>
-              )}
-              <Button onClick={saveBackendSettings}>
-                Save Connection Settings
-              </Button>
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 space-y-1">
+                <span className="font-semibold text-slate-600 block">Storage Bucket</span>
+                <span className="font-mono text-slate-800">{import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "—"}</span>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 space-y-1">
+                <span className="font-semibold text-slate-600 block">App ID</span>
+                <span className="font-mono text-slate-800">{import.meta.env.VITE_FIREBASE_APP_ID || "—"}</span>
+              </div>
             </div>
           </div>
         </CardBody>

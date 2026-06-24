@@ -1,7 +1,10 @@
 import type { Role, User } from "../types";
 import { sha256, timingSafeEqual } from "../utils/crypto";
-import { backendEnabled, pingBackend } from "../utils/backend";
-import { getDB, updateDB, ids, time, syncFromBackend, forcePushChanges } from "../utils/storage";
+import { backendEnabled } from "../utils/backend";
+import { getDB, updateDB, ids, time } from "../utils/storage";
+import { auth, functions } from "../utils/firebase";
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, signOut } from "firebase/auth";
+import { httpsCallable } from "firebase/functions";
 
 function norm(s: string) {
   return (s || "").trim().toLowerCase();
@@ -34,14 +37,13 @@ function ensureUniqueUsernameEmail(user_id: string, patch: Partial<User>) {
 
 export function getUserById(user_id: string): User | null {
   const db = getDB();
-  return db.USERS.find((u) => u.user_id === user_id) || null;
+  return db.USERS.find((u) => u.user_id === user_id || u.auth_uid === user_id) || null;
 }
 
 export function getUserByEmail(email: string): User | null {
   const db = getDB();
   return db.USERS.find((u) => norm(u.email) === norm(email)) || null;
 }
-// ensureSeedUserIfEmpty removed - users are now provided via backend USERS sheet.
 
 export function getUserByUsername(username: string): User | null {
   const db = getDB();
@@ -53,45 +55,14 @@ export function getUsersByRole(role: Role): User[] {
 }
 
 /**
- * Authenticate user with email/username and password.
- * Users are loaded from the backend USERS sheet.
+ * Authenticate user with Firebase Authentication (with fallback to legacy SHA-256 migration).
  */
 export async function login(identifier: string, password: string): Promise<User> {
-  let db = getDB();
-  const backendOn = backendEnabled();
-
-  // If no users in local DB, attempt to sync from backend (blocking)
-  if (!db.USERS || db.USERS.length === 0) {
-    try {
-      await syncFromBackend();
-      db = getDB();
-    } catch (err) {
-      console.error("Failed to sync users from backend:", err);
-      throw new Error("Unable to connect to server. Please try again.");
-    }
-
-    // If backend is configured but users are still empty, surface a clear setup/config error.
-    if (backendOn && (!db.USERS || db.USERS.length === 0)) {
-      try {
-        await pingBackend();
-      } catch {
-        throw new Error(
-          "Backend misconfigured. Check your deployed backend URL/API key and redeploy."
-        );
-      }
-      throw new Error(
-        "No users found in backend. Please verify USERS sheet data."
-      );
-    }
-  } else {
-    // Background sync to ensure data is fresh for next time
-    void syncFromBackend();
-  }
-
   const id = identifier.trim().toLowerCase();
+  const dbData = getDB();
 
-  // Find user by email or username
-  const user = db.USERS.find(
+  // Find user locally by email, username, or name
+  const user = dbData.USERS.find(
     (u) =>
       norm(u.email || "") === id ||
       norm(u.username || "") === id ||
@@ -106,39 +77,78 @@ export async function login(identifier: string, password: string): Promise<User>
     throw new Error("This account has been disabled. Please contact your Clerk for assistance.");
   }
 
-  // Verify password
-  const hash = await sha256(password);
-  const storedHash = (user.password_hash || "").trim().toLowerCase();
-  const inputHash = hash.trim().toLowerCase();
+  const backendOn = backendEnabled();
+  if (backendOn) {
+    const emailClean = user.email.trim().replace(/\s+/g, ".");
+    try {
+      // 1. Try to log in directly via Firebase Auth using user's email
+      const userCredential = await signInWithEmailAndPassword(auth, emailClean, password);
+      console.log("[Auth] Firebase login successful:", userCredential.user.email);
+    } catch (err: any) {
+      const code = err?.code || "";
+      // If user does not exist in Firebase Auth yet (legacy user), attempt transition migration
+      if (code === "auth/user-not-found" || code === "auth/invalid-credential" || code === "auth/invalid-email") {
+        console.log("[Auth] Firebase Auth failed or user not found. Attempting legacy fallback...");
+        
+        // Verify typed password against stored legacy SHA-256 hash
+        const inputHash = await sha256(password);
+        const storedHash = (user.password_hash || "").trim().toLowerCase();
+        
+        const ok = timingSafeEqual(inputHash.trim().toLowerCase(), storedHash);
+        if (!ok) {
+          throw new Error("Incorrect password. Please try again.");
+        }
 
-  // Use timing-safe comparison
-  const ok = timingSafeEqual(inputHash, storedHash);
-  if (!ok) {
-    throw new Error("Incorrect password. Please try again.");
-  }
+        // Legacy password matches! Migrate user to Firebase Auth client-side
+        try {
+          console.log("[Auth] Legacy hash matched. Migrating user to Firebase Auth client-side...");
+          const signupCredential = await createUserWithEmailAndPassword(auth, emailClean, password);
+          const newAuthUid = signupCredential.user.uid;
 
-  // Passwords match!
-  
-  // Record last login (non-blocking update)
-  try {
-    const now = time.nowISO();
-    setTimeout(() => {
-      try {
-        updateDB((db0) => ({
-          ...db0,
-          USERS: db0.USERS.map((u) =>
-            u.user_id === user.user_id ? { ...u, last_login_date: now } : u
-          ),
-        }));
-      } catch (err) {
-        console.warn("[Auth] Deferred last_login_date update failed:", err);
+          // Update the user profile locally and remote in Firestore to set auth_uid
+          updateDB((db0) => ({
+            ...db0,
+            USERS: db0.USERS.map((u) =>
+              u.user_id === user.user_id ? { ...u, auth_uid: newAuthUid } : u
+            ),
+          }));
+          
+          console.log("[Auth] Legacy migration and sign-in completed successfully client-side!");
+        } catch (migrationErr: any) {
+          console.error("[Auth] Legacy client-side migration failed:", migrationErr);
+          throw new Error("Unable to complete security migration. Please contact your Administrator.");
+        }
+      } else {
+        // Other auth errors (e.g. wrong password, disabled, too many requests)
+        console.warn("[Auth] Firebase Auth sign-in failed:", err);
+        throw new Error(err.message || "Incorrect password. Please try again.");
       }
-    }, 100);
-  } catch (err) {
-    console.warn("Failed to schedule last login date update:", err);
+    }
+  } else {
+    // Offline / Local-only Mode: fallback to local SHA-256 check
+    const hash = await sha256(password);
+    const storedHash = (user.password_hash || "").trim().toLowerCase();
+    const ok = timingSafeEqual(hash.trim().toLowerCase(), storedHash);
+    if (!ok) {
+      throw new Error("Incorrect password. Please try again.");
+    }
   }
 
-  // Return fresh user data
+  // Record last login (non-blocking)
+  const now = time.nowISO();
+  setTimeout(() => {
+    try {
+      updateDB((db0) => ({
+        ...db0,
+        USERS: db0.USERS.map((u) =>
+          u.user_id === user.user_id ? { ...u, last_login_date: now } : u
+        ),
+      }));
+    } catch (err) {
+      console.warn("[Auth] Deferred last_login_date update failed:", err);
+    }
+  }, 100);
+
   const fresh = getUserById(user.user_id);
   if (!fresh) {
     throw new Error("Login succeeded but failed to load user profile. Please refresh.");
@@ -155,10 +165,22 @@ export async function setUserPassword(user_id: string, newPassword: string) {
     throw new Error("Password must be at least 6 characters.");
   }
 
+  const backendOn = backendEnabled();
+  
+  if (backendOn && auth.currentUser && auth.currentUser.uid === user_id) {
+    // User is updating their own password
+    await updatePassword(auth.currentUser, newPassword);
+  } else if (backendOn) {
+    // Admin resetting another user's password via Cloud Function
+    const resetPasswordFn = httpsCallable(functions, "adminResetPassword");
+    await resetPasswordFn({ user_id, password: newPassword });
+  }
+
+  // Calculate local hash for offline check fallback
   const hash = await sha256(newPassword);
 
-  updateDB((db) => {
-    const USERS = db.USERS.map((u) =>
+  updateDB((db0) => {
+    const USERS = db0.USERS.map((u) =>
       u.user_id === user_id
         ? {
           ...u,
@@ -167,18 +189,8 @@ export async function setUserPassword(user_id: string, newPassword: string) {
         }
         : u
     );
-    return { ...db, USERS };
+    return { ...db0, USERS };
   });
-
-  // Force push immediately in the background, don't block locally if push fails
-  try {
-    const ok = await forcePushChanges();
-    if (!ok) {
-      console.warn("Failed to save password change to the cloud immediately. Will retry in background.");
-    }
-  } catch (err) {
-    console.warn("Password change push failed:", err);
-  }
 }
 
 /**
@@ -186,18 +198,22 @@ export async function setUserPassword(user_id: string, newPassword: string) {
  * Admin function.
  */
 export async function resetUserPasswordToDefault(user_id: string, password = "changeme") {
+  const backendOn = backendEnabled();
+  
+  if (backendOn) {
+    const resetPasswordFn = httpsCallable(functions, "adminResetPassword");
+    await resetPasswordFn({ user_id, password });
+  }
+
   const hash = await sha256(password);
-  updateDB((db) => {
-    const USERS = db.USERS.map((u) =>
+  updateDB((db0) => {
+    const USERS = db0.USERS.map((u) =>
       u.user_id === user_id
         ? { ...u, password_hash: hash, must_reset_password: true }
         : u
     );
-    return { ...db, USERS };
+    return { ...db0, USERS };
   });
-
-  // Force push changes to remote sheet
-  await forcePushChanges();
 }
 
 function defaultOrgCallingForRole(
@@ -240,19 +256,19 @@ function defaultOrgCallingForRole(
 }
 
 export function setUserRole(user_id: string, role: Role) {
-  updateDB((db) => {
-    const USERS = db.USERS.map((u) => {
+  updateDB((db0) => {
+    const USERS = db0.USERS.map((u) => {
       if (u.user_id !== user_id) return u;
       const { organisation, calling } = defaultOrgCallingForRole(role, u);
       return { ...u, role, organisation, calling };
     });
-    return { ...db, USERS };
+    return { ...db0, USERS };
   });
 }
 
 export function setUserCalling(user_id: string, calling: string) {
-  updateDB((db) => {
-    const USERS = db.USERS.map((u) => {
+  updateDB((db0) => {
+    const USERS = db0.USERS.map((u) => {
       if (u.user_id !== user_id) return u;
 
       if (u.role === "ADMIN") {
@@ -285,7 +301,7 @@ export function setUserCalling(user_id: string, calling: string) {
 
       return { ...u, calling };
     });
-    return { ...db, USERS };
+    return { ...db0, USERS };
   });
 }
 
@@ -299,51 +315,80 @@ export async function updateUserProfile(user_id: string, patch: Partial<User>) {
 
   ensureUniqueUsernameEmail(user_id, safePatch);
 
-  updateDB((db) => {
-    const USERS = db.USERS.map((u) => (u.user_id === user_id ? { ...u, ...safePatch } : u));
-    return { ...db, USERS };
+  updateDB((db0) => {
+    const USERS = db0.USERS.map((u) => (u.user_id === user_id ? { ...u, ...safePatch } : u));
+    return { ...db0, USERS };
   });
-  // Push changes to backend immediately in the background, don't block locally if push fails
-  try {
-    const ok = await forcePushChanges();
-    if (!ok) {
-      console.warn("Failed to save profile changes to the cloud immediately. Will retry in background.");
-    }
-  } catch (err) {
-    console.warn("Profile changes push failed:", err);
-  }
 }
 
-export function addUser(name: string, email: string, role: Role, password_hash: string, calling?: string, gender?: "M" | "F") {
-  updateDB((db) => {
-    const { organisation, calling: calling0 } = defaultOrgCallingForRole(role, calling ? { calling } : undefined);
-    const user: User = {
-      user_id: ids.uid("user"),
-      name,
-      username: usernameFromUser(name, email),
+export async function addUser(
+  name: string,
+  email: string,
+  role: Role,
+  password_hash: string,
+  calling?: string,
+  gender?: "M" | "F"
+) {
+  const backendOn = backendEnabled();
+  const { organisation, calling: calling0 } = defaultOrgCallingForRole(role, calling ? { calling } : undefined);
+  const username = usernameFromUser(name, email);
+
+  if (backendOn) {
+    // Create via Cloud Function. Firestore listener will automatically pull and update local DB.
+    const createUserFn = httpsCallable(functions, "adminCreateUser");
+    await createUserFn({
       email,
+      password: "changeme", // Temporary password for first-time login
+      name,
       role,
       organisation,
       calling: calling0,
       gender,
-      password_hash,
-      created_date: time.nowISO(),
-      must_reset_password: true,
-    };
-    return { ...db, USERS: [user, ...db.USERS] };
-  });
+      username,
+    });
+  } else {
+    // Offline fallback
+    updateDB((db0) => {
+      const user: User = {
+        user_id: ids.uid("user"),
+        name,
+        username,
+        email,
+        role,
+        organisation,
+        calling: calling0,
+        gender,
+        password_hash,
+        created_date: time.nowISO(),
+        must_reset_password: true,
+      };
+      return { ...db0, USERS: [user, ...db0.USERS] };
+    });
+  }
 }
 
-export function setUserDisabled(user_id: string, disabled: boolean) {
-  updateDB((db) => {
-    const USERS = db.USERS.map((u) => (u.user_id === user_id ? { ...u, disabled } : u));
-    return { ...db, USERS };
-  });
+export async function setUserDisabled(user_id: string, disabled: boolean) {
+  const backendOn = backendEnabled();
+  if (backendOn) {
+    const toggleStatusFn = httpsCallable(functions, "adminToggleUserStatus");
+    await toggleStatusFn({ user_id, disabled });
+  } else {
+    updateDB((db0) => {
+      const USERS = db0.USERS.map((u) => (u.user_id === user_id ? { ...u, disabled } : u));
+      return { ...db0, USERS };
+    });
+  }
 }
 
-export function deleteUser(user_id: string) {
-  updateDB((db) => {
-    const USERS = db.USERS.filter((u) => u.user_id !== user_id);
-    return { ...db, USERS };
-  });
+export async function deleteUser(user_id: string) {
+  const backendOn = backendEnabled();
+  if (backendOn) {
+    const deleteUserFn = httpsCallable(functions, "adminDeleteUser");
+    await deleteUserFn({ user_id });
+  } else {
+    updateDB((db0) => {
+      const USERS = db0.USERS.filter((u) => u.user_id !== user_id);
+      return { ...db0, USERS };
+    });
+  }
 }

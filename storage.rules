@@ -1,0 +1,20 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Helper: Is user logged in?
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper: Is the user accessing their own folder?
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    match /signatures/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isOwner(userId);
+    }
+  }
+}

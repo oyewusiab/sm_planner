@@ -795,33 +795,24 @@ function ensureSchema_() {
     }
 
     const headers = SCHEMA[name];
-    const firstRow = sh.getRange(1, 1, 1, headers.length).getValues()[0];
-    let needsWrite = false;
-    for (let i = 0; i < headers.length; i++) {
-      const raw = String(firstRow[i] || "");
-      const schema = headers[i];
-      if (!ensureSchemaResilient_(raw, schema)) {
-        needsWrite = true;
-        break;
-      }
+    const lastCol = sh.getLastColumn();
+    let currentHeaders = [];
+    if (lastCol > 0) {
+      currentHeaders = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h || "").trim());
     }
-    if (needsWrite) {
-      const allData = sh.getDataRange().getValues();
-      if (allData.length > 1) {
-        const oldHeaders = allData[0];
-        const rows = [];
-        for (let r = 1; r < allData.length; r++) {
-          rows.push(rowToObj_(name, oldHeaders, allData[r]));
-        }
-        sh.clearContents();
-        sh.getRange(1, 1, 1, headers.length).setValues([headers]);
-        const out = rows.map(rowObj => objToRow_(name, headers, rowObj));
-        sh.getRange(2, 1, out.length, headers.length).setValues(out);
-      } else {
-        sh.clearContents();
-        sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+    const normalizedCurrent = currentHeaders.map(h => normalizeHeader_(h));
+
+    headers.forEach((schemaHeader) => {
+      const normSchema = normalizeHeader_(schemaHeader);
+      if (normalizedCurrent.indexOf(normSchema) === -1) {
+        // Missing column - append to the end
+        const newColIdx = sh.getLastColumn() + 1;
+        sh.getRange(1, newColIdx).setValue(schemaHeader);
+        normalizedCurrent.push(normSchema);
+        currentHeaders.push(schemaHeader);
       }
-    }
+    });
+
     if (sh.getFrozenRows() < 1) sh.setFrozenRows(1);
   });
 }
@@ -942,12 +933,15 @@ function deleteRowById_(table, idCol, idVal) {
 function overwriteTable_(table, rows) {
   if (table === "REPORT LOG") return; // Read-only from sync perspective
   const sh = getSheet_(table);
-  const headers = SCHEMA[table];
+  const rawHeaders = SCHEMA[table];
+  const lastCol = sh.getLastColumn();
+  const sheetHeaders = (lastCol > 0) ? sh.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h || "").trim()) : rawHeaders;
+  
   sh.clearContents();
-  sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+  sh.getRange(1, 1, 1, sheetHeaders.length).setValues([sheetHeaders]);
   if (!rows || rows.length === 0) return;
-  const out = rows.map((r) => objToRow_(table, headers, r));
-  sh.getRange(2, 1, out.length, headers.length).setValues(out);
+  const out = rows.map((r) => objToRow_(table, sheetHeaders, r));
+  sh.getRange(2, 1, out.length, sheetHeaders.length).setValues(out);
 }
 
 /**
@@ -1004,11 +998,11 @@ function mergeTable_(table, rows) {
   }
 
   sh.clearContents();
-  sh.getRange(1, 1, 1, rawHeaders.length).setValues([rawHeaders]);
+  sh.getRange(1, 1, 1, sheetHeaders.length).setValues([sheetHeaders]);
   if (orderedIds.length === 0) return validCount;
 
-  const out = orderedIds.map((id) => objToRow_(table, rawHeaders, existingMap[id.toLowerCase()]));
-  sh.getRange(2, 1, out.length, rawHeaders.length).setValues(out);
+  const out = orderedIds.map((id) => objToRow_(table, sheetHeaders, existingMap[id.toLowerCase()]));
+  sh.getRange(2, 1, out.length, sheetHeaders.length).setValues(out);
   return validCount;
 }
 

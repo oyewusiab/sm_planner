@@ -121,6 +121,7 @@ export type User = {
   last_login_date?: string;
   must_reset_password?: boolean;
   disabled?: boolean;
+  auth_uid?: string;
 };
 
 export type WeekPlan = {

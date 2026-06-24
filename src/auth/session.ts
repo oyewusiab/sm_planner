@@ -1,4 +1,6 @@
 import type { User } from "../types";
+import { auth } from "../utils/firebase";
+import { signOut } from "firebase/auth";
 
 const SESSION_KEY = "sac_meeting_planner_session_v1";
 
@@ -14,7 +16,6 @@ export function getSession(): Session | null {
   if (!raw) return null;
   try {
     const s = JSON.parse(raw) as Session;
-    // Check if token still exists in sessionStorage (protection against browser close)
     const token = sessionStorage.getItem(SESSION_KEY + "_token");
     if (!token || token !== s.token) return null;
     return s;
@@ -31,6 +32,15 @@ export function setSession(session: Session) {
 export function clearSession() {
   localStorage.removeItem(SESSION_KEY);
   sessionStorage.removeItem(SESSION_KEY + "_token");
+  
+  // Clean up Firebase Authentication session if logged in
+  try {
+    if (auth.currentUser) {
+      void signOut(auth);
+    }
+  } catch (err) {
+    console.warn("Firebase signOut failed:", err);
+  }
 }
 
 export function newSessionForUser(user: User): Session {

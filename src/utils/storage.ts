@@ -19,7 +19,18 @@ import type {
   CalendarContact,
   CalendarReportLog,
 } from "../types";
-import { backendEnabled, exportRemoteDB, importRemoteDB, apiPost, pingBackend } from "./backend";
+import { db } from "./firebase";
+import { backendEnabled } from "./backend";
+import { 
+  collection, 
+  doc, 
+  getDocs, 
+  getDoc,
+  setDoc, 
+  deleteDoc, 
+  onSnapshot 
+} from "firebase/firestore";
+import { uploadSignature } from "./firebaseStorage";
 
 const APP_KEY = "sac_meeting_planner_mvp_v1";
 
@@ -79,7 +90,7 @@ function setLastSyncedDB(db: DB | null) {
 
 let syncListeners: ((syncing: boolean) => void)[] = [];
 
-const SYNC_TABLES: { name: keyof DB; idCol: string }[] = [
+export const SYNC_TABLES: { name: keyof DB; idCol: string }[] = [
   { name: "USERS", idCol: "user_id" },
   { name: "PLANNERS", idCol: "planner_id" },
   { name: "ASSIGNMENTS", idCol: "assignment_id" },
@@ -98,6 +109,27 @@ const SYNC_TABLES: { name: keyof DB; idCol: string }[] = [
   { name: "CONTACTS", idCol: "contact_id" },
   { name: "REPORT LOG", idCol: "log_id" },
 ];
+
+export const COLLECTION_MAPPING: Record<keyof DB, string> = {
+  UNIT_SETTINGS: "unit_settings",
+  USERS: "users",
+  PLANNERS: "planners",
+  ASSIGNMENTS: "assignments",
+  MEMBERS: "members",
+  CHECKLISTS: "checklists",
+  NOTIFICATIONS: "notifications",
+  SETTINGS_REQUESTS: "settings_requests",
+  PLANNER_APPROVAL_REQUESTS: "planner_approval_requests",
+  TODOS: "todos",
+  REMINDERS: "reminders",
+  HYMNS: "hymns",
+  AGENDAS: "agendas",
+  ACTIVITIES: "activities",
+  "OTHER CHURCH PROGRAM": "other_church_programs",
+  "PUBLIC HOLIDAY": "public_holidays",
+  CONTACTS: "contacts",
+  "REPORT LOG": "report_logs",
+};
 
 const REMOTE_DELETABLE_TABLES = new Set<keyof DB>([
   "MEMBERS",
@@ -172,7 +204,7 @@ function sanitizeUserRecord(raw: any) {
     name: asText(raw?.name).trim(),
     preferred_name: asText(raw?.preferred_name).trim() || undefined,
     username: asText(raw?.username).trim() || undefined,
-    email: asText(raw?.email).trim(),
+    email: asText(raw?.email).trim().replace(/\s+/g, "."),
     password_hash: asText(raw?.password_hash || raw?.password || raw?.passwordHash).trim(),
     role: raw?.role,
     organisation: asText(raw?.organisation).trim() || undefined,
@@ -265,7 +297,6 @@ function getComparableRow(tableName: keyof DB, row: any) {
 function normalizeDB(raw: any): DB {
   const USERS0 = Array.isArray(raw?.USERS) ? (raw.USERS as any[]).map((u) => sanitizeUserRecord(u) as User) : [];
 
-  // Migration: ensure every user has a unique username.
   const used = new Set<string>();
   for (const u of USERS0) {
     if (u.username) used.add(u.username.toLowerCase());
@@ -291,7 +322,6 @@ function normalizeDB(raw: any): DB {
   }
 
   const USERS = USERS0.map((u) => {
-    // Backward/alternate schema support: some sheets use "password" instead of "password_hash".
     const password_hash =
       (u as any).password_hash ||
       (u as any).password ||
@@ -345,7 +375,6 @@ function normalizeDB(raw: any): DB {
 
   const PLANNERS = PLANNERS_RAW;
 
-  // Normalize AGENDAS
   const AGENDAS = Array.isArray(raw?.AGENDAS)
     ? (raw.AGENDAS as any[]).map(a => ({
         ...a,
@@ -441,26 +470,41 @@ async function pushAllToBackend() {
   remoteSyncInFlight = true;
   notifySyncListeners(true);
   try {
-      const db = serializeDBForRemote(getDB());
+    const dbData = serializeDBForRemote(getDB());
+    
+    // We compute differences and write them directly to Firestore
     if (!lastSyncedDB) {
-      console.log(`[Sync] Baseline missing. Pushing local changes via full merge... (${db.PLANNERS.length} planners, ${db.USERS.length} users)`);
-      const importRes = await importRemoteDB(db, "merge");
-      if (importRes && importRes.db_version) {
-        setLocalDBVersion(importRes.db_version);
+      console.log(`[Sync] Baseline missing. Pushing full database...`);
+      // Initial bootstrap to Firebase: write everything
+      for (const t of SYNC_TABLES) {
+        const colName = COLLECTION_MAPPING[t.name];
+        const rows = (dbData[t.name] || []) as any[];
+        for (const r of rows) {
+          const id = String(r[t.idCol] || "");
+          if (!id) continue;
+          
+          if (t.name === "USERS" && r.signature_data_url?.startsWith("data:")) {
+            try { r.signature_data_url = await uploadSignature(id, r.signature_data_url); } catch {}
+          }
+          await setDoc(doc(db, colName, id), r);
+        }
+      }
+      if (dbData.UNIT_SETTINGS) {
+        await setDoc(doc(db, "unit_settings", "global"), dbData.UNIT_SETTINGS);
       }
     } else {
-      console.log(`[Sync] Calculating row-level differences for backend push...`);
+      console.log(`[Sync] Calculating row differences for Firestore push...`);
       const updates: any[] = [];
       const deletes: any[] = [];
       
       for (const t of SYNC_TABLES) {
-        const currentRows = (db[t.name] || []) as any[];
+        const currentRows = (dbData[t.name] || []) as any[];
         const lastRows = (lastSyncedDB[t.name] || []) as any[];
         
         const currentMap = new Map(currentRows.map(r => [String(r[t.idCol] || ""), r]));
         const lastMap = new Map(lastRows.map(r => [String(r[t.idCol] || ""), r]));
 
-        // Find updates (new or modified)
+        // Find updates
         for (const r of currentRows) {
           const id = String(r[t.idCol] || "");
           if (!id) continue;
@@ -484,28 +528,37 @@ async function pushAllToBackend() {
         }
       }
 
-      // Handle UNIT_SETTINGS (special case, object not array)
-      if (JSON.stringify(db.UNIT_SETTINGS) !== JSON.stringify(lastSyncedDB.UNIT_SETTINGS)) {
-        // Just push the entire UNIT_SETTINGS object as an update row
-        updates.push({ table: "UNIT_SETTINGS", row: db.UNIT_SETTINGS });
+      // Sync writes in Firestore
+      for (const update of updates) {
+        const colName = COLLECTION_MAPPING[update.table as keyof DB];
+        const idCol = SYNC_TABLES.find(t => t.name === update.table)?.idCol || "id";
+        const docId = String(update.row[idCol]);
+        
+        if (update.table === "USERS" && update.row.signature_data_url?.startsWith("data:")) {
+          try {
+            update.row.signature_data_url = await uploadSignature(docId, update.row.signature_data_url);
+          } catch (err) {
+            console.warn("Signature upload failed during sync:", err);
+          }
+        }
+        await setDoc(doc(db, colName, docId), update.row);
       }
 
-      if (updates.length > 0 || deletes.length > 0) {
-        console.log(`[Sync] Syncing ${updates.length} updates, ${deletes.length} deletes.`);
-        const res = await apiPost<any>({ action: "sync_v2", changes: { updates, deletes } });
-        if (!res.ok) throw new Error(res.error || "sync_v2 failed");
-        if ((res as any).db_version) {
-          setLocalDBVersion((res as any).db_version);
-        }
-      } else {
-        console.log("[Sync] No differences found. Push skipped.");
+      for (const del of deletes) {
+        const colName = COLLECTION_MAPPING[del.table as keyof DB];
+        await deleteDoc(doc(db, colName, del.id));
+      }
+
+      if (JSON.stringify(dbData.UNIT_SETTINGS) !== JSON.stringify(lastSyncedDB.UNIT_SETTINGS)) {
+        await setDoc(doc(db, "unit_settings", "global"), dbData.UNIT_SETTINGS || {});
       }
     }
-    hasPendingPush = false; // Successfully pushed
-    setLastSyncedDB(serializeDBForRemote(getDB())); // Keep baseline in backend-comparable shape
-    console.log("[Sync] Push successful.");
+    
+    hasPendingPush = false;
+    setLastSyncedDB(serializeDBForRemote(getDB()));
+    console.log("[Sync] Firestore sync successful.");
   } catch (err) {
-    console.warn("[Sync] Push failed:", err);
+    console.warn("[Sync] Firestore push failed:", err);
   } finally {
     remoteSyncInFlight = false;
     notifySyncListeners(false);
@@ -524,7 +577,7 @@ function isLocalModified(tableName: keyof DB, id: string, localRow: any): boolea
   const lastRows = (lastSyncedDB[tableName] || []) as any[];
   const idCol = SYNC_TABLES.find((t) => t.name === tableName)?.idCol || "id";
   const old = lastRows.find((r) => String(r[idCol] || "") === id);
-  if (!old) return true; // New row is modified
+  if (!old) return true;
   const nextComparable = getComparableRow(tableName, localRow);
   const oldComparable = getComparableRow(tableName, old);
   return JSON.stringify(oldComparable) !== JSON.stringify(nextComparable);
@@ -535,7 +588,7 @@ function isRemoteModified(tableName: keyof DB, id: string, remoteRow: any): bool
   const lastRows = (lastSyncedDB[tableName] || []) as any[];
   const idCol = SYNC_TABLES.find((t) => t.name === tableName)?.idCol || "id";
   const old = lastRows.find((r) => String(r[idCol] || "") === id);
-  if (!old) return true; // New row is modified
+  if (!old) return true;
   const remoteComparable = getComparableRow(tableName, remoteRow);
   const oldComparable = getComparableRow(tableName, old);
   return JSON.stringify(oldComparable) !== JSON.stringify(remoteComparable);
@@ -560,40 +613,33 @@ function mergeDatabases(local: DB, remote: DB): { merged: DB; needsPush: boolean
       const r = remoteMap.get(id);
 
       if (l && r) {
-        // Exists in both. Compare updated_date or fallback to dirty detection
         const lDate = l.updated_date || l.created_date || "";
         const rDate = r.updated_date || r.created_date || "";
         if (lDate && rDate && lDate !== rDate) {
           if (lDate > rDate) {
             mergedRows.push(l);
-            needsPush = true; // Local is newer, need to push
+            needsPush = true;
           } else {
             mergedRows.push(r);
           }
         } else {
-          // Dates are missing, equal, or not comparable. Use dirty detection.
           if (isLocalModified(t.name, id, l)) {
             const isRemoteMod = isRemoteModified(t.name, id, r);
             if (isRemoteMod) {
-              // Conflict: both modified. Merge fields, prefer local edits
               mergedRows.push({ ...r, ...l });
               needsPush = true;
             } else {
-              // Only local was modified
               mergedRows.push(l);
               needsPush = true;
             }
           } else {
-            // Local is not modified, so remote wins (either remote is modified or both match baseline)
             mergedRows.push(r);
           }
         }
       } else if (l) {
-        // Exists only locally (not yet pushed to remote)
         mergedRows.push(l);
         needsPush = true;
       } else if (r) {
-        // Exists only remotely
         mergedRows.push(r);
       }
     }
@@ -601,7 +647,6 @@ function mergeDatabases(local: DB, remote: DB): { merged: DB; needsPush: boolean
     (merged as any)[t.name] = mergedRows;
   }
 
-  // Merge UNIT_SETTINGS
   merged.UNIT_SETTINGS = {
     ...(remote.UNIT_SETTINGS || {}),
     ...(local.UNIT_SETTINGS || {})
@@ -612,6 +657,73 @@ function mergeDatabases(local: DB, remote: DB): { merged: DB; needsPush: boolean
   }
 
   return { merged, needsPush };
+}
+
+let listenersInitialized = false;
+
+export function initializeFirebaseSync() {
+  if (!backendEnabled() || listenersInitialized) return;
+  listenersInitialized = true;
+  console.log("[Sync] Initializing real-time Firestore listeners...");
+  
+  SYNC_TABLES.forEach((table) => {
+    const colName = COLLECTION_MAPPING[table.name];
+    onSnapshot(collection(db, colName), (snapshot) => {
+      // Suppress snapshot updates during an active local push to prevent race overwrites
+      if (remoteSyncInFlight || hasPendingPush) return;
+      
+      const docs = snapshot.docs.map(docSnap => docSnap.data());
+      updateLocalTableFromFirebase(table.name, docs);
+    });
+  });
+
+  // Listen to UNIT_SETTINGS
+  onSnapshot(doc(db, "unit_settings", "global"), (docSnap) => {
+    if (remoteSyncInFlight || hasPendingPush) return;
+    if (docSnap.exists()) {
+      updateLocalSettingsFromFirebase(docSnap.data() as UnitSettings);
+    }
+  });
+}
+
+function updateLocalTableFromFirebase(tableName: keyof DB, remoteRows: any[]) {
+  updateDB((local) => {
+    const idCol = SYNC_TABLES.find((t) => t.name === tableName)?.idCol || "id";
+    const localRows = (local[tableName] || []) as any[];
+    const localMap = new Map(localRows.map(r => [String(r[idCol] || ""), r]));
+    
+    const mergedRows = remoteRows.map((remoteRow) => {
+      const id = String(remoteRow[idCol] || "");
+      const localRow = localMap.get(id);
+      if (localRow && isLocalModified(tableName, id, localRow)) {
+        return localRow;
+      }
+      return remoteRow;
+    });
+    
+    // Maintain local rows that are not in remote yet (newly created and not pushed yet)
+    const remoteIds = new Set(remoteRows.map(r => String(r[idCol] || "")));
+    for (const localRow of localRows) {
+      const id = String(localRow[idCol] || "");
+      if (!remoteIds.has(id) && isLocalModified(tableName, id, localRow)) {
+        mergedRows.push(localRow);
+      }
+    }
+    
+    return {
+      ...local,
+      [tableName]: mergedRows
+    };
+  }, true);
+}
+
+function updateLocalSettingsFromFirebase(settings: UnitSettings) {
+  updateDB((local) => {
+    return {
+      ...local,
+      UNIT_SETTINGS: settings
+    };
+  }, true);
 }
 
 export async function syncFromBackend(options?: { force?: boolean; replaceLocal?: boolean }): Promise<boolean> {
@@ -627,80 +739,52 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
     if (!force && hasPendingPush) {
       console.log("[Sync] Local changes pending. Attempting push before pull.");
       await pushAllToBackend();
-      if (hasPendingPush) {
-        console.log("[Sync] Pull skipped: pending push still not persisted.");
-        return false;
-      }
+      if (hasPendingPush) return false;
     }
 
     const local = getDB();
 
-    // Perform a lightweight version check via ping to avoid heavy export downloads
-    try {
-      const pingData = await pingBackend();
-      if (pingData && pingData.db_version !== undefined) {
-        const localVer = getLocalDBVersion();
-        const remoteVer = pingData.db_version;
-        console.log(`[Sync] Version check - Local: ${localVer}, Remote: ${remoteVer}`);
-        
-        // If versions match, and we don't have an empty local DB, skip the pull!
-        if (!force && localVer === remoteVer && !isEmptyDB(local)) {
-          console.log("[Sync] DB versions match. Skip pulling remote database.");
-          return true;
-        }
-      }
-    } catch (err) {
-      console.warn("[Sync] Lightweight version check failed, falling back to full export:", err);
+    // Bootstrapping: Pull full DB from Firestore
+    console.log("[Sync] Performing bootstrap load from Firestore...");
+    const remoteSnap: Partial<DB> = {};
+    
+    for (const t of SYNC_TABLES) {
+      const colName = COLLECTION_MAPPING[t.name];
+      const snap = await getDocs(collection(db, colName));
+      (remoteSnap as any)[t.name] = snap.docs.map(docSnap => docSnap.data());
     }
 
-    const remoteResult = await exportRemoteDB();
-    if (!remoteResult) {
-      console.warn("[Sync] Remote DB export returned null/empty.");
-      return false;
-    }
-    const remote = remoteResult.data;
-    const remoteVersion = remoteResult.db_version;
+    const settingsSnap = await getDoc(doc(db, "unit_settings", "global"));
+    remoteSnap.UNIT_SETTINGS = settingsSnap.exists() ? (settingsSnap.data() as UnitSettings) : null;
 
-    const normalizedRemote = normalizeDB(remote);
+    const normalizedRemote = normalizeDB(remoteSnap);
     const comparableRemote = serializeDBForRemote(normalizedRemote);
     
-    // Set the baseline in backend-comparable shape. This is critical for computing diffs later.
     setLastSyncedDB(comparableRemote);
 
-    console.log(`[Sync] Remote data: ${normalizedRemote.USERS.length} users, ${normalizedRemote.PLANNERS.length} planners`);
-
-    // Perform a safe merge of local and remote databases unless the caller requested a full local refresh.
     const { merged, needsPush } = replaceLocal
       ? { merged: normalizedRemote, needsPush: false }
       : mergeDatabases(local, normalizedRemote);
 
-    // Re-check hasPendingPush after remote fetch to avoid race during network call
-    if (!force && hasPendingPush) {
-      console.warn("[Sync] Local became dirty during remote fetch. Aborting overwrite to prevent data loss.");
-      return false;
-    }
-
     suppressRemoteSync += 1;
     try {
       setDBInternal(merged, true);
-      // Keep baseline in backend-comparable form so row diffs use the same key/value shape as the server.
       setLastSyncedDB(comparableRemote);
-      if (remoteVersion) {
-        setLocalDBVersion(remoteVersion);
-      }
-      console.log("[Sync] Local DB updated and safely merged with remote.");
+      console.log("[Sync] Local DB successfully hydrated from Firestore.");
     } finally {
       suppressRemoteSync -= 1;
     }
 
+    // Now initialize the real-time listeners so we don't need to poll anymore
+    initializeFirebaseSync();
+
     if (!replaceLocal && needsPush) {
-      console.log("[Sync] Local changes detected that are not on remote. Scheduling push...");
       scheduleRemoteSync();
     }
 
     return true;
   } catch (err) {
-    console.warn("[Sync] Sync from backend failed:", err);
+    console.warn("[Sync] Hydration failed:", err);
     return false;
   } finally {
     remotePullInFlight = false;
@@ -767,10 +851,10 @@ export function setDB(next: DB) {
   setDBInternal(next);
 }
 
-export function updateDB(mutator: (db: DB) => DB) {
+export function updateDB(mutator: (db: DB) => DB, suppressSync = false) {
   const db = getDB();
   const next = mutator(db);
-  setDBInternal(next);
+  setDBInternal(next, suppressSync);
   return next;
 }
 
@@ -791,10 +875,6 @@ export function resetDB() {
   notifyDBListeners();
   scheduleRemoteSync();
 }
-
-/**
- * Reactive hooks for database tables
- */
 
 export function useTable<K extends keyof DB>(tableName: K) {
   const [data, setData] = useState<DB[K]>(() => {
@@ -831,7 +911,7 @@ export function useUpsertMutation<K extends keyof DB>(tableName: K) {
       updateDB((db) => {
         let table = db[tableName] as any;
         if (!Array.isArray(table)) {
-          if (tableName === "UNIT_SETTINGS") return db; // special case
+          if (tableName === "UNIT_SETTINGS") return db;
           table = [];
           (db as any)[tableName] = table;
         }

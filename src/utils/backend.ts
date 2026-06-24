@@ -1,102 +1,100 @@
+import { isFirebaseConfigured, db } from "./firebase";
+import { collection, getDocs, doc, setDoc } from "firebase/firestore";
+import { Hymn } from "../types";
+
 export function getGsConfig() {
-  const localUrl = localStorage.getItem("custom_gs_base_url") || "";
-  const localKey = localStorage.getItem("custom_gs_api_key") || "";
-  const base_url = localUrl.trim() || (import.meta.env.VITE_GS_BASE_URL || "").trim();
-  const api_key = localKey.trim() || (import.meta.env.VITE_GS_API_KEY || "").trim();
-  return { base_url, api_key };
+  // Returns empty object since we are migrating away from Apps Script
+  return { base_url: "", api_key: "" };
 }
-
-if (!getGsConfig().base_url && import.meta.env.PROD) {
-  console.warn("VITE_GS_BASE_URL is missing in production environment!");
-}
-
-type ApiResponse<T> = {
-  ok: boolean;
-  data?: T;
-  error?: string;
-  code?: number;
-  ts?: string;
-};
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function backendEnabled() {
-  const { base_url } = getGsConfig();
-  return Boolean(base_url);
-}
-
-function buildUrl(params: Record<string, string>) {
-  const { base_url, api_key } = getGsConfig();
-  const url = new URL(base_url);
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  if (api_key) url.searchParams.set("key", api_key);
-  return url.toString();
-}
-
-async function apiGet<T>(params: Record<string, string>): Promise<ApiResponse<T>> {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), 25000); // 25s timeout
-  try {
-    const res = await fetch(buildUrl(params), { signal: controller.signal });
-    return await res.json();
-  } finally {
-    clearTimeout(id);
-  }
-}
-
-export async function apiPost<T>(body: any): Promise<ApiResponse<T>> {
-  const { base_url, api_key } = getGsConfig();
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), 25000); // 25s timeout
-  try {
-    const res = await fetch(base_url, {
-      method: "POST",
-      // Use text/plain to avoid CORS preflight on Apps Script web apps.
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(api_key ? { ...body, key: api_key } : body),
-      signal: controller.signal,
-    });
-    return await res.json();
-  } finally {
-    clearTimeout(id);
-  }
-}
-
-async function withBusyRetry<T>(request: () => Promise<ApiResponse<T>>, attempts = 3): Promise<ApiResponse<T>> {
-  let last: ApiResponse<T> | null = null;
-  for (let i = 0; i < attempts; i++) {
-    const res = await request();
-    last = res;
-    if (res?.ok || res?.error !== "busy_try_again" || i === attempts - 1) return res;
-    await sleep(200 * (i + 1));
-  }
-  return last || { ok: false, error: "request_failed" };
-}
-
-export async function exportRemoteDB(): Promise<{ data: any; db_version?: number } | null> {
-  if (!backendEnabled()) return null;
-  const res = await withBusyRetry(() => apiGet<any>({ action: "export" }));
-  if (!res.ok) throw new Error(res.error || "export_failed");
-  return { data: res.data || null, db_version: (res as any).db_version };
-}
-
-export async function importRemoteDB(db: any, mode: "merge" | "replace" = "merge"): Promise<{ data: any; db_version?: number } | null> {
-  if (!backendEnabled()) return null;
-  const res = await withBusyRetry(() => apiPost<any>({ action: "import", mode, db }));
-  if (!res.ok) throw new Error(res.error || "import_failed");
-  return { data: res.data || null, db_version: (res as any).db_version };
+  return isFirebaseConfigured();
 }
 
 export async function pingBackend() {
   if (!backendEnabled()) return null;
-  const res = await withBusyRetry(() => apiGet<any>({ action: "ping" }));
-  if (!res.ok) throw new Error(res.error || "ping_failed");
-  return res.data || null;
+  try {
+    // Attempt to read from a dummy settings doc to verify Firestore access
+    await getDocs(collection(db, "unit_settings"));
+    return { ok: true, data: { message: "pong" } };
+  } catch (err: any) {
+    console.error("Firestore ping failed:", err);
+    throw new Error("Unable to connect to Firebase database.");
+  }
 }
 
-export async function syncMusic() {
+// Static LDS Hymns list used for bootstrapping the hymns collection
+const ldsHymnsList: Omit<Hymn, "hymn_id">[] = [
+  { number: 1, title: "The Morning Breaks", theme: "Restoration" },
+  { number: 2, title: "The Spirit of God", theme: "Restoration" },
+  { number: 3, title: "Now Let Us Rejoice", theme: "Restoration" },
+  { number: 4, title: "Truth Eternal", theme: "Restoration" },
+  { number: 5, title: "High on the Mountain Top", theme: "Restoration" },
+  { number: 6, title: "Redeemer of Israel", theme: "Savior" },
+  { number: 7, title: "Israel, Israel, God Is Calling", theme: "Restoration" },
+  { number: 8, title: "Awake and Arise", theme: "Restoration" },
+  { number: 9, title: "Come, Rejoice", theme: "Restoration" },
+  { number: 10, title: "Come, Sing to the Lord", theme: "Praise" },
+  { number: 19, title: "We Thank Thee, O God, for a Prophet", theme: "Prophets" },
+  { number: 169, title: "As Now We Take the Sacrament", theme: "Sacrament" },
+  { number: 170, title: "God, Our Father, Hear Us Pray", theme: "Sacrament" },
+  { number: 171, title: "With Humble Heart", theme: "Sacrament" },
+  { number: 172, title: "In Humility, Our Savior", theme: "Sacrament" },
+  { number: 173, title: "While of These Emblems We Partake", theme: "Sacrament" },
+  { number: 174, title: "While of These Emblems We Partake", theme: "Sacrament" },
+  { number: 175, title: "O God, the Eternal Father", theme: "Sacrament" },
+  { number: 176, title: "Tis Sweet to Sing the Matchless Love", theme: "Sacrament" },
+  { number: 177, title: "Tis Sweet to Sing the Matchless Love", theme: "Sacrament" },
+  { number: 178, title: "O Lord of Hosanna", theme: "Sacrament" },
+  { number: 179, title: "Again, Our Dear Redeeming Lord", theme: "Sacrament" },
+  { number: 180, title: "Father in Heaven, We Do Believe", theme: "Sacrament" },
+  { number: 181, title: "Jesus of Nazareth, Savior and King", theme: "Sacrament" },
+  { number: 182, title: "We'll Sing All Hail to Jesus' Name", theme: "Sacrament" },
+  { number: 183, title: "In Remembrance of Thy Suffering", theme: "Sacrament" },
+  { number: 184, title: "Upon the Cross of Calvary", theme: "Sacrament" },
+  { number: 185, title: "Reverently and Meekly Now", theme: "Sacrament" },
+  { number: 186, title: "Again We Meet around the Board", theme: "Sacrament" },
+  { number: 187, title: "God Loved Us, So He Sent His Son", theme: "Sacrament" },
+  { number: 188, title: "Thy Will, O Lord, Be Done", theme: "Sacrament" },
+  { number: 189, title: "O Thou, Before the World Began", theme: "Sacrament" },
+  { number: 190, title: "In Memory of the Crucified", theme: "Sacrament" },
+  { number: 191, title: "Behold the Great Redeemer Die", theme: "Sacrament" },
+  { number: 192, title: "He Died! The Great Redeemer Died", theme: "Savior" },
+  { number: 193, title: "I Stand All Amazed", theme: "Sacrament" },
+  { number: 194, title: "There Is a Green Hill Far Away", theme: "Sacrament" },
+  { number: 195, title: "How Great the Wisdom and the Love", theme: "Sacrament" },
+  { number: 196, title: "Jesus, Once of Humble Birth", theme: "Sacrament" },
+];
+
+export async function syncMusic(): Promise<any> {
   if (!backendEnabled()) return null;
-  const res = await withBusyRetry(() => apiGet<any>({ action: "syncHymns" }));
-  if (!res.ok) throw new Error(res.error || "sync_failed");
-  return res.data || null;
+  try {
+    const hymnsSnap = await getDocs(collection(db, "hymns"));
+    
+    // Bootstrap hymns if the collection is empty
+    if (hymnsSnap.empty) {
+      console.log("Bootstrapping hymns collection in Firestore...");
+      for (const hymn of ldsHymnsList) {
+        // Use the hymn number as the document ID
+        await setDoc(doc(db, "hymns", String(hymn.number)), hymn);
+      }
+    }
+    return { ok: true, data: "Hymns synced successfully" };
+  } catch (err: any) {
+    console.error("Hymn sync failed:", err);
+    throw new Error("Failed to sync hymns with Firebase.");
+  }
+}
+
+// Deprecated AppScript sync methods kept as stubs for backward compatibility
+export async function exportRemoteDB(): Promise<null> {
+  return null;
+}
+
+export async function importRemoteDB(dbData: any, mode: string = "merge"): Promise<null> {
+  return null;
+}
+
+export async function apiPost<T>(body: any): Promise<any> {
+  return { ok: false, error: "Apps Script API is deprecated." };
 }

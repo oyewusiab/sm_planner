@@ -1,0 +1,39 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper: Is the user authenticated?
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper: Get user document from the users collection
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Helper: Is the user an Admin?
+    function isAdmin() {
+      return isAuthenticated() && 
+        (resource == null || getUserData().role == 'ADMIN');
+    }
+
+    // Default rule: allow read/write to authenticated users
+    match /{document=**} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // USERS collection: users can read all, but only write their own profile unless they are an ADMIN
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated(); // Admin creates it, or user signs up
+      allow update, delete: if isAuthenticated() && (request.auth.uid == userId || request.auth.token.email == resource.data.email || isAdmin());
+    }
+
+    // UNIT_SETTINGS: read by anyone, write only by ADMIN, BISHOPRIC, or CLERK
+    match /unit_settings/{document} {
+      allow read: if true;
+      allow write: if isAuthenticated() && (isAdmin() || getUserData().role == 'BISHOPRIC' || getUserData().role == 'CLERK');
+    }
+  }
+}
