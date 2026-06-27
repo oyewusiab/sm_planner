@@ -15,7 +15,7 @@ import { AgendaPage } from "./pages/AgendaPage";
 import { CalendarPage } from "./pages/CalendarPage";
 import * as auth from "./auth/authService";
 import { clearSession, getSession, newSessionForUser, setSession } from "./auth/session";
-import { syncNow, syncFromBackend, getDB, onSyncStatusChange, updateDB, ids } from "./utils/storage";
+import { syncNow, syncFromBackend, getDB, onSyncStatusChange, updateDB, ids, onDBChange } from "./utils/storage";
 import { backendEnabled, pingBackend, syncMusic } from "./utils/backend";
 import { Button } from "./components/ui";
 
@@ -30,7 +30,28 @@ function LoadingScreen({ label = "Loading…" }: { label?: string }) {
 }
 
 type BackendStatus = "disabled" | "connecting" | "online" | "error";
-const AUTO_SYNC_INTERVAL_MS = 60000;
+
+const VALID_ROUTES: RouteKey[] = [
+  "dashboard",
+  "planner",
+  "agenda",
+  "calendar",
+  "archive",
+  "assignments",
+  "checklist",
+  "members",
+  "music",
+  "notifications",
+  "settings",
+];
+
+function getRouteFromHash(): RouteKey | null {
+  const hash = window.location.hash.replace(/^#\/?/, "");
+  if (VALID_ROUTES.includes(hash as RouteKey)) {
+    return hash as RouteKey;
+  }
+  return null;
+}
 
 export function App() {
   const [booting, setBooting] = useState(true);
@@ -41,12 +62,32 @@ export function App() {
   const [unit, setUnit] = useState<UnitSettings | null>(() => getDB().UNIT_SETTINGS);
 
   const [route, setRoute] = useState<RouteKey>(() => {
+    const fromHash = getRouteFromHash();
+    if (fromHash) return fromHash;
     const saved = localStorage.getItem("sac_meeting_planner_route_v1");
     return (saved as RouteKey) || "dashboard";
   });
 
   useEffect(() => {
+    window.location.hash = `#/${route}`;
     localStorage.setItem("sac_meeting_planner_route_v1", route);
+  }, [route]);
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      const fromHash = getRouteFromHash();
+      if (fromHash) {
+        setRoute(fromHash);
+      } else {
+        if (window.location.hash && window.location.hash !== "#/") {
+          window.location.hash = `#/${route}`;
+        } else {
+          setRoute("dashboard");
+        }
+      }
+    };
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
   }, [route]);
   const [backendStatus, setBackendStatus] = useState<BackendStatus>(() =>
     backendEnabled() ? "connecting" : "disabled"
@@ -163,6 +204,13 @@ export function App() {
     });
   }, []);
 
+  // Subscribe to real-time local and Firestore database updates
+  useEffect(() => {
+    return onDBChange(() => {
+      refresh();
+    });
+  }, []);
+
   // Inactivity & Auto-logout
   useEffect(() => {
     if (!user) return;
@@ -197,7 +245,7 @@ export function App() {
     };
   }, [user]);
 
-  // Polling Sync + foreground refresh for near-real-time multi-user visibility.
+  // Real-time listener and foreground refresh triggers.
   useEffect(() => {
     if (!user || !backendEnabled()) return;
 
@@ -207,10 +255,9 @@ export function App() {
       });
     };
 
-    console.log(`[Sync] Polling started (${AUTO_SYNC_INTERVAL_MS / 1000}s interval)`);
+    console.log("[Sync] Initial sync on mount/login");
     pull(); // Immediate check when app becomes active for the signed-in user
 
-    const interval = setInterval(pull, AUTO_SYNC_INTERVAL_MS);
     const onVisible = () => {
       if (document.visibilityState === "visible") pull();
     };
@@ -222,7 +269,6 @@ export function App() {
     window.addEventListener("online", onOnline);
 
     return () => {
-      clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("online", onOnline);
@@ -367,7 +413,7 @@ export function App() {
           setSession(newSessionForUser(u));
           setUser(u);
           setUnit(getDB().UNIT_SETTINGS);
-          setRoute("dashboard");
+          setRoute(getRouteFromHash() || "dashboard");
         }}
         backendStatus={backendStatus}
         syncError={syncError}

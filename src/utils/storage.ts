@@ -147,6 +147,13 @@ function notifyDBListeners() {
   dbListeners.forEach((l) => l());
 }
 
+export function onDBChange(listener: () => void) {
+  dbListeners.add(listener);
+  return () => {
+    dbListeners.delete(listener);
+  };
+}
+
 function notifySyncListeners(syncing: boolean) {
   syncListeners.forEach((l) => l(syncing));
 }

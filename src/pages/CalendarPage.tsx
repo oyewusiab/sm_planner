@@ -6,6 +6,25 @@ import { getDB, updateDB, ids, syncNow } from "../utils/storage";
 import { can } from "../utils/permissions";
 import { cn } from "../utils/cn";
 
+function formatTimePlain(t: string | undefined | null): string {
+  if (!t) return "";
+  const tStr = String(t).trim();
+  if (tStr.includes("T")) {
+    try {
+      const datePart = new Date(tStr);
+      if (!isNaN(datePart.getTime())) {
+        let hours = datePart.getUTCHours();
+        const minutes = String(datePart.getUTCMinutes()).padStart(2, "0");
+        const ampm = hours >= 12 ? "PM" : "AM";
+        hours = hours % 12;
+        hours = hours ? hours : 12;
+        return `${String(hours).padStart(2, "0")}:${minutes} ${ampm}`;
+      }
+    } catch {}
+  }
+  return tStr;
+}
+
 export function CalendarPage({
   user,
   unit,
@@ -68,12 +87,12 @@ export function CalendarPage({
     const total = activities.length;
     const completed = activities.filter(a => a.status).length;
     const pending = activities.filter(a => !a.status).length;
-    const notDone = activities.filter(a => !a.status && a.date < todayStr).length;
+    const notDone = activities.filter(a => !a.status && (a.date ? a.date.slice(0, 10) : "") < todayStr).length;
     const rate = total > 0 ? Math.round((completed / total) * 100) : 0;
     const reports = activities.filter(a => a.report_submitted === "YES").length;
     
     // Overdue is pending activities past their date
-    const overdueReports = activities.filter(a => !a.status && a.date < todayStr).length;
+    const overdueReports = activities.filter(a => !a.status && (a.date ? a.date.slice(0, 10) : "") < todayStr).length;
 
     return { total, completed, pending, notDone, rate, reports, overdueReports };
   }, [activities, todayStr]);
@@ -86,10 +105,10 @@ export function CalendarPage({
 
     return activities
       .filter(a => {
-        const d = new Date(a.date);
+        const d = new Date(a.date ? a.date.slice(0, 10) : "");
         return d >= start && d <= end;
       })
-      .sort((a, b) => a.date.localeCompare(b.date));
+      .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
   }, [activities, todayStr]);
 
   // Filtered lists
@@ -97,8 +116,8 @@ export function CalendarPage({
     const query = activitySearch.trim().toLowerCase();
     if (!query) return activities;
     return activities.filter(a => 
-      a.activity.toLowerCase().includes(query) || 
-      a.organisation.toLowerCase().includes(query) ||
+      (a.activity || "").toLowerCase().includes(query) || 
+      (a.organisation || "").toLowerCase().includes(query) ||
       (a.those_involved || "").toLowerCase().includes(query)
     );
   }, [activities, activitySearch]);
@@ -111,10 +130,10 @@ export function CalendarPage({
 
     return filteredActivities
       .filter(a => {
-        const d = new Date(a.date);
+        const d = new Date(a.date ? a.date.slice(0, 10) : "");
         return d >= start && d <= end;
       })
-      .sort((a, b) => a.date.localeCompare(b.date));
+      .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
   }, [filteredActivities, todayStr]);
 
   // Month list
@@ -137,13 +156,13 @@ export function CalendarPage({
       const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
       
       const dayEvents: any[] = [];
-      activities.filter((a: CalendarActivity) => a.date === dateStr).forEach((a: CalendarActivity) => {
+      activities.filter((a: CalendarActivity) => (a.date ? a.date.slice(0, 10) : "") === dateStr).forEach((a: CalendarActivity) => {
         dayEvents.push({ type: "WARD", name: a.activity, org: a.organisation, details: a.those_involved });
       });
-      publicHolidays.filter((h: PublicHoliday) => h.date === dateStr).forEach((h: PublicHoliday) => {
+      publicHolidays.filter((h: PublicHoliday) => (h.date ? h.date.slice(0, 10) : "") === dateStr).forEach((h: PublicHoliday) => {
         dayEvents.push({ type: "HOLIDAY", name: h.holiday, details: h.theme });
       });
-      otherPrograms.filter((p: OtherChurchProgram) => p.date === dateStr).forEach((p: OtherChurchProgram) => {
+      otherPrograms.filter((p: OtherChurchProgram) => (p.date ? p.date.slice(0, 10) : "") === dateStr).forEach((p: OtherChurchProgram) => {
         dayEvents.push({ type: "PROGRAM", name: p.program, org: p.organisation });
       });
 
@@ -371,7 +390,7 @@ export function CalendarPage({
                         <div className="min-w-0">
                           <div className="text-xs font-black text-slate-800">{a.activity}</div>
                           <div className="text-[9px] text-slate-400 mt-1 font-bold">
-                            📅 {a.date} • 🕒 {a.time}
+                            📅 {a.date ? a.date.slice(0, 10) : ""} • 🕒 {formatTimePlain(a.time)}
                           </div>
                           {a.those_involved && (
                             <p className="text-[9px] text-slate-500 italic mt-1 truncate">
@@ -434,10 +453,10 @@ export function CalendarPage({
 
                             return (
                               <tr key={a.activity_id} className="hover:bg-slate-50/30 transition-colors">
-                                <td className="p-3 text-xs font-semibold text-slate-600">{a.date}</td>
+                                <td className="p-3 text-xs font-semibold text-slate-600">{a.date ? a.date.slice(0, 10) : ""}</td>
                                 <td className="p-3 text-xs font-black text-slate-800">
                                   {a.activity}
-                                  {a.time && <span className="text-[10px] font-normal text-slate-400 ml-2">({a.time})</span>}
+                                  {a.time && <span className="text-[10px] font-normal text-slate-400 ml-2">({formatTimePlain(a.time)})</span>}
                                 </td>
                                 <td className="p-3 text-xs">
                                   <Badge tone={a.organisation === "WARD" ? "blue" : "gray"} className="text-[8px] font-extrabold">
@@ -566,7 +585,7 @@ export function CalendarPage({
             {/* Calendar Cells Grid */}
             <div className="calendar-grid bg-slate-200 border-b border-x border-slate-200 rounded-b-xl overflow-hidden">
               {calendarGrid.map((cell, idx) => {
-                const isToday = cell.dateStr === todayStr;
+                const isToday = cell.dateStr && cell.dateStr.slice(0, 10) === todayStr;
                 const cellBg = getCellColorClass(cell.events);
                 return (
                   <div
