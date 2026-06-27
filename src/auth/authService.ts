@@ -165,9 +165,16 @@ export async function setUserPassword(user_id: string, newPassword: string) {
     throw new Error("Password must be at least 6 characters.");
   }
 
-  const backendOn = backendEnabled();
-  
-  if (backendOn && auth.currentUser && auth.currentUser.uid === user_id) {
+  const dbData = getDB();
+  const currentUserProfile = dbData.USERS.find(
+    (u) => u.auth_uid === auth.currentUser?.uid || u.user_id === auth.currentUser?.uid
+  );
+  const isUpdatingSelf = auth.currentUser && (
+    auth.currentUser.uid === user_id || 
+    (currentUserProfile && currentUserProfile.user_id === user_id)
+  );
+
+  if (backendOn && auth.currentUser && isUpdatingSelf) {
     // User is updating their own password
     await updatePassword(auth.currentUser, newPassword);
   } else if (backendOn) {
@@ -201,8 +208,12 @@ export async function resetUserPasswordToDefault(user_id: string, password = "ch
   const backendOn = backendEnabled();
   
   if (backendOn) {
-    const resetPasswordFn = httpsCallable(functions, "adminResetPassword");
-    await resetPasswordFn({ user_id, password });
+    try {
+      const resetPasswordFn = httpsCallable(functions, "adminResetPassword");
+      await resetPasswordFn({ user_id, password });
+    } catch (err) {
+      console.warn("[Auth] adminResetPassword Cloud Function failed, falling back to local update:", err);
+    }
   }
 
   const hash = await sha256(password);
@@ -332,22 +343,30 @@ export async function addUser(
   const backendOn = backendEnabled();
   const { organisation, calling: calling0 } = defaultOrgCallingForRole(role, calling ? { calling } : undefined);
   const username = usernameFromUser(name, email);
+  let createdViaCloud = false;
 
   if (backendOn) {
-    // Create via Cloud Function. Firestore listener will automatically pull and update local DB.
-    const createUserFn = httpsCallable(functions, "adminCreateUser");
-    await createUserFn({
-      email,
-      password: "changeme", // Temporary password for first-time login
-      name,
-      role,
-      organisation,
-      calling: calling0,
-      gender,
-      username,
-    });
-  } else {
-    // Offline fallback
+    try {
+      // Create via Cloud Function. Firestore listener will automatically pull and update local DB.
+      const createUserFn = httpsCallable(functions, "adminCreateUser");
+      await createUserFn({
+        email,
+        password: "changeme", // Temporary password for first-time login
+        name,
+        role,
+        organisation,
+        calling: calling0,
+        gender,
+        username,
+      });
+      createdViaCloud = true;
+    } catch (err) {
+      console.warn("[Auth] adminCreateUser Cloud Function failed, falling back to local creation:", err);
+    }
+  }
+
+  if (!createdViaCloud) {
+    // Offline/Spark plan fallback: Create in local DB (will sync to Firestore)
     updateDB((db0) => {
       const user: User = {
         user_id: ids.uid("user"),
@@ -369,10 +388,18 @@ export async function addUser(
 
 export async function setUserDisabled(user_id: string, disabled: boolean) {
   const backendOn = backendEnabled();
+  let updatedViaCloud = false;
   if (backendOn) {
-    const toggleStatusFn = httpsCallable(functions, "adminToggleUserStatus");
-    await toggleStatusFn({ user_id, disabled });
-  } else {
+    try {
+      const toggleStatusFn = httpsCallable(functions, "adminToggleUserStatus");
+      await toggleStatusFn({ user_id, disabled });
+      updatedViaCloud = true;
+    } catch (err) {
+      console.warn("[Auth] adminToggleUserStatus Cloud Function failed, falling back to local update:", err);
+    }
+  }
+
+  if (!updatedViaCloud) {
     updateDB((db0) => {
       const USERS = db0.USERS.map((u) => (u.user_id === user_id ? { ...u, disabled } : u));
       return { ...db0, USERS };
@@ -382,10 +409,18 @@ export async function setUserDisabled(user_id: string, disabled: boolean) {
 
 export async function deleteUser(user_id: string) {
   const backendOn = backendEnabled();
+  let deletedViaCloud = false;
   if (backendOn) {
-    const deleteUserFn = httpsCallable(functions, "adminDeleteUser");
-    await deleteUserFn({ user_id });
-  } else {
+    try {
+      const deleteUserFn = httpsCallable(functions, "adminDeleteUser");
+      await deleteUserFn({ user_id });
+      deletedViaCloud = true;
+    } catch (err) {
+      console.warn("[Auth] adminDeleteUser Cloud Function failed, falling back to local deletion:", err);
+    }
+  }
+
+  if (!deletedViaCloud) {
     updateDB((db0) => {
       const USERS = db0.USERS.filter((u) => u.user_id !== user_id);
       return { ...db0, USERS };

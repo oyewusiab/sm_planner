@@ -79,8 +79,24 @@ export const adminDeleteUser = onCall(async (request) => {
   }
 
   try {
+    // Look up user profile to resolve Auth UID
+    const userDoc = await db.collection("users").doc(user_id).get();
+    let authUid = user_id;
+    if (userDoc.exists) {
+      const userData = userDoc.data();
+      if (userData && userData.auth_uid) {
+        authUid = userData.auth_uid;
+      }
+    }
+
     // 1. Delete from Firebase Auth
-    await admin.auth().deleteUser(user_id);
+    try {
+      await admin.auth().deleteUser(authUid);
+    } catch (authErr: any) {
+      if (authErr.code !== "auth/user-not-found") {
+        throw authErr;
+      }
+    }
 
     // 2. Delete from Firestore 'users' collection
     await db.collection("users").doc(user_id).delete();
@@ -104,8 +120,24 @@ export const adminToggleUserStatus = onCall(async (request) => {
   }
 
   try {
+    // Look up user profile to resolve Auth UID
+    const userDoc = await db.collection("users").doc(user_id).get();
+    let authUid = user_id;
+    if (userDoc.exists) {
+      const userData = userDoc.data();
+      if (userData && userData.auth_uid) {
+        authUid = userData.auth_uid;
+      }
+    }
+
     // 1. Update status in Firebase Auth
-    await admin.auth().updateUser(user_id, { disabled });
+    try {
+      await admin.auth().updateUser(authUid, { disabled });
+    } catch (authErr: any) {
+      if (authErr.code !== "auth/user-not-found") {
+        throw authErr;
+      }
+    }
 
     // 2. Update status in Firestore
     await db.collection("users").doc(user_id).update({ disabled });
@@ -129,8 +161,18 @@ export const adminResetPassword = onCall(async (request) => {
   }
 
   try {
-    // 1. Update password in Firebase Auth
-    await admin.auth().updateUser(user_id, { password });
+    // Look up user profile to resolve Auth UID
+    const userDoc = await db.collection("users").doc(user_id).get();
+    let authUid = user_id;
+    if (userDoc.exists) {
+      const userData = userDoc.data();
+      if (userData && userData.auth_uid) {
+        authUid = userData.auth_uid;
+      }
+    }
+
+    // 1. Update password in Firebase Auth using the correct Auth UID
+    await admin.auth().updateUser(authUid, { password });
 
     // 2. Update Firestore profile to require reset
     await db.collection("users").doc(user_id).update({ must_reset_password: true });
