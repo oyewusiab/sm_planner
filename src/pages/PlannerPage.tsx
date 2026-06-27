@@ -120,6 +120,145 @@ function normalizePlanner(planner: Planner, defaultSpeakers: number): Planner {
 }
 
 
+function checkNameConflicts(
+  name: string,
+  currentPlanner: Planner,
+  allPlanners: Planner[],
+  currentWeekId: string,
+  currentRoleLabel: string
+) {
+  const normalizedSearch = name.trim().toLowerCase();
+  if (!normalizedSearch) return [];
+
+  const warnings: string[] = [];
+
+  // Helper to extract all assignments from a planner
+  const getSelections = (p: Planner) => {
+    const list: { weekIndex: number; date: string; name: string; role: string; weekId: string }[] = [];
+    p.weeks.forEach((w, wIdx) => {
+      if (w.is_canceled) return;
+      
+      // Speakers
+      w.speakers.forEach((s, sIdx) => {
+        if (s.name) {
+          list.push({
+            weekIndex: wIdx,
+            date: w.date,
+            name: s.name,
+            role: `Speaker ${sIdx + 1}`,
+            weekId: w.week_id
+          });
+        }
+      });
+
+      // Prayers
+      if (w.prayers?.invocation) {
+        list.push({
+          weekIndex: wIdx,
+          date: w.date,
+          name: w.prayers.invocation,
+          role: "Invocation",
+          weekId: w.week_id
+        });
+      }
+      if (w.prayers?.benediction) {
+        list.push({
+          weekIndex: wIdx,
+          date: w.date,
+          name: w.prayers.benediction,
+          role: "Benediction",
+          weekId: w.week_id
+        });
+      }
+
+      // Sacrament
+      w.sacrament?.preparing?.forEach((n, nIdx) => {
+        if (n) {
+          list.push({
+            weekIndex: wIdx,
+            date: w.date,
+            name: n,
+            role: `Sacrament Preparing ${nIdx}`,
+            weekId: w.week_id
+          });
+        }
+      });
+      w.sacrament?.blessing?.forEach((n, nIdx) => {
+        if (n) {
+          list.push({
+            weekIndex: wIdx,
+            date: w.date,
+            name: n,
+            role: `Sacrament Blessing ${nIdx}`,
+            weekId: w.week_id
+          });
+        }
+      });
+      w.sacrament?.passing?.forEach((n, nIdx) => {
+        if (n) {
+          list.push({
+            weekIndex: wIdx,
+            date: w.date,
+            name: n,
+            role: `Sacrament Passing ${nIdx}`,
+            weekId: w.week_id
+          });
+        }
+      });
+    });
+    return list;
+  };
+
+  // 1. Check Same Planner conflicts
+  const currentSelections = getSelections(currentPlanner);
+  currentSelections.forEach((sel) => {
+    if (sel.name.trim().toLowerCase() === normalizedSearch) {
+      // Avoid warning about the current field itself
+      const isCurrentField = sel.weekId === currentWeekId && sel.role === currentRoleLabel;
+      if (!isCurrentField) {
+        // Human readable display role (strip trailing indices from role name for output)
+        const displayRole = sel.role.replace(/\s+\d+$/, "");
+        warnings.push(`Already selected for ${displayRole} in Week ${sel.weekIndex + 1} (${formatDateShort(sel.date)}) of this planner.`);
+      }
+    }
+  });
+
+  // 2. Check Other Planners conflicts
+  const draftPeriod = currentPlanner.year * 12 + currentPlanner.month;
+
+  // Filter other planners, sorting chronologically descending
+  const otherPlannersSorted = allPlanners
+    .filter((p) => p.planner_id !== currentPlanner.planner_id)
+    .sort((a, b) => (b.year * 12 + b.month) - (a.year * 12 + a.month));
+
+  // Active planners (state !== ARCHIVED)
+  const activePlanners = otherPlannersSorted.filter((p) => p.state !== "ARCHIVED");
+
+  // Last 6 planners chronologically prior to this planner
+  const priorPlanners = otherPlannersSorted.filter((p) => {
+    const pPeriod = p.year * 12 + p.month;
+    return pPeriod < draftPeriod;
+  }).slice(0, 6);
+
+  // Combine relevant other planners (avoid duplicates if an active planner is also in prior list)
+  const relevantPlannersMap = new Map<string, Planner>();
+  activePlanners.forEach((p) => relevantPlannersMap.set(p.planner_id, p));
+  priorPlanners.forEach((p) => relevantPlannersMap.set(p.planner_id, p));
+
+  relevantPlannersMap.forEach((p) => {
+    const selections = getSelections(p);
+    selections.forEach((sel) => {
+      if (sel.name.trim().toLowerCase() === normalizedSearch) {
+        const typeLabel = p.state === "ARCHIVED" ? "archived" : "active";
+        const displayRole = sel.role.replace(/\s+\d+$/, "");
+        warnings.push(`Selected for ${displayRole} in ${monthName(p.month)} ${p.year} (${typeLabel} planner).`);
+      }
+    });
+  });
+
+  return warnings;
+}
+
 function plannerLabel(p: Planner) {
   return `${monthName(p.month)} ${p.year}`;
 }
@@ -416,6 +555,103 @@ export function PlannerPage({
     if (draft.state === "ARCHIVED") return true;
     return !canCreate && draft.state === "DRAFT";
   }, [draft, canEditSubmitted, canCreate]);
+
+  const globalWarnings = useMemo(() => {
+    if (!draft) return [];
+    const list: { weekIndex: number; date: string; name: string; role: string; warnings: string[] }[] = [];
+    
+    draft.weeks.forEach((w, wIdx) => {
+      if (w.is_canceled) return;
+
+      // Speakers
+      w.speakers.forEach((s, i) => {
+        if (s.name) {
+          const warns = checkNameConflicts(s.name, draft, plannersData, w.week_id, `Speaker ${i + 1}`);
+          if (warns.length > 0) {
+            list.push({
+              weekIndex: wIdx,
+              date: w.date,
+              name: s.name,
+              role: `Week ${wIdx + 1} - Speaker ${i + 1}`,
+              warnings: warns
+            });
+          }
+        }
+      });
+
+      // Prayers
+      if (w.prayers?.invocation) {
+        const warns = checkNameConflicts(w.prayers.invocation, draft, plannersData, w.week_id, "Invocation");
+        if (warns.length > 0) {
+          list.push({
+            weekIndex: wIdx,
+            date: w.date,
+            name: w.prayers.invocation,
+            role: `Week ${wIdx + 1} - Invocation`,
+            warnings: warns
+          });
+        }
+      }
+      if (w.prayers?.benediction) {
+        const warns = checkNameConflicts(w.prayers.benediction, draft, plannersData, w.week_id, "Benediction");
+        if (warns.length > 0) {
+          list.push({
+            weekIndex: wIdx,
+            date: w.date,
+            name: w.prayers.benediction,
+            role: `Week ${wIdx + 1} - Benediction`,
+            warnings: warns
+          });
+        }
+      }
+
+      // Sacrament
+      w.sacrament?.preparing?.forEach((n, i) => {
+        if (n) {
+          const warns = checkNameConflicts(n, draft, plannersData, w.week_id, `Sacrament Preparing ${i}`);
+          if (warns.length > 0) {
+            list.push({
+              weekIndex: wIdx,
+              date: w.date,
+              name: n,
+              role: `Week ${wIdx + 1} - Sacrament Preparing (${i + 1})`,
+              warnings: warns
+            });
+          }
+        }
+      });
+      w.sacrament?.blessing?.forEach((n, i) => {
+        if (n) {
+          const warns = checkNameConflicts(n, draft, plannersData, w.week_id, `Sacrament Blessing ${i}`);
+          if (warns.length > 0) {
+            list.push({
+              weekIndex: wIdx,
+              date: w.date,
+              name: n,
+              role: `Week ${wIdx + 1} - Sacrament Blessing (${i + 1})`,
+              warnings: warns
+            });
+          }
+        }
+      });
+      w.sacrament?.passing?.forEach((n, i) => {
+        if (n) {
+          const warns = checkNameConflicts(n, draft, plannersData, w.week_id, `Sacrament Passing ${i}`);
+          if (warns.length > 0) {
+            list.push({
+              weekIndex: wIdx,
+              date: w.date,
+              name: n,
+              role: `Week ${wIdx + 1} - Sacrament Passing (${i + 1})`,
+              warnings: warns
+            });
+          }
+        }
+      });
+    });
+
+    return list;
+  }, [draft, plannersData]);
 
   function setSacramentNames(week_id: string, key: "preparing" | "blessing" | "passing", names: string[]) {
     setDraft((d) => {
@@ -779,6 +1015,30 @@ export function PlannerPage({
         </CardBody>
       </Card>
 
+      {globalWarnings.length > 0 && (
+        <Card className="border-amber-200 bg-amber-50/50 no-print">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-amber-800 text-sm font-bold flex items-center gap-2">
+              <span>⚠️ Schedule Warning Alerts ({globalWarnings.length})</span>
+            </CardTitle>
+          </CardHeader>
+          <CardBody className="py-2">
+            <ul className="text-xs text-amber-700 space-y-2 list-disc list-inside font-semibold">
+              {globalWarnings.map((item, idx) => (
+                <li key={idx}>
+                  <span className="font-bold">{item.name}</span> ({item.role}):
+                  <ul className="pl-4 mt-0.5 space-y-0.5 list-none text-slate-600 font-medium">
+                    {item.warnings.map((wText, wIdx) => (
+                      <li key={wIdx}>• {wText}</li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          </CardBody>
+        </Card>
+      )}
+
       <div className="space-y-4">
         {draft.weeks.map((w, idx) => (
           <Card key={w.week_id}>
@@ -1034,6 +1294,16 @@ export function PlannerPage({
                                   });
                                 }}
                               />
+                              {s.name && (() => {
+                                const warns = checkNameConflicts(s.name, draft, plannersData, w.week_id, `Speaker ${i + 1}`);
+                                return warns.length > 0 ? (
+                                  <div className="text-[10px] font-bold text-amber-600 mt-1 space-y-0.5">
+                                    {warns.map((wText, wIdx) => (
+                                      <div key={wIdx}>⚠️ {wText}</div>
+                                    ))}
+                                  </div>
+                                ) : null;
+                              })()}
                             </div>
 
                             <div className="space-y-1">
@@ -1097,19 +1367,32 @@ export function PlannerPage({
                           <div className="space-y-2">
                             {ensureListWithAtLeastOne(w.sacrament?.preparing).map((name, i) => (
                               <div key={i} className="flex items-center gap-2">
-                                <MemberAutocomplete
-                                  members={members}
-                                  disabled={readonly}
-                                  placeholder={`Name ${i + 1}`}
-                                  value={name}
-                                  onChange={(val) => updateSacramentName(w.week_id, "preparing", i, val)}
-                                />
+                                <div className="flex-1">
+                                  <MemberAutocomplete
+                                    members={members}
+                                    disabled={readonly}
+                                    placeholder={`Name ${i + 1}`}
+                                    value={name}
+                                    onChange={(val) => updateSacramentName(w.week_id, "preparing", i, val)}
+                                  />
+                                  {name && (() => {
+                                    const warns = checkNameConflicts(name, draft, plannersData, w.week_id, `Sacrament Preparing ${i}`);
+                                    return warns.length > 0 ? (
+                                      <div className="text-[10px] font-bold text-amber-600 mt-1 space-y-0.5">
+                                        {warns.map((wText, wIdx) => (
+                                          <div key={wIdx}>⚠️ {wText}</div>
+                                        ))}
+                                      </div>
+                                    ) : null;
+                                  })()}
+                                </div>
                                 {!readonly ? (
                                   <Button
                                     variant="secondary"
                                     type="button"
                                     onClick={() => removeSacramentName(w.week_id, "preparing", i)}
                                     className="px-2"
+                                    style={{ alignSelf: "flex-start", marginTop: "1px" }}
                                     title="Remove"
                                   >
                                     −
@@ -1133,19 +1416,32 @@ export function PlannerPage({
                           <div className="space-y-2">
                             {ensureListWithAtLeastOne(w.sacrament?.blessing).map((name, i) => (
                               <div key={i} className="flex items-center gap-2">
-                                <MemberAutocomplete
-                                  members={members}
-                                  disabled={readonly}
-                                  placeholder={`Name ${i + 1}`}
-                                  value={name}
-                                  onChange={(val) => updateSacramentName(w.week_id, "blessing", i, val)}
-                                />
+                                <div className="flex-1">
+                                  <MemberAutocomplete
+                                    members={members}
+                                    disabled={readonly}
+                                    placeholder={`Name ${i + 1}`}
+                                    value={name}
+                                    onChange={(val) => updateSacramentName(w.week_id, "blessing", i, val)}
+                                  />
+                                  {name && (() => {
+                                    const warns = checkNameConflicts(name, draft, plannersData, w.week_id, `Sacrament Blessing ${i}`);
+                                    return warns.length > 0 ? (
+                                      <div className="text-[10px] font-bold text-amber-600 mt-1 space-y-0.5">
+                                        {warns.map((wText, wIdx) => (
+                                          <div key={wIdx}>⚠️ {wText}</div>
+                                        ))}
+                                      </div>
+                                    ) : null;
+                                  })()}
+                                </div>
                                 {!readonly ? (
                                   <Button
                                     variant="secondary"
                                     type="button"
                                     onClick={() => removeSacramentName(w.week_id, "blessing", i)}
                                     className="px-2"
+                                    style={{ alignSelf: "flex-start", marginTop: "1px" }}
                                     title="Remove"
                                   >
                                     −
@@ -1169,19 +1465,32 @@ export function PlannerPage({
                           <div className="space-y-2">
                             {ensureListWithAtLeastOne(w.sacrament?.passing).map((name, i) => (
                               <div key={i} className="flex items-center gap-2">
-                                <MemberAutocomplete
-                                  members={members}
-                                  disabled={readonly}
-                                  placeholder={`Name ${i + 1}`}
-                                  value={name}
-                                  onChange={(val) => updateSacramentName(w.week_id, "passing", i, val)}
-                                />
+                                <div className="flex-1">
+                                  <MemberAutocomplete
+                                    members={members}
+                                    disabled={readonly}
+                                    placeholder={`Name ${i + 1}`}
+                                    value={name}
+                                    onChange={(val) => updateSacramentName(w.week_id, "passing", i, val)}
+                                  />
+                                  {name && (() => {
+                                    const warns = checkNameConflicts(name, draft, plannersData, w.week_id, `Sacrament Passing ${i}`);
+                                    return warns.length > 0 ? (
+                                      <div className="text-[10px] font-bold text-amber-600 mt-1 space-y-0.5">
+                                        {warns.map((wText, wIdx) => (
+                                          <div key={wIdx}>⚠️ {wText}</div>
+                                        ))}
+                                      </div>
+                                    ) : null;
+                                  })()}
+                                </div>
                                 {!readonly ? (
                                   <Button
                                     variant="secondary"
                                     type="button"
                                     onClick={() => removeSacramentName(w.week_id, "passing", i)}
                                     className="px-2"
+                                    style={{ alignSelf: "flex-start", marginTop: "1px" }}
                                     title="Remove"
                                   >
                                     −
@@ -1274,6 +1583,16 @@ export function PlannerPage({
                                   );
                                 }}
                               />
+                              {w.prayers?.invocation && (() => {
+                                const warns = checkNameConflicts(w.prayers.invocation, draft, plannersData, w.week_id, "Invocation");
+                                return warns.length > 0 ? (
+                                  <div className="text-[10px] font-bold text-amber-600 mt-1 space-y-0.5">
+                                    {warns.map((wText, wIdx) => (
+                                      <div key={wIdx}>⚠️ {wText}</div>
+                                    ))}
+                                  </div>
+                                ) : null;
+                              })()}
                             </div>
                           </div>
                         </div>
@@ -1356,6 +1675,16 @@ export function PlannerPage({
                                   );
                                 }}
                               />
+                              {w.prayers?.benediction && (() => {
+                                const warns = checkNameConflicts(w.prayers.benediction, draft, plannersData, w.week_id, "Benediction");
+                                return warns.length > 0 ? (
+                                  <div className="text-[10px] font-bold text-amber-600 mt-1 space-y-0.5">
+                                    {warns.map((wText, wIdx) => (
+                                      <div key={wIdx}>⚠️ {wText}</div>
+                                    ))}
+                                  </div>
+                                ) : null;
+                              })()}
                             </div>
                           </div>
                         </div>
