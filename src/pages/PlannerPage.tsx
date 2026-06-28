@@ -173,41 +173,6 @@ function checkNameConflicts(
           weekId: w.week_id
         });
       }
-
-      // Sacrament
-      w.sacrament?.preparing?.forEach((n, nIdx) => {
-        if (n) {
-          list.push({
-            weekIndex: wIdx,
-            date: w.date,
-            name: n,
-            role: `Sacrament Preparing ${nIdx}`,
-            weekId: w.week_id
-          });
-        }
-      });
-      w.sacrament?.blessing?.forEach((n, nIdx) => {
-        if (n) {
-          list.push({
-            weekIndex: wIdx,
-            date: w.date,
-            name: n,
-            role: `Sacrament Blessing ${nIdx}`,
-            weekId: w.week_id
-          });
-        }
-      });
-      w.sacrament?.passing?.forEach((n, nIdx) => {
-        if (n) {
-          list.push({
-            weekIndex: wIdx,
-            date: w.date,
-            name: n,
-            role: `Sacrament Passing ${nIdx}`,
-            weekId: w.week_id
-          });
-        }
-      });
     });
     return list;
   };
@@ -607,52 +572,7 @@ export function PlannerPage({
           });
         }
       }
-
-      // Sacrament
-      w.sacrament?.preparing?.forEach((n, i) => {
-        if (n) {
-          const warns = checkNameConflicts(n, draft, plannersData, w.week_id, `Sacrament Preparing ${i}`);
-          if (warns.length > 0) {
-            list.push({
-              weekIndex: wIdx,
-              date: w.date,
-              name: n,
-              role: `Week ${wIdx + 1} - Sacrament Preparing (${i + 1})`,
-              warnings: warns
-            });
-          }
-        }
-      });
-      w.sacrament?.blessing?.forEach((n, i) => {
-        if (n) {
-          const warns = checkNameConflicts(n, draft, plannersData, w.week_id, `Sacrament Blessing ${i}`);
-          if (warns.length > 0) {
-            list.push({
-              weekIndex: wIdx,
-              date: w.date,
-              name: n,
-              role: `Week ${wIdx + 1} - Sacrament Blessing (${i + 1})`,
-              warnings: warns
-            });
-          }
-        }
-      });
-      w.sacrament?.passing?.forEach((n, i) => {
-        if (n) {
-          const warns = checkNameConflicts(n, draft, plannersData, w.week_id, `Sacrament Passing ${i}`);
-          if (warns.length > 0) {
-            list.push({
-              weekIndex: wIdx,
-              date: w.date,
-              name: n,
-              role: `Week ${wIdx + 1} - Sacrament Passing (${i + 1})`,
-              warnings: warns
-            });
-          }
-        }
-      });
     });
-
     return list;
   }, [draft, plannersData]);
 
@@ -1378,16 +1298,6 @@ export function PlannerPage({
                                     value={name}
                                     onChange={(val) => updateSacramentName(w.week_id, "preparing", i, val)}
                                   />
-                                  {name && (() => {
-                                    const warns = checkNameConflicts(name, draft, plannersData, w.week_id, `Sacrament Preparing ${i}`);
-                                    return warns.length > 0 ? (
-                                      <div className="text-[10px] font-bold text-amber-600 mt-1 space-y-0.5">
-                                        {warns.map((wText, wIdx) => (
-                                          <div key={wIdx}>⚠️ {wText}</div>
-                                        ))}
-                                      </div>
-                                    ) : null;
-                                  })()}
                                 </div>
                                 {!readonly ? (
                                   <Button
@@ -1427,16 +1337,6 @@ export function PlannerPage({
                                     value={name}
                                     onChange={(val) => updateSacramentName(w.week_id, "blessing", i, val)}
                                   />
-                                  {name && (() => {
-                                    const warns = checkNameConflicts(name, draft, plannersData, w.week_id, `Sacrament Blessing ${i}`);
-                                    return warns.length > 0 ? (
-                                      <div className="text-[10px] font-bold text-amber-600 mt-1 space-y-0.5">
-                                        {warns.map((wText, wIdx) => (
-                                          <div key={wIdx}>⚠️ {wText}</div>
-                                        ))}
-                                      </div>
-                                    ) : null;
-                                  })()}
                                 </div>
                                 {!readonly ? (
                                   <Button
@@ -1476,16 +1376,6 @@ export function PlannerPage({
                                     value={name}
                                     onChange={(val) => updateSacramentName(w.week_id, "passing", i, val)}
                                   />
-                                  {name && (() => {
-                                    const warns = checkNameConflicts(name, draft, plannersData, w.week_id, `Sacrament Passing ${i}`);
-                                    return warns.length > 0 ? (
-                                      <div className="text-[10px] font-bold text-amber-600 mt-1 space-y-0.5">
-                                        {warns.map((wText, wIdx) => (
-                                          <div key={wIdx}>⚠️ {wText}</div>
-                                        ))}
-                                      </div>
-                                    ) : null;
-                                  })()}
                                 </div>
                                 {!readonly ? (
                                   <Button

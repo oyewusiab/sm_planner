@@ -69,9 +69,22 @@ export function App() {
   });
 
   useEffect(() => {
-    window.location.hash = `#/${route}`;
-    localStorage.setItem("sac_meeting_planner_route_v1", route);
-  }, [route]);
+    if (user) {
+      window.location.hash = `#/${route}`;
+      localStorage.setItem("sac_meeting_planner_route_v1", route);
+    }
+  }, [route, user]);
+
+  useEffect(() => {
+    if (!user) {
+      const fromHash = getRouteFromHash();
+      if (!fromHash || fromHash === "dashboard") {
+        if (window.location.hash !== "" && window.location.hash !== "#/") {
+          window.location.hash = "";
+        }
+      }
+    }
+  }, [user]);
 
   useEffect(() => {
     const handleHashChange = () => {
@@ -80,7 +93,9 @@ export function App() {
         setRoute(fromHash);
       } else {
         if (window.location.hash && window.location.hash !== "#/") {
-          window.location.hash = `#/${route}`;
+          if (user) {
+            window.location.hash = `#/${route}`;
+          }
         } else {
           setRoute("dashboard");
         }
@@ -88,7 +103,7 @@ export function App() {
     };
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
-  }, [route]);
+  }, [route, user]);
   const [backendStatus, setBackendStatus] = useState<BackendStatus>(() =>
     backendEnabled() ? "connecting" : "disabled"
   );
@@ -427,6 +442,7 @@ export function App() {
     clearSession();
     setUser(null);
     setRoute("dashboard");
+    window.location.hash = "";
   }
 
   const effectiveUnit: UnitSettings =

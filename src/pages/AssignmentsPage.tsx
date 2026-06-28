@@ -35,6 +35,7 @@ type Extracted = {
   topic?: string;
   gender?: Gender;
   minutes?: number;
+  reference_link?: string;
 };
 
 type AssignmentKind = "OPENING_PRAYER" | "CLOSING_PRAYER" | "TESTIMONY" | "TALK" | "OTHER";
@@ -90,27 +91,37 @@ function generateMessageText(
   const unitName = unit.unit_name || "Ward";
 
   if (template === "new") {
-    return `Dear ${genderPrefix} ${item.person.replace(/^Brother\s+|^Sister\s+/i, "")},
+    let msg = `Dear ${genderPrefix} ${item.person.replace(/^Brother\s+|^Sister\s+/i, "")},
 
-On behalf of the Bishopric of the ${unitName}, you have been assigned to ${assignmentLine}${allottedStr} in Sacrament Meeting on ${dateStr}.
+On behalf of the Bishopric of the ${unitName}, you have been assigned to ${assignmentLine}${allottedStr} in Sacrament Meeting on ${dateStr}.`;
 
-Please plan to arrive at the chapel and join the Bishopric on the stand 15 minutes before the meeting starts.
+    if (kind === "TALK" && item.reference_link) {
+      msg += `\nReference Link: ${item.reference_link}`;
+    }
+
+    msg += `\n\nPlease plan to arrive at the chapel and join the Bishopric on the stand 15 minutes before the meeting starts.
 
 If for any reason you are unable to fulfill this assignment, please contact the Bishopric or the Ward Secretary as soon as possible.
 
 Warm regards,
 ${fromName}
 ${fromCalling}, ${unitName}`;
+    return msg;
   } else {
-    return `Dear ${genderPrefix} ${item.person.replace(/^Brother\s+|^Sister\s+/i, "")},
+    let msg = `Dear ${genderPrefix} ${item.person.replace(/^Brother\s+|^Sister\s+/i, "")},
 
-This is a gentle reminder from the ${unitName} Bishopric regarding your assignment to ${assignmentLine}${allottedStr} in Sacrament Meeting this Sunday, ${dateStr}.
+This is a gentle reminder from the ${unitName} Bishopric regarding your assignment to ${assignmentLine}${allottedStr} in Sacrament Meeting this Sunday, ${dateStr}.`;
 
-We look forward to your message. Please reply to this message to confirm your availability.
+    if (kind === "TALK" && item.reference_link) {
+      msg += `\nReference Link: ${item.reference_link}`;
+    }
+
+    msg += `\n\nWe look forward to your message. Please reply to this message to confirm your availability.
 
 Warm regards,
 ${fromName}
 ${fromCalling}, ${unitName}`;
+    return msg;
   }
 }
 
@@ -142,7 +153,7 @@ function defaultMinutesFor(role: string) {
 function extract(planner: Planner): Extracted[] {
   const out: Extracted[] = [];
   for (const w of planner.weeks) {
-    const push = (person: string, role: string, topic?: string, gender?: Gender, minutes?: number) => {
+    const push = (person: string, role: string, topic?: string, gender?: Gender, minutes?: number, reference_link?: string) => {
       const p = (person || "").trim();
       if (!p) return;
       out.push({
@@ -155,12 +166,13 @@ function extract(planner: Planner): Extracted[] {
         topic: topic?.trim() || undefined,
         gender,
         minutes,
+        reference_link,
       });
     };
 
     // Fast & Testimony meeting: no speakers.
     if (!w.fast_testimony) {
-      w.speakers.forEach((s, i) => push(s.name, `Speaker ${i + 1}`, s.topic, s.gender, defaultMinutesFor(`Speaker ${i + 1}`)));
+      w.speakers.forEach((s, i) => push(s.name, `Speaker ${i + 1}`, s.topic, s.gender, defaultMinutesFor(`Speaker ${i + 1}`), s.reference_link));
     }
 
     push(w.prayers.invocation, "Invocation", undefined, w.prayers.invocation_gender, defaultMinutesFor("Invocation"));
@@ -243,10 +255,10 @@ function NotificationCard({
       {/* Date & Recipient Line */}
       <div className="flex justify-between items-end mb-3 text-[11px]">
         <div>
-          <span className="font-bold">Date:</span> {formatDateShort(issuedDate)}
+          Dear {dearPrefix(item.gender)} <span className="font-bold text-[12px]">{personName.replace(/^Brother\s+|^Sister\s+/i, "")}</span>,
         </div>
         <div>
-          Dear {dearPrefix(item.gender)} <span className="font-bold text-[12px]">{personName.replace(/^Brother\s+|^Sister\s+/i, "")}</span>,
+          <span className="font-bold">Date:</span> {formatDateShort(issuedDate)}
         </div>
       </div>
 

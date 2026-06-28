@@ -122,6 +122,7 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
   // Delete Verification State
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [previewAgenda, setPreviewAgenda] = useState<Agenda | null>(null);
 
   const printContentRef = useRef<HTMLDivElement>(null);
 
@@ -491,6 +492,42 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
       setLocalAgenda(null);
     }
     setIsDirty(false);
+  };
+
+  const handleArchiveDirect = async (agenda: Agenda) => {
+    if (!canEdit) return;
+    const confirmed = window.confirm('Are you sure you want to archive this agenda? It will be moved to the archive page.');
+    if (confirmed) {
+      const updated = { ...agenda, state: 'ARCHIVED' as const, updated_date: time.now() };
+      await upsert.mutate(updated);
+      if (localAgenda?.agenda_id === agenda.agenda_id) {
+        setLocalAgenda(null);
+        setIsDirty(false);
+      }
+      onChanged();
+    }
+  };
+
+  const handleDeleteDirect = (agenda: Agenda) => {
+    if (!canEdit) return;
+    const confirmed = window.confirm('Are you sure you want to permanently delete this agenda? This action cannot be undone.');
+    if (confirmed) {
+      const verify = window.prompt("Type 'DELETE' to verify permanent deletion:");
+      if (verify !== "DELETE") {
+        alert("Deletion cancelled.");
+        return;
+      }
+      updateDB(db => ({
+        ...db,
+        AGENDAS: db.AGENDAS.filter(a => a.agenda_id !== agenda.agenda_id)
+      }));
+      if (localAgenda?.agenda_id === agenda.agenda_id) {
+        setLocalAgenda(null);
+        setIsDirty(false);
+      }
+      onChanged();
+      alert('Agenda deleted permanently.');
+    }
   };
 
   // Setup padded lists for rendering
@@ -1810,7 +1847,14 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge tone={agenda.state === "DRAFT" ? "blue" : "green"}>{agenda.state}</Badge>
-                      <Button variant="primary" onClick={() => handleLoadSavedAgenda(agenda)} size="sm">Edit</Button>
+                      <Button variant="secondary" onClick={() => setPreviewAgenda(agenda)} size="sm" icon="👁️">Preview</Button>
+                      {canEdit && (
+                        <>
+                          <Button variant="primary" onClick={() => handleLoadSavedAgenda(agenda)} size="sm" icon="✏️">Edit</Button>
+                          <Button variant="secondary" onClick={() => handleArchiveDirect(agenda)} size="sm" icon="📦">Archive</Button>
+                          <Button variant="outline" onClick={() => handleDeleteDirect(agenda)} size="sm" className="text-rose-600 border-rose-200 hover:bg-rose-50" icon="🗑️">Delete</Button>
+                        </>
+                      )}
                       {canPrint && (
                         <>
                           <Button variant="secondary" onClick={() => handleAgendaDownloadDirect(agenda)} size="sm" icon="📥">PDF</Button>
@@ -1978,6 +2022,26 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
             </div>
           </div>
         </div>
+      )}
+
+      {previewAgenda && (
+        <Modal
+          open={true}
+          title={`Preview Agenda — ${formatDateShort(previewAgenda.date)}`}
+          onClose={() => setPreviewAgenda(null)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => { handleAgendaPrintDirect(previewAgenda); setPreviewAgenda(null); }} icon="🖨️">Print</Button>
+              <Button variant="outline" onClick={() => handleAgendaDownloadDirect(previewAgenda)} icon="📥">Download PDF</Button>
+              <Button variant="ghost" onClick={() => setPreviewAgenda(null)}>Close</Button>
+            </>
+          }
+          className="max-w-4xl"
+        >
+          <div className="bg-white p-4 overflow-auto max-h-[70vh] border border-slate-100 rounded-xl shadow-inner">
+            {renderAgendaDocument(previewAgenda)}
+          </div>
+        </Modal>
       )}
 
     </div>
