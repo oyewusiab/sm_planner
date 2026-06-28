@@ -60,6 +60,7 @@ const nowISO = () => new Date().toISOString();
 let remoteSyncTimer: number | null = null;
 let remoteSyncInFlight = false;
 let remotePullInFlight = false;
+let lastPullTime = 0;
 let suppressRemoteSync = 0;
 let hasPendingPush = false; // Track if local changes are waiting to be sent
 
@@ -666,14 +667,24 @@ function mergeDatabases(local: DB, remote: DB): { merged: DB; needsPush: boolean
   return { merged, needsPush };
 }
 
+const REALTIME_SYNC_TABLES = new Set<keyof DB>([
+  "PLANNERS",
+  "ASSIGNMENTS",
+  "CHECKLISTS",
+  "NOTIFICATIONS",
+  "PLANNER_APPROVAL_REQUESTS",
+  "TODOS"
+]);
+
 let listenersInitialized = false;
 
 export function initializeFirebaseSync() {
   if (!backendEnabled() || listenersInitialized) return;
   listenersInitialized = true;
-  console.log("[Sync] Initializing real-time Firestore listeners...");
+  console.log("[Sync] Initializing real-time Firestore listeners for collaborative tables...");
   
   SYNC_TABLES.forEach((table) => {
+    if (!REALTIME_SYNC_TABLES.has(table.name)) return;
     const colName = COLLECTION_MAPPING[table.name];
     onSnapshot(collection(db, colName), (snapshot) => {
       // Suppress snapshot updates during an active local push to prevent race overwrites
@@ -737,6 +748,13 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
   if (!backendEnabled()) return false;
   const force = options?.force === true;
   const replaceLocal = options?.replaceLocal === true;
+
+  // Throttle background pulls (not forced) to once every 5 minutes
+  if (!force && Date.now() - lastPullTime < 5 * 60 * 1000) {
+    console.log("[Sync] Throttling background pull (last pull was less than 5m ago).");
+    return true;
+  }
+
   if (remotePullInFlight) return false;
 
   remotePullInFlight = true;
@@ -756,6 +774,13 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
     const remoteSnap: Partial<DB> = {};
     
     for (const t of SYNC_TABLES) {
+      // Hymns are static catalog data. If we already have them locally, skip fetching
+      // to reduce read quota usage (saves ~350 reads per pull).
+      if (t.name === "HYMNS" && local.HYMNS && local.HYMNS.length > 0) {
+        console.log("[Sync] Skipping hymns fetch (using cached hymns).");
+        remoteSnap.HYMNS = local.HYMNS;
+        continue;
+      }
       const colName = COLLECTION_MAPPING[t.name];
       const snap = await getDocs(collection(db, colName));
       (remoteSnap as any)[t.name] = snap.docs.map(docSnap => docSnap.data());
@@ -778,6 +803,7 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
       setDBInternal(merged, true);
       setLastSyncedDB(comparableRemote);
       console.log("[Sync] Local DB successfully hydrated from Firestore.");
+      lastPullTime = Date.now(); // Update last pull time on success
     } finally {
       suppressRemoteSync -= 1;
     }
