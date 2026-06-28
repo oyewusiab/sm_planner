@@ -134,7 +134,7 @@ export type WeekPlan = {
   fast_testimony?: boolean;
 
   /** Speakers (gender used to print Brother/Sister prefix). */
-  speakers: { name: string; topic: string; gender?: "M" | "F" }[];
+  speakers: { name: string; topic: string; gender?: "M" | "F"; reference_link?: string }[];
 
   hymns: { opening: string; sacrament: string; closing: string };
 
@@ -224,6 +224,8 @@ export type Assignment = {
   minutes?: number;
 
   created_date: string;
+  sent_status?: "PENDING" | "SENT" | "REMINDED";
+  sent_date?: string;
 };
 
 export type Member = {

@@ -31,6 +31,7 @@ function blankWeek(dateISO: string, conducting_officer: string, defaultSpeakers 
       name: "",
       topic: "",
       gender: undefined,
+      reference_link: "",
     })),
     hymns: { opening: "", sacrament: "", closing: "" },
     sacrament: { preparing: [], blessing: [], passing: [] },
@@ -57,6 +58,7 @@ function normalizeWeek(
         name: speaker?.name || "",
         topic: speaker?.topic || "",
         gender: speaker?.gender,
+        reference_link: speaker?.reference_link || "",
       }))
     : fastTestimony
       ? []
@@ -64,6 +66,7 @@ function normalizeWeek(
           name: "",
           topic: "",
           gender: undefined,
+          reference_link: "",
         }));
 
   return {
