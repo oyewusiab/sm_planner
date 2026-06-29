@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { UnitSettings, User, Notification } from "./types";
 import { AppShell, type RouteKey } from "./components/AppShell";
+import { AIChatbot } from "./components/AIChatbot";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { PlannerPage } from "./pages/PlannerPage";
@@ -561,6 +562,7 @@ export function App() {
       dbTick={dbTick}
     >
       {content}
+      <AIChatbot user={user} unit={effectiveUnit} />
       <div className="hidden">{dbSnapshot.UNIT_SETTINGS?.unit_name}</div>
     </AppShell>
   );

@@ -142,6 +142,7 @@ export function SettingsPage({
         default_country: "NG",
         enable_music_toolkit: form.prefs?.enable_music_toolkit ?? true,
         enable_member_analytics: form.prefs?.enable_member_analytics ?? true,
+        gemini_api_key: form.prefs?.gemini_api_key || "",
       },
       venues: form.venues || [],
     };
@@ -602,6 +603,37 @@ export function SettingsPage({
                 </div>
               </div>
             </div>
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={() => saveUnit("prefs")}>{isClerk ? "Request Approval" : "Save Preferences"}</Button>
+          </div>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>AI Assistant Settings</CardTitle>
+        </CardHeader>
+        <CardBody className="space-y-4">
+          <div className="text-sm text-slate-600">
+            Configure the artificial intelligence settings for the Liahona AI Chatbot. Providing a Gemini API key enables RAG-grounded schedules, talk outlines, and Q&A features across the ward.
+          </div>
+          <div>
+            <Label>Gemini API Key</Label>
+            <Input
+              type="password"
+              placeholder="AIzaSy..."
+              value={form.prefs?.gemini_api_key || ""}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  prefs: { ...f.prefs, gemini_api_key: e.target.value },
+                }))
+              }
+            />
+            <p className="mt-1 text-[10px] text-slate-400">
+              Get a free API key from Google AI Studio. This key is securely shared only with authenticated leaders of this unit.
+            </p>
           </div>
           <div className="flex justify-end">
             <Button onClick={() => saveUnit("prefs")}>{isClerk ? "Request Approval" : "Save Preferences"}</Button>

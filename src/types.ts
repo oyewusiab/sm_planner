@@ -42,6 +42,7 @@ export type UnitSettings = {
     /** Feature Flags */
     enable_music_toolkit?: boolean;
     enable_member_analytics?: boolean;
+    gemini_api_key?: string;
   };
 };
 
