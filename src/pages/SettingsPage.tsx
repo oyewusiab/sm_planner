@@ -184,7 +184,7 @@ export function SettingsPage({
     if (!newUser.email.trim()) return;
     setBusy("create");
     try {
-      const hash = await sha256("changeme");
+      const hash = await sha256("welcome");
       auth.addUser(newUser.name.trim(), newUser.email.trim(), newUser.role, hash, newUser.calling, newUser.gender);
       onChanged();
       setNewUser({ name: "", email: "", role: "CLERK", calling: "Clerk (Co-admin)", gender: "M" });
@@ -194,10 +194,14 @@ export function SettingsPage({
   }
 
   async function resetPassword(user_id: string) {
+    if (!window.confirm("Reset this user's password to default 'welcome'?")) return;
     setBusy(user_id);
     try {
       await auth.resetUserPasswordToDefault(user_id);
       onChanged();
+      alert("Password reset to 'welcome' successfully.");
+    } catch (err: any) {
+      alert("Reset failed: " + err.message);
     } finally {
       setBusy(null);
     }
@@ -730,7 +734,7 @@ export function SettingsPage({
           </CardHeader>
           <CardBody className="space-y-4">
           <div className="text-sm text-slate-600">
-            Promote/demote users and reset passwords. Reset sets password to <span className="font-medium">changeme</span> and forces a reset at next login.
+            Promote/demote users and reset passwords. Reset sets password to <span className="font-medium">welcome</span>.
           </div>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -923,7 +927,7 @@ export function SettingsPage({
           </div>
           <div className="flex justify-end">
             <Button disabled={busy === "create"} onClick={createUser}>
-              Create user (temp password: changeme)
+              Create user (temp password: welcome)
             </Button>
           </div>
         </CardBody>

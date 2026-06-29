@@ -165,6 +165,7 @@ export async function setUserPassword(user_id: string, newPassword: string) {
     throw new Error("Password must be at least 6 characters.");
   }
 
+  const backendOn = backendEnabled();
   const dbData = getDB();
   const currentUserProfile = dbData.USERS.find(
     (u) => u.auth_uid === auth.currentUser?.uid || u.user_id === auth.currentUser?.uid
@@ -204,7 +205,7 @@ export async function setUserPassword(user_id: string, newPassword: string) {
  * Reset a user's password to a default value and require reset on next login.
  * Admin function.
  */
-export async function resetUserPasswordToDefault(user_id: string, password = "changeme") {
+export async function resetUserPasswordToDefault(user_id: string, password = "welcome") {
   const backendOn = backendEnabled();
   
   if (backendOn) {
@@ -220,7 +221,7 @@ export async function resetUserPasswordToDefault(user_id: string, password = "ch
   updateDB((db0) => {
     const USERS = db0.USERS.map((u) =>
       u.user_id === user_id
-        ? { ...u, password_hash: hash, must_reset_password: true }
+        ? { ...u, password_hash: hash, must_reset_password: false }
         : u
     );
     return { ...db0, USERS };
@@ -351,7 +352,7 @@ export async function addUser(
       const createUserFn = httpsCallable(functions, "adminCreateUser");
       await createUserFn({
         email,
-        password: "changeme", // Temporary password for first-time login
+        password: "welcome", // Temporary password for first-time login
         name,
         role,
         organisation,
@@ -379,7 +380,7 @@ export async function addUser(
         gender,
         password_hash,
         created_date: time.nowISO(),
-        must_reset_password: true,
+        must_reset_password: false,
       };
       return { ...db0, USERS: [user, ...db0.USERS] };
     });

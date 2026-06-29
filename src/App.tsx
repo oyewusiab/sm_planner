@@ -265,30 +265,10 @@ export function App() {
   useEffect(() => {
     if (!user || !backendEnabled()) return;
 
-    const pull = () => {
-      void syncFromBackend().then((ok) => {
-        if (ok) refresh();
-      });
-    };
-
     console.log("[Sync] Initial sync on mount/login");
-    pull(); // Immediate check when app becomes active for the signed-in user
-
-    const onVisible = () => {
-      if (document.visibilityState === "visible") pull();
-    };
-    const onFocus = () => pull();
-    const onOnline = () => pull();
-
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("online", onOnline);
-
-    return () => {
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("online", onOnline);
-    };
+    void syncFromBackend().then((ok) => {
+      if (ok) refresh();
+    });
   }, [user]);
 
   useEffect(() => {
