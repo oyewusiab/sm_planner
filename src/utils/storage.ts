@@ -140,7 +140,11 @@ const REMOTE_DELETABLE_TABLES = new Set<keyof DB>([
   "OTHER CHURCH PROGRAM",
   "PUBLIC HOLIDAY",
   "CONTACTS",
-  "REPORT LOG"
+  "REPORT LOG",
+  "PLANNERS",
+  "AGENDAS",
+  "ASSIGNMENTS",
+  "CHECKLISTS"
 ]);
 
 const dbListeners = new Set<() => void>();

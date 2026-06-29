@@ -542,7 +542,7 @@ export function App() {
       dbTick={dbTick}
     >
       {content}
-      <AIChatbot user={user} unit={effectiveUnit} />
+      <AIChatbot unit={effectiveUnit} />
       <div className="hidden">{dbSnapshot.UNIT_SETTINGS?.unit_name}</div>
     </AppShell>
   );

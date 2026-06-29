@@ -1132,7 +1132,7 @@ export function NotificationsPage({
       )}
 
       <div className="text-xs text-slate-500">
-        This MVP uses browser storage. Notifications and to‑dos are local to this device.
+        
       </div>
     </div>
   );
