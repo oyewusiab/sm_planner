@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import html2pdf from "html2pdf.js";
 import type { Agenda, Planner, UnitSettings, User, WeekPlan } from "../types";
 import { Badge, Button, Card, CardBody, CardHeader, CardTitle, EmptyState, Input, Label, Select, Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui";
+import { Modal } from "../components/Modal";
 import { can } from "../utils/permissions";
 import { useTable, useUpsertMutation, ids, time, updateDB } from "../utils/storage";
 import { formatDateShort } from "../utils/date";
@@ -1387,7 +1388,19 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                   <div className="flex flex-wrap gap-2">
                     {canEdit && (
                       <>
-                        <Button variant="outline" onClick={() => setShowDeleteModal(true)} disabled={!existsInDB} className="text-rose-600 border-rose-200 hover:bg-rose-50 disabled:opacity-40" icon="🗑️">Delete</Button>
+                        <Button
+                          variant="outline"
+                          onClick={existsInDB ? () => setShowDeleteModal(true) : () => {
+                            if (!isDirty || window.confirm("Discard this new unsaved agenda?")) {
+                              setLocalAgenda(null);
+                              setIsDirty(false);
+                            }
+                          }}
+                          className="text-rose-600 border-rose-200 hover:bg-rose-50"
+                          icon="🗑️"
+                        >
+                          Delete
+                        </Button>
                         <Button variant="secondary" onClick={archiveAgenda} disabled={!existsInDB} className="disabled:opacity-40" icon="📦">Archive</Button>
                         {isDirty && (
                           <Button variant="ghost" onClick={discardChanges} className="text-slate-500">Discard Changes</Button>

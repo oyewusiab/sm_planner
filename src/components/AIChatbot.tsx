@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useTable } from "../utils/storage";
-import type { User as DbUser, UnitSettings } from "../types";
-import { Button, Input, Card, CardHeader, CardTitle, CardBody, Label } from "./ui";
+import type { UnitSettings } from "../types";
+import { Button, Input, Card, CardHeader, CardTitle, CardBody } from "./ui";
 import { formatDateShort, formatTime12h } from "../utils/date";
 
 interface AIChatbotProps {
-  user: DbUser;
   unit: UnitSettings;
 }
 
@@ -14,7 +13,7 @@ interface Message {
   text: string;
 }
 
-export function AIChatbot({ user, unit }: AIChatbotProps) {
+export function AIChatbot({ unit }: AIChatbotProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>(() => {
     const saved = sessionStorage.getItem("liahona_ai_chat_v1");
@@ -28,7 +27,6 @@ export function AIChatbot({ user, unit }: AIChatbotProps) {
 
   const { data: members = [] } = useTable("MEMBERS");
   const { data: planners = [] } = useTable("PLANNERS");
-  const { data: assignments = [] } = useTable("ASSIGNMENTS");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -66,7 +64,6 @@ export function AIChatbot({ user, unit }: AIChatbotProps) {
     try {
       // Build grounding system instructions
       const membersText = members
-        .filter((m) => m.active !== false)
         .map((m) => `${m.name} (${m.gender === "M" ? "Male" : "Female"})`)
         .join(", ");
 
@@ -83,7 +80,7 @@ export function AIChatbot({ user, unit }: AIChatbotProps) {
         .join(" | ");
 
       const systemInstructionText = 
-        `You are "Liahona AI", a helpful, professional assistant for the Sacrament Meeting Planner platform.\n` +
+        `You are "AI Assistant", a helpful, professional assistant for the Sacrament Meeting Planner platform.\n` +
         `You assist the ward/branch bishoprics, clerks, and secretaries coordinate programs, draft agendas, and suggest scriptures or talk ideas.\n` +
         `Here is the live data/context for this congregation (unit):\n` +
         `- Unit Name: ${unit.unit_name || 'Ward'}\n` +
@@ -127,7 +124,7 @@ export function AIChatbot({ user, unit }: AIChatbotProps) {
       
       setMessages([...newMessages, { role: "model", text: aiText }]);
     } catch (err: any) {
-      console.error("[Liahona AI] Error:", err);
+      console.error("[AI Assistant] Error:", err);
       setMessages([...newMessages, { role: "model", text: `⚠️ Error: ${err.message || "An unexpected error occurred."}` }]);
     } finally {
       setLoading(false);
@@ -163,12 +160,12 @@ export function AIChatbot({ user, unit }: AIChatbotProps) {
             }}
           >
             <div className="flex items-center gap-2">
-              <span className="text-xl">✨</span>
+              <span role="img" aria-label="Sparkles" className="text-xl">✨</span>
               <div>
-                <CardTitle className="text-sm font-bold text-white">Liahona AI Assistant</CardTitle>
+                <CardTitle className="text-sm font-bold text-white">AI Assistant</CardTitle>
                 <div className="flex items-center gap-1">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="text-[10px] text-white/60 font-medium">Session Active (Temporary History)</span>
+                  <span className="text-[10px] text-white/60 font-medium">Session Active (AI can make mistakes)</span>
                 </div>
               </div>
             </div>
@@ -179,7 +176,7 @@ export function AIChatbot({ user, unit }: AIChatbotProps) {
                   className="p-1 text-white/60 hover:text-white hover:bg-white/10 rounded transition text-xs"
                   title="Clear conversation history"
                 >
-                  🧹 Clear
+                  <span role="img" aria-label="Broom">🧹</span> Clear
                 </button>
               )}
               <button
@@ -197,7 +194,9 @@ export function AIChatbot({ user, unit }: AIChatbotProps) {
             {/* Warning Banner if API Key is missing */}
             {!activeApiKey && (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-amber-800 space-y-2">
-                <div className="font-semibold text-[11px]">🔑 Gemini API Key Required</div>
+                <div className="font-semibold text-[11px]">
+                  <span role="img" aria-label="Key">🔑</span> Gemini API Key Required
+                </div>
                 <div className="text-[10px] leading-normal">
                   Provide your Gemini API key below to enable this chatbot. The key is kept temporarily in memory until you close the tab.
                 </div>
@@ -208,6 +207,7 @@ export function AIChatbot({ user, unit }: AIChatbotProps) {
                     value={tempKey}
                     onChange={(e) => setTempKey(e.target.value)}
                     className="h-8 text-[11px] bg-white border-amber-300"
+                    aria-label="Temporary API Key"
                   />
                 </div>
               </div>
@@ -215,8 +215,8 @@ export function AIChatbot({ user, unit }: AIChatbotProps) {
 
             {messages.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400 space-y-3">
-                <span className="text-3xl">✨</span>
-                <div className="font-semibold text-slate-600 text-sm">Welcome to Liahona AI</div>
+                <span role="img" aria-label="Sparkles" className="text-3xl">✨</span>
+                <div className="font-semibold text-slate-600 text-sm">Welcome to AI Assistant</div>
                 <p className="text-[11px] leading-relaxed max-w-[260px]">
                   Ask me to draft speakers list, suggest topic scripts, outline talks, or answer handbook rules.
                 </p>
@@ -226,13 +226,13 @@ export function AIChatbot({ user, unit }: AIChatbotProps) {
                       onClick={() => setInput("Suggest 3 speakers from our members list")}
                       className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition text-[10px] font-medium text-slate-600"
                     >
-                      🗣️ Suggest Speakers
+                      <span role="img" aria-label="Speaking head">🗣️</span> Suggest Speakers
                     </button>
                     <button
                       onClick={() => setInput("Suggest Easter hymns and talk topics")}
                       className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition text-[10px] font-medium text-slate-600"
                     >
-                      🎶 Theme Ideas
+                      <span role="img" aria-label="Musical notes">🎶</span> Theme Ideas
                     </button>
                   </div>
                 )}
@@ -268,7 +268,7 @@ export function AIChatbot({ user, unit }: AIChatbotProps) {
           {/* Footer Input */}
           <div className="p-3 border-t border-slate-100 shrink-0 bg-slate-50/50 flex gap-2 items-center">
             <textarea
-              placeholder={activeApiKey ? "Ask Liahona..." : "Please configure API Key..."}
+              placeholder={activeApiKey ? "Ask AI Assistant..." : "Please configure API Key..."}
               disabled={!activeApiKey || loading}
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -279,6 +279,7 @@ export function AIChatbot({ user, unit }: AIChatbotProps) {
                 }
               }}
               rows={1}
+              aria-label="Ask AI Assistant"
               className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs outline-none resize-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 max-h-20"
             />
             <Button
@@ -299,12 +300,12 @@ export function AIChatbot({ user, unit }: AIChatbotProps) {
         style={{
           background: "linear-gradient(135deg, #00c6fb, #005bea)",
         }}
-        title="Liahona AI Chatbot"
+        title="AI Assistant"
       >
         {isOpen ? (
           <span className="text-xl font-bold">✕</span>
         ) : (
-          <span className="text-2xl">✨</span>
+          <span role="img" aria-label="Sparkles" className="text-2xl">✨</span>
         )}
       </button>
     </div>

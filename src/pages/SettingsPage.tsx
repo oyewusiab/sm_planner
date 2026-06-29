@@ -620,7 +620,7 @@ export function SettingsPage({
         </CardHeader>
         <CardBody className="space-y-4">
           <div className="text-sm text-slate-600">
-            Configure the artificial intelligence settings for the Liahona AI Chatbot. Providing a Gemini API key enables RAG-grounded schedules, talk outlines, and Q&A features across the ward.
+            Configure the artificial intelligence settings for the AI Assistant. Providing a Gemini API key enables RAG-grounded schedules, talk outlines, and Q&A features across the ward.
           </div>
           <div>
             <Label>Gemini API Key</Label>
