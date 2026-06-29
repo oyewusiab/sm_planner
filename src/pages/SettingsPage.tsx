@@ -701,110 +701,113 @@ export function SettingsPage({
             Promote/demote users and reset passwords. Reset sets password to <span className="font-medium">changeme</span> and forces a reset at next login.
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-[color:var(--border)]">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="p-3 font-medium text-slate-600">User ID</th>
-                  <th className="p-3 font-medium text-slate-600">Name</th>
-                  <th className="p-3 font-medium text-slate-600">Gender</th>
-                  <th className="p-3 font-medium text-slate-600">Email</th>
-                  <th className="p-3 font-medium text-slate-600">Role</th>
-                  <th className="p-3 font-medium text-slate-600">Calling</th>
-                  <th className="p-3 font-medium text-slate-600">Status</th>
-                  <th className="p-3 font-medium text-slate-600">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => (
-                  <tr key={u.user_id} className="border-t border-[color:var(--border)]">
-                    <td className="p-3 text-xs font-mono text-slate-500">{u.user_id}</td>
-                    <td className="p-3 font-medium">
-                      {u.name} {u.user_id === user.user_id ? <Badge tone="blue">You</Badge> : null}
-                    </td>
-                    <td className="p-3">
-                      {u.role === "ADMIN" ? (
-                        <div className="text-xs text-slate-500">—</div>
-                      ) : (
-                        <Select value={u.gender || "M"} onChange={(e) => setGender(u.user_id, e.target.value as "M" | "F")}>
-                          <option value="M">Male</option>
-                          <option value="F">Female</option>
-                        </Select>
-                      )}
-                    </td>
-                    <td className="p-3">{u.email}</td>
-                    <td className="p-3">
-                      <Select value={u.role} onChange={(e) => setRole(u.user_id, e.target.value as Role)}>
-                        <option value="ADMIN">Admin</option>
-                        <option value="BISHOPRIC">Bishopric</option>
-                        <option value="CLERK">Clerk</option>
-                        <option value="SECRETARY">Secretary</option>
-                        <option value="MUSIC">Music</option>
-                      </Select>
-                    </td>
-                    <td className="p-3">
-                      {u.role === "ADMIN" ? (
-                        <div className="text-sm text-slate-600">Bishop</div>
-                      ) : u.role === "BISHOPRIC" ? (
-                        <Select value={(u.calling as string) || "1st Counsellor"} onChange={(e) => setCalling(u.user_id, e.target.value)}>
-                          {bishopricCallings.map((c) => (
-                            <option key={c} value={c}>
-                              {c}
-                            </option>
-                          ))}
-                        </Select>
-                      ) : u.role === "CLERK" ? (
-                        <Select value={(u.calling as string) || "Clerk (Co-admin)"} onChange={(e) => setCalling(u.user_id, e.target.value)}>
-                          {clerkCallings.map((c) => (
-                            <option key={c} value={c}>
-                              {c}
-                            </option>
-                          ))}
-                        </Select>
-                      ) : u.role === "SECRETARY" ? (
-                        <Select value={(u.calling as string) || "Secretary"} onChange={(e) => setCalling(u.user_id, e.target.value)}>
-                          {secretaryCallings.map((c) => (
-                            <option key={c} value={c}>
-                              {c}
-                            </option>
-                          ))}
-                        </Select>
-                      ) : (
-                        <div className="text-sm text-slate-600">—</div>
-                      )}
-                    </td>
-                    <td className="p-3">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {users.map((u) => (
+              <div key={u.user_id} className="rounded-xl border border-[color:var(--border)] bg-white p-4 shadow-sm space-y-4">
+                {/* User Header */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="text-sm font-bold text-slate-800 flex items-center gap-1.5 flex-wrap">
+                      <span>{u.name}</span>
+                      {u.user_id === user.user_id ? <Badge tone="blue">You</Badge> : null}
                       {u.disabled ? <Badge tone="gray">Disabled</Badge> : <Badge tone="green">Active</Badge>}
-                    </td>
-                    <td className="p-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Button
-                          variant="secondary"
-                          disabled={busy === u.user_id}
-                          onClick={() => resetPassword(u.user_id)}
-                        >
-                          Reset password
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          disabled={u.user_id === user.user_id}
-                          onClick={() => setDisabled(u.user_id, !u.disabled)}
-                        >
-                          {u.disabled ? "Enable" : "Disable"}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          disabled={u.user_id === user.user_id}
-                          onClick={() => deleteUser(u.user_id)}
-                        >
-                          Delete
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </div>
+                    <div className="text-[10px] font-mono text-slate-400 break-all">ID: {u.user_id}</div>
+                  </div>
+                </div>
+
+                {/* Email Address */}
+                <div className="text-xs text-slate-600">
+                  <span className="font-semibold text-slate-500">Email:</span>{" "}
+                  <a href={`mailto:${u.email}`} className="text-blue-600 hover:underline">{u.email}</a>
+                </div>
+
+                {/* Dropdowns Configuration */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                  <div className="space-y-1">
+                    <Label className="text-[10px] uppercase tracking-wider text-slate-500">Gender</Label>
+                    {u.role === "ADMIN" ? (
+                      <div className="h-10 flex items-center text-xs text-slate-500 font-medium pl-1">—</div>
+                    ) : (
+                      <Select
+                        value={u.gender || "M"}
+                        onChange={(e) => setGender(u.user_id, e.target.value as "M" | "F")}
+                      >
+                        <option value="M">Male</option>
+                        <option value="F">Female</option>
+                      </Select>
+                    )}
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-[10px] uppercase tracking-wider text-slate-500">System Role</Label>
+                    <Select value={u.role} onChange={(e) => setRole(u.user_id, e.target.value as Role)}>
+                      <option value="ADMIN">Admin</option>
+                      <option value="BISHOPRIC">Bishopric</option>
+                      <option value="CLERK">Clerk</option>
+                      <option value="SECRETARY">Secretary</option>
+                      <option value="MUSIC">Music</option>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-[10px] uppercase tracking-wider text-slate-500">Calling</Label>
+                    {u.role === "ADMIN" ? (
+                      <div className="h-10 flex items-center text-xs text-slate-600 font-medium pl-1">Bishop</div>
+                    ) : u.role === "BISHOPRIC" ? (
+                      <Select value={(u.calling as string) || "1st Counsellor"} onChange={(e) => setCalling(u.user_id, e.target.value)}>
+                        {bishopricCallings.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </Select>
+                    ) : u.role === "CLERK" ? (
+                      <Select value={(u.calling as string) || "Clerk (Co-admin)"} onChange={(e) => setCalling(u.user_id, e.target.value)}>
+                        {clerkCallings.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </Select>
+                    ) : u.role === "SECRETARY" ? (
+                      <Select value={(u.calling as string) || "Secretary"} onChange={(e) => setCalling(u.user_id, e.target.value)}>
+                        {secretaryCallings.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </Select>
+                    ) : (
+                      <div className="h-10 flex items-center text-xs text-slate-500 font-medium pl-1">—</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Operations Actions Footer */}
+                <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100 justify-end">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={busy === u.user_id}
+                    onClick={() => resetPassword(u.user_id)}
+                  >
+                    Reset Password
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={u.user_id === user.user_id}
+                    onClick={() => setDisabled(u.user_id, !u.disabled)}
+                  >
+                    {u.disabled ? "Enable" : "Disable"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={u.user_id === user.user_id}
+                    onClick={() => deleteUser(u.user_id)}
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                  >
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            ))}
           </div>
 
           <Divider />

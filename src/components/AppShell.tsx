@@ -230,7 +230,7 @@ export function AppShell({
       <div className="grid min-h-screen grid-cols-1 md:grid-cols-[268px_1fr]">
         {/* ── Sidebar ── */}
         <aside
-          className="no-print sticky top-0 hidden h-screen flex-col text-white md:flex"
+          className="no-print sticky top-0 hidden h-screen flex-col text-white md:flex overflow-y-auto"
           style={{
             background: "linear-gradient(180deg, #003459 0%, #001f35 80%, #00171f 100%)",
           }}

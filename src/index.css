@@ -36,6 +36,13 @@ body {
   overflow-x: hidden;
 }
 
+aside {
+  scrollbar-width: none; /* Firefox */
+}
+aside::-webkit-scrollbar {
+  display: none; /* Safari & Chrome */
+}
+
 body {
   background: var(--bg);
   color: var(--text);

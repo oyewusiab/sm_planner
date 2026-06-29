@@ -1279,8 +1279,9 @@ export function PlannerPage({
 
                             <div className="space-y-1">
                               <Label>Reference</Label>
-                              <Input
+                              <Textarea
                                 disabled={readonly}
+                                rows={2}
                                 placeholder="Scripture or Talk reference..."
                                 value={s.reference || ""}
                                 onChange={(e) =>
