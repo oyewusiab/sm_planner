@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 import { useTable } from "../utils/storage";
-import type { UnitSettings } from "../types";
+import type { UnitSettings, User } from "../types";
 import { Button, Input, Card, CardHeader, CardTitle, CardBody } from "./ui";
 import { formatDateShort, formatTime12h } from "../utils/date";
 
 interface AIChatbotProps {
+  user: User;
   unit: UnitSettings;
 }
 
@@ -13,10 +14,11 @@ interface Message {
   text: string;
 }
 
-export function AIChatbot({ unit }: AIChatbotProps) {
+export function AIChatbot({ user, unit }: AIChatbotProps) {
+  const chatKey = `ai_chat_${user.user_id}_v1`;
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>(() => {
-    const saved = sessionStorage.getItem("liahona_ai_chat_v1");
+    const saved = sessionStorage.getItem(chatKey);
     return saved ? JSON.parse(saved) : [];
   });
   const [input, setInput] = useState("");
@@ -32,8 +34,8 @@ export function AIChatbot({ unit }: AIChatbotProps) {
 
   // Sync messages to sessionStorage
   useEffect(() => {
-    sessionStorage.setItem("liahona_ai_chat_v1", JSON.stringify(messages));
-  }, [messages]);
+    sessionStorage.setItem(chatKey, JSON.stringify(messages));
+  }, [messages, chatKey]);
 
   // Sync temp key to sessionStorage
   useEffect(() => {
@@ -134,7 +136,7 @@ export function AIChatbot({ unit }: AIChatbotProps) {
   const handleReset = () => {
     if (window.confirm("Clear current conversation history?")) {
       setMessages([]);
-      sessionStorage.removeItem("liahona_ai_chat_v1");
+      sessionStorage.removeItem(chatKey);
     }
   };
 

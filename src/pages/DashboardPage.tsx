@@ -363,7 +363,7 @@ export function DashboardPage({
       </div>
 
       {/* ── Next Sunday Program Quick-View ── */}
-      {nextSundayDetails && (
+      {nextSundayDetails && user.role !== "MUSIC" && (
         <div className="stat-card animate-fade-in-up stagger-4 overflow-hidden border border-slate-100 bg-white shadow-sm p-6 space-y-4">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div className="flex items-center gap-2">
@@ -416,7 +416,7 @@ export function DashboardPage({
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-100/50">
                   <span className="text-slate-500 font-medium">Sacrament Hymn</span>
-                  <span className="font-semibold text-slate-800">{nextSundayDetails.hymns?.sacrament || "—"}</span>
+                  <span className="font-semibold text-slate-800">{nextSundayDetails.hymns?. sacrament || "—"}</span>
                 </div>
                 <div className="flex justify-between py-1">
                   <span className="text-slate-500 font-medium">Closing Hymn</span>
@@ -482,6 +482,95 @@ export function DashboardPage({
           <div className="flex justify-end pt-2 border-t border-slate-100">
             <Button onClick={() => onNavigate("agenda")} variant="secondary" className="text-xs">
               Open Agenda Program →
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Upcoming Music Outlines (Music Coordinator Only) ── */}
+      {user.role === "MUSIC" && (
+        <div className="stat-card animate-fade-in-up stagger-4 overflow-hidden border border-slate-100 bg-white shadow-sm p-6 space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🎶</span>
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">Upcoming Hymns & Music Outlines</h3>
+                <p className="text-[10px] text-slate-400 font-medium">
+                  Quick view of musical assignments for upcoming sacrament meetings
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {submittedPlanners.length === 0 ? (
+              <div className="text-center py-8 text-slate-400 text-xs">
+                No submitted planners found. Hymns will appear here once plans are submitted.
+              </div>
+            ) : (
+              submittedPlanners.slice(0, 3).map((p) => {
+                const todayISO = new Date().toISOString().slice(0, 10);
+                const upcomingWeeks = p.weeks.filter(w => w.date >= todayISO);
+                if (upcomingWeeks.length === 0) return null;
+
+                return (
+                  <div key={p.planner_id} className="space-y-3">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      {yyyyMmToLabel(p.month, p.year)} Planner
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {upcomingWeeks.map((w) => (
+                        <div key={w.week_id} className="rounded-xl bg-slate-50/50 p-3.5 border border-slate-100 space-y-3 text-xs">
+                          <div className="flex justify-between items-center border-b border-slate-100/50 pb-1.5">
+                            <span className="font-bold text-slate-700">{formatDateShort(w.date)}</span>
+                            <span className="text-[10px] font-semibold bg-sky-50 text-sky-700 px-2 py-0.5 rounded-full border border-sky-100">
+                              {w.meeting_type || "Normal"}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-2">
+                            <div className="text-center p-1.5 bg-white rounded-lg border border-slate-100">
+                              <div className="text-[9px] text-slate-400 font-bold uppercase">Opening</div>
+                              <div className="font-bold text-slate-800 mt-1 truncate" title={w.hymns?.opening || "—"}>
+                                {w.hymns?.opening ? w.hymns.opening.split(" ")[0] : "—"}
+                              </div>
+                            </div>
+                            <div className="text-center p-1.5 bg-white rounded-lg border border-slate-100">
+                              <div className="text-[9px] text-slate-400 font-bold uppercase">Sacrament</div>
+                              <div className="font-bold text-slate-800 mt-1 truncate" title={w.hymns?.sacrament || "—"}>
+                                {w.hymns?.sacrament ? w.hymns.sacrament.split(" ")[0] : "—"}
+                              </div>
+                            </div>
+                            <div className="text-center p-1.5 bg-white rounded-lg border border-slate-100">
+                              <div className="text-[9px] text-slate-400 font-bold uppercase">Closing</div>
+                              <div className="font-bold text-slate-800 mt-1 truncate" title={w.hymns?.closing || "—"}>
+                                {w.hymns?.closing ? w.hymns.closing.split(" ")[0] : "—"}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1 text-[10px] text-slate-500 pt-1 border-t border-slate-100/30">
+                            <div className="flex justify-between">
+                              <span>Director:</span>
+                              <span className="font-medium text-slate-700">{w.music?.director || "—"}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Organist:</span>
+                              <span className="font-medium text-slate-700">{w.music?.accompanist || "—"}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div className="flex justify-end pt-2 border-t border-slate-100">
+            <Button onClick={() => onNavigate("music")} variant="secondary" className="text-xs">
+              Open Music Toolkit →
             </Button>
           </div>
         </div>

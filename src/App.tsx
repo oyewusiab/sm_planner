@@ -420,6 +420,10 @@ export function App() {
 
   function logout() {
     sessionGuardRef.current += 1;
+    if (user) {
+      sessionStorage.removeItem(`ai_chat_${user.user_id}_v1`);
+    }
+    sessionStorage.removeItem("liahona_ai_temp_key");
     clearSession();
     setUser(null);
     setRoute("dashboard");
@@ -506,7 +510,13 @@ export function App() {
       }
       return <AgendaPage user={user} unit={effectiveUnit} onChanged={refresh} />;
     }
-    if (route === "calendar") return <CalendarPage user={user} unit={effectiveUnit} onChanged={refresh} />;
+    if (route === "calendar") {
+      if (user.role === "MUSIC") {
+        setRoute("dashboard");
+        return null;
+      }
+      return <CalendarPage user={user} unit={effectiveUnit} onChanged={refresh} />;
+    }
     if (route === "music") return <MusicPage user={user} unit={effectiveUnit} onChanged={refresh} />;
     if (route === "notifications") return <NotificationsPage user={user} unit={effectiveUnit} onChanged={refresh} />;
     if (route === "settings") {
@@ -542,7 +552,7 @@ export function App() {
       dbTick={dbTick}
     >
       {content}
-      <AIChatbot unit={effectiveUnit} />
+      <AIChatbot user={user} unit={effectiveUnit} />
       <div className="hidden">{dbSnapshot.UNIT_SETTINGS?.unit_name}</div>
     </AppShell>
   );
