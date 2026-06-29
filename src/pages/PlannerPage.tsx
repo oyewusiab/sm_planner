@@ -1248,6 +1248,38 @@ export function PlannerPage({
                                 }
                               />
                             </div>
+
+                            <div className="space-y-1">
+                              <div className="flex justify-between items-center">
+                                <Label>LINK TO REFERENCE</Label>
+                                {s.reference_link && s.reference_link.startsWith("http") && (
+                                  <a
+                                    href={s.reference_link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[10px] text-blue-600 hover:underline font-bold flex items-center gap-0.5"
+                                  >
+                                    Visit Link ↗
+                                  </a>
+                                )}
+                              </div>
+                              <Input
+                                disabled={readonly}
+                                placeholder="https://..."
+                                value={s.reference_link || ""}
+                                onChange={(e) =>
+                                  setDraft((d) => {
+                                    if (!d) return d;
+                                    const weeks = d.weeks.map((x) => {
+                                      if (x.week_id !== w.week_id) return x;
+                                      const speakers = x.speakers.map((sp, j) => (j === i ? { ...sp, reference_link: e.target.value } : sp));
+                                      return { ...x, speakers };
+                                    });
+                                    return { ...d, weeks };
+                                  })
+                                }
+                              />
+                            </div>
                           </div>
                         ))}
                       </div>
