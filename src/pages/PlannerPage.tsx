@@ -250,7 +250,17 @@ export function PlannerPage({
   const canEditSubmitted = can(user.role, "EDIT_SUBMITTED");
   const defaultSpeakers = unit.prefs?.default_speakers ?? 3;
 
+  const isEditable = (p: Planner) => {
+    if (p.state === "ARCHIVED") return false;
+    if (p.state === "SUBMITTED") return canEditSubmitted;
+    if (p.state === "DRAFT") {
+      return user.role === "ADMIN" || p.created_by === user.user_id;
+    }
+    return false;
+  };
+
   const [mode, setMode] = useState<"list" | "edit">("list");
+  const [isViewingOnly, setIsViewingOnly] = useState(false);
   const [previewPlanner, setPreviewPlanner] = useState<Planner | null>(null);
   const [printPlannerId, setPrintPlannerId] = useState<string | null>(null);
 
@@ -320,11 +330,19 @@ export function PlannerPage({
       conducting_officer: conducting,
       weeks: sundays.slice(0, 5).map((d) => blankWeek(d, conducting, defaultSpeakers)),
     };
+    setIsViewingOnly(false);
     setDraft(planner);
     setMode("edit");
   }
 
   function startEdit(p: Planner) {
+    setIsViewingOnly(false);
+    setDraft(normalizePlanner(JSON.parse(JSON.stringify(p)) as Planner, defaultSpeakers));
+    setMode("edit");
+  }
+
+  function startViewOnly(p: Planner) {
+    setIsViewingOnly(true);
     setDraft(normalizePlanner(JSON.parse(JSON.stringify(p)) as Planner, defaultSpeakers));
     setMode("edit");
   }
@@ -518,11 +536,12 @@ export function PlannerPage({
   }
 
   const readonly = useMemo(() => {
+    if (isViewingOnly) return true;
     if (!draft) return true;
     if (draft.state === "SUBMITTED" && !canEditSubmitted) return true;
     if (draft.state === "ARCHIVED") return true;
     return !canCreate && draft.state === "DRAFT";
-  }, [draft, canEditSubmitted, canCreate]);
+  }, [draft, canEditSubmitted, canCreate, isViewingOnly]);
 
   const globalWarnings = useMemo(() => {
     if (!draft) return [];
@@ -634,15 +653,21 @@ export function PlannerPage({
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge tone={getStatusTone(getStatusText(p)) as any}>{getStatusText(p)}</Badge>
 
-                    <Button variant="secondary" onClick={() => startEdit(p)}>
-                      {p.state === "SUBMITTED" && !canEditSubmitted ? "View" : "Open"}
-                    </Button>
-
-                    {p.state === "SUBMITTED" && !canEditSubmitted && (
-                      <Button variant="secondary" onClick={() => requestEditAccess(p.planner_id)}>
-                        Request Edit
+                    {isEditable(p) ? (
+                      <Button variant="secondary" onClick={() => startEdit(p)}>
+                        Open
                       </Button>
+                    ) : (
+                      p.state === "SUBMITTED" && (
+                        <Button variant="secondary" onClick={() => requestEditAccess(p.planner_id)}>
+                          Request Edit
+                        </Button>
+                      )
                     )}
+
+                    <Button variant="secondary" onClick={() => startViewOnly(p)}>
+                      View
+                    </Button>
 
                     <Button variant="secondary" onClick={() => setPreviewPlanner(p)}>
                       Preview
@@ -847,7 +872,7 @@ export function PlannerPage({
               setDraft(null);
             }}
           >
-            Save & Close
+            {readonly ? "Close" : "Save & Close"}
           </Button>
         </div>
       </div>

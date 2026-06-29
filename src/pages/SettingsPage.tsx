@@ -127,18 +127,18 @@ export function SettingsPage({
     const parsedChecklistTasks = parseTaskTemplates(checklistTaskText);
     const next: UnitSettings = {
       ...form,
-      unit_name: form.unit_name.trim(),
+      unit_name: (form.unit_name || "").trim(),
       stake_name: form.stake_name?.trim() || undefined,
-      leader_name: form.leader_name.trim(),
-      phone: form.phone.trim(),
-      venue: form.venue.trim(),
-      meeting_time: form.meeting_time.trim(),
+      leader_name: (form.leader_name || "").trim(),
+      phone: (form.phone || "").trim(),
+      venue: (form.venue || "").trim(),
+      meeting_time: (form.meeting_time || "").trim(),
       prefs: {
         default_speakers: form.prefs?.default_speakers ?? 3,
         default_meeting_duration_min: form.prefs?.default_meeting_duration_min ?? 70,
         enable_checklist: form.prefs?.enable_checklist ?? true,
         checklist_tasks: parsedChecklistTasks,
-        assignment_message_template: form.prefs?.assignment_message_template,
+        assignment_message_template: form.prefs?.assignment_message_template || "",
         default_country: "NG",
         enable_music_toolkit: form.prefs?.enable_music_toolkit ?? true,
         enable_member_analytics: form.prefs?.enable_member_analytics ?? true,
@@ -968,16 +968,7 @@ export function SettingsPage({
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Danger Zone</CardTitle>
-        </CardHeader>
-        <CardBody>
-          <div className="text-sm text-slate-600">
-            This MVP stores all data in your browser. For a fresh start, clear site data / localStorage.
-          </div>
-        </CardBody>
-      </Card>
+
     </div>
   );
 }
