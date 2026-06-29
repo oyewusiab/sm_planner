@@ -33,6 +33,7 @@ type Extracted = {
   person: string;
   role: string;
   topic?: string;
+  reference?: string;
   gender?: Gender;
   minutes?: number;
   reference_link?: string;
@@ -79,7 +80,13 @@ function generateMessageText(
     if (kind === "OPENING_PRAYER") return "give the Opening Prayer";
     if (kind === "CLOSING_PRAYER") return "give the Closing Prayer";
     if (kind === "TESTIMONY") return "bear your Testimony";
-    if (kind === "TALK") return `give a talk on the topic: "${item.topic || 'assigned topic'}"`;
+    if (kind === "TALK") {
+      let line = `give a talk on the topic: "${item.topic || 'assigned topic'}"`;
+      if (item.reference) {
+        line += ` (Reference: ${item.reference})`;
+      }
+      return line;
+    }
     return roleAsText(item.role);
   })();
 
@@ -153,7 +160,7 @@ function defaultMinutesFor(role: string) {
 function extract(planner: Planner): Extracted[] {
   const out: Extracted[] = [];
   for (const w of planner.weeks) {
-    const push = (person: string, role: string, topic?: string, gender?: Gender, minutes?: number, reference_link?: string) => {
+    const push = (person: string, role: string, topic?: string, reference?: string, gender?: Gender, minutes?: number, reference_link?: string) => {
       const p = (person || "").trim();
       if (!p) return;
       out.push({
@@ -164,6 +171,7 @@ function extract(planner: Planner): Extracted[] {
         person: p,
         role,
         topic: topic?.trim() || undefined,
+        reference: reference?.trim() || undefined,
         gender,
         minutes,
         reference_link,
@@ -172,11 +180,11 @@ function extract(planner: Planner): Extracted[] {
 
     // Fast & Testimony meeting: no speakers.
     if (!w.fast_testimony) {
-      w.speakers.forEach((s, i) => push(s.name, `Speaker ${i + 1}`, s.topic, s.gender, defaultMinutesFor(`Speaker ${i + 1}`), s.reference_link));
+      w.speakers.forEach((s, i) => push(s.name, `Speaker ${i + 1}`, s.topic, s.reference, s.gender, defaultMinutesFor(`Speaker ${i + 1}`), s.reference_link));
     }
 
-    push(w.prayers.invocation, "Invocation", undefined, w.prayers.invocation_gender, defaultMinutesFor("Invocation"));
-    push(w.prayers.benediction, "Benediction", undefined, w.prayers.benediction_gender, defaultMinutesFor("Benediction"));
+    push(w.prayers.invocation, "Invocation", undefined, undefined, w.prayers.invocation_gender, defaultMinutesFor("Invocation"));
+    push(w.prayers.benediction, "Benediction", undefined, undefined, w.prayers.benediction_gender, defaultMinutesFor("Benediction"));
 
     // Other assignments (kept for completeness)
     const pushMany = (people: string[] | undefined, role: string) => {
@@ -278,10 +286,19 @@ function NotificationCard({
 
       {/* Subject Line (if applicable) */}
       {(kind === "TALK" || subject) && (
-        <div className="mb-3 flex items-baseline gap-2">
+        <div className="mb-2 flex items-baseline gap-2">
           <div className="font-bold whitespace-nowrap">Topic / Subject:</div>
           <div className="flex-1 border-b border-dotted border-black text-black font-medium px-1">
             {subject || "______________________________________________________"}
+          </div>
+        </div>
+      )}
+
+      {item.reference && (
+        <div className="mb-3 flex items-baseline gap-2">
+          <div className="font-bold whitespace-nowrap">Reference:</div>
+          <div className="flex-1 border-b border-dotted border-black text-black font-medium px-1">
+            {item.reference}
           </div>
         </div>
       )}
@@ -526,6 +543,8 @@ export function AssignmentsPage({
         person: r.person,
         role: r.role,
         topic: r.topic,
+        reference: r.reference,
+        reference_link: r.reference_link,
         minutes: r.minutes,
         created_date: time.nowISO(),
       }));
@@ -639,6 +658,7 @@ export function AssignmentsPage({
                         <div className="mt-0.5 text-xs text-slate-600 flex items-center flex-wrap gap-1.5">
                           <span>{formatDateShort(x.date)}</span>
                           {x.topic ? <span>• {x.topic}</span> : null}
+                          {x.reference ? <span>• <span className="italic text-slate-500">Ref: {x.reference}</span></span> : null}
                           {dbAssign?.sent_status && (
                             <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold border ${
                               dbAssign.sent_status === "SENT"

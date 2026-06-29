@@ -75,7 +75,7 @@ function blankAgenda(plannerId: string, weekId: string, userId: string, _planner
     sacrament_hymn: parsedSacrament.title,
     sacrament_hymn_number: parsedSacrament.number,
     special_music: "",
-    speakers: week.speakers.map(s => ({ name: s.name, topic: s.topic })),
+    speakers: week.speakers.map(s => ({ name: s.name, topic: s.topic, reference: s.reference || "" })),
     closing_hymn: parsedClosing.title,
     closing_hymn_number: parsedClosing.number,
     closing_prayer: week.prayers?.benediction || "",
@@ -329,11 +329,11 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
     setIsDirty(true);
   };
 
-  const updateAgendaSpeaker = (index: number, field: 'name' | 'topic', value: string) => {
+  const updateAgendaSpeaker = (index: number, field: 'name' | 'topic' | 'reference', value: string) => {
     if (!localAgenda || !canEdit) return;
     const newSpeakers = [...(localAgenda.speakers || [])];
     while (newSpeakers.length <= index) {
-      newSpeakers.push({ name: "", topic: "" });
+      newSpeakers.push({ name: "", topic: "", reference: "" });
     }
     newSpeakers[index] = { ...newSpeakers[index], [field]: value };
     setLocalAgenda({ ...localAgenda, speakers: newSpeakers });
@@ -531,7 +531,7 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
   };
 
   // Setup padded lists for rendering
-  const speakers = useMemo(() => padArray(localAgenda?.speakers || [], 5, { name: "", topic: "" }), [localAgenda]);
+  const speakers = useMemo(() => padArray(localAgenda?.speakers || [], 5, { name: "", topic: "", reference: "" }), [localAgenda]);
   const announcementsList = useMemo(() => padArray(localAgenda?.announcements || [], 6, ""), [localAgenda]);
   const releasesList = useMemo(() => padArray(localAgenda?.releases || [], 6, { name: "", calling: "" }), [localAgenda]);
   const callsList = useMemo(() => padArray(localAgenda?.calls || [], 6, { name: "", calling: "" }), [localAgenda]);
@@ -839,7 +839,9 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                         <div className="flex items-end justify-between gap-2 h-5 pl-4">
                           <div className="flex items-end flex-1 truncate">
                             <strong className="shrink-0 mr-1 font-normal text-slate-700">Subject & references:</strong>
-                            <span className="border-b border-black flex-1 min-h-[1.1rem] px-1 truncate text-[9px]">{s.topic}</span>
+                            <span className="border-b border-black flex-1 min-h-[1.1rem] px-1 truncate text-[9px]">
+                              {s.topic || s.reference ? `${s.topic || ""}${s.topic && s.reference ? " — " : ""}${s.reference || ""}` : ""}
+                            </span>
                           </div>
                           <div className="flex gap-2 shrink-0 w-16">
                             <span className="border-b border-black w-8 text-center min-h-[1.1rem]"></span>
@@ -886,7 +888,9 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                         <div className="flex items-end justify-between gap-2 h-5 pl-4">
                           <div className="flex items-end flex-1 truncate">
                             <strong className="shrink-0 mr-1 font-normal text-slate-700">Subject & references:</strong>
-                            <span className="border-b border-black flex-1 min-h-[1.1rem] px-1 truncate text-[9px]">{s.topic}</span>
+                            <span className="border-b border-black flex-1 min-h-[1.1rem] px-1 truncate text-[9px]">
+                              {s.topic || s.reference ? `${s.topic || ""}${s.topic && s.reference ? " — " : ""}${s.reference || ""}` : ""}
+                            </span>
                           </div>
                           <div className="flex gap-2 shrink-0 w-16">
                             <span className="border-b border-black w-8 text-center min-h-[1.1rem]"></span>
@@ -1574,13 +1578,17 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                       {speakers.map((s, idx) => (
                         <div key={idx} className="grid grid-cols-12 gap-3 items-end border-b border-slate-50 pb-2.5 last:border-0 last:pb-0">
                           <div className="col-span-1 text-center font-bold text-slate-500 pb-2">{idx + 1}</div>
-                          <div className="col-span-5">
+                          <div className="col-span-4">
                             <Label>Speaker Name</Label>
                             <Input value={s.name} onChange={e => updateAgendaSpeaker(idx, 'name', e.target.value)} disabled={!canEdit} />
                           </div>
-                          <div className="col-span-6">
-                            <Label>Subject & References</Label>
-                            <Input value={s.topic} onChange={e => updateAgendaSpeaker(idx, 'topic', e.target.value)} placeholder="Topic, scriptures, etc" disabled={!canEdit} />
+                          <div className="col-span-4">
+                            <Label>Topic</Label>
+                            <Input value={s.topic} onChange={e => updateAgendaSpeaker(idx, 'topic', e.target.value)} placeholder="Topic" disabled={!canEdit} />
+                          </div>
+                          <div className="col-span-3">
+                            <Label>Reference</Label>
+                            <Input value={s.reference || ""} onChange={e => updateAgendaSpeaker(idx, 'reference', e.target.value)} placeholder="Scripture/Talk" disabled={!canEdit} />
                           </div>
                         </div>
                       ))}

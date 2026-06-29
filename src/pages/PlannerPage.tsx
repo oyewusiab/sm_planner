@@ -30,6 +30,7 @@ function blankWeek(dateISO: string, conducting_officer: string, defaultSpeakers 
     speakers: Array.from({ length: Math.max(0, defaultSpeakers) }).map(() => ({
       name: "",
       topic: "",
+      reference: "",
       gender: undefined,
       reference_link: "",
     })),
@@ -57,6 +58,7 @@ function normalizeWeek(
     ? week.speakers.map((speaker) => ({
         name: speaker?.name || "",
         topic: speaker?.topic || "",
+        reference: speaker?.reference || "",
         gender: speaker?.gender,
         reference_link: speaker?.reference_link || "",
       }))
@@ -65,6 +67,7 @@ function normalizeWeek(
       : Array.from({ length: Math.max(0, defaultSpeakers) }).map(() => ({
           name: "",
           topic: "",
+          reference: "",
           gender: undefined,
           reference_link: "",
         }));
@@ -1255,10 +1258,10 @@ export function PlannerPage({
                             </div>
 
                             <div className="space-y-1">
-                              <Label>Topic & Reference</Label>
+                              <Label>Topic</Label>
                               <Textarea
                                 disabled={readonly}
-                                rows={3}
+                                rows={2}
                                 value={s.topic || ""}
                                 onChange={(e) =>
                                   setDraft((d) => {
@@ -1266,6 +1269,26 @@ export function PlannerPage({
                                     const weeks = d.weeks.map((x) => {
                                       if (x.week_id !== w.week_id) return x;
                                       const speakers = x.speakers.map((sp, j) => (j === i ? { ...sp, topic: e.target.value } : sp));
+                                      return { ...x, speakers };
+                                    });
+                                    return { ...d, weeks };
+                                  })
+                                }
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <Label>Reference</Label>
+                              <Input
+                                disabled={readonly}
+                                placeholder="Scripture or Talk reference..."
+                                value={s.reference || ""}
+                                onChange={(e) =>
+                                  setDraft((d) => {
+                                    if (!d) return d;
+                                    const weeks = d.weeks.map((x) => {
+                                      if (x.week_id !== w.week_id) return x;
+                                      const speakers = x.speakers.map((sp, j) => (j === i ? { ...sp, reference: e.target.value } : sp));
                                       return { ...x, speakers };
                                     });
                                     return { ...d, weeks };

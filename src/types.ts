@@ -134,7 +134,7 @@ export type WeekPlan = {
   fast_testimony?: boolean;
 
   /** Speakers (gender used to print Brother/Sister prefix). */
-  speakers: { name: string; topic: string; gender?: "M" | "F"; reference_link?: string }[];
+  speakers: { name: string; topic: string; reference?: string; gender?: "M" | "F"; reference_link?: string }[];
 
   hymns: { opening: string; sacrament: string; closing: string };
 
@@ -219,6 +219,8 @@ export type Assignment = {
   person: string;
   role: string; // Speaker / Prayer / etc.
   topic?: string;
+  reference?: string;
+  reference_link?: string;
 
   /** Default time is generated per role but can be edited before printing. */
   minutes?: number;
@@ -369,7 +371,7 @@ export type Agenda = {
   sacrament_hymn: string;
   sacrament_hymn_number: string;
   special_music: string;
-  speakers: { name: string; topic: string }[];
+  speakers: { name: string; topic: string; reference?: string }[];
   closing_hymn: string;
   closing_hymn_number: string;
   closing_prayer: string;

@@ -196,6 +196,7 @@ export function PlannerPreviewTable({ planner, unit }: { planner: Planner; unit:
                     const s = w.speakers?.[i];
                     const nameStr = s ? gender(s.name, s.gender) : "";
                     const topicStr = (s?.topic || "").trim();
+                    const refStr = (s?.reference || "").trim();
                     return (
                       <td key={i} style={S.td}>
                         {s ? (
@@ -204,7 +205,14 @@ export function PlannerPreviewTable({ planner, unit }: { planner: Planner; unit:
                               <div style={{ fontWeight: 700 }}>{nameStr}</div>
                             ) : null}
                             {topicStr ? (
-                              <div style={{ marginTop: 4, color: "#222", fontSize: "11px" }}>{topicStr}</div>
+                              <div style={{ marginTop: 4, color: "#222", fontSize: "11px" }}>
+                                <strong>Topic:</strong> {topicStr}
+                              </div>
+                            ) : null}
+                            {refStr ? (
+                              <div style={{ marginTop: 2, color: "#444", fontSize: "10.5px", fontStyle: "italic" }}>
+                                <strong>Ref:</strong> {refStr}
+                              </div>
                             ) : null}
                           </div>
                         ) : (

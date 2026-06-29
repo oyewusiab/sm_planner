@@ -58,7 +58,11 @@ function generateMessageTextForDue(
     if (roleLower.includes("benediction")) return "give the Closing Prayer";
     if (roleLower.includes("testimony")) return "bear your Testimony";
     if (roleLower.includes("speaker") || roleLower.includes("talk")) {
-      return `give a talk on the topic: "${assignment.topic || 'assigned topic'}"`;
+      let line = `give a talk on the topic: "${assignment.topic || 'assigned topic'}"`;
+      if (assignment.reference) {
+        line += ` (Reference: ${assignment.reference})`;
+      }
+      return line;
     }
     return assignment.role;
   })();
@@ -392,7 +396,8 @@ export function NotificationsPage({
         `Date: ${formatDateShort(a.date)}\n` +
         `Venue: ${a.venue}\n` +
         `Time: ${formatTime12h(a.meeting_time)}` +
-        (a.topic ? `\nTopic: ${a.topic}` : "");
+        (a.topic ? `\nTopic: ${a.topic}` : "") +
+        (a.reference ? `\nReference: ${a.reference}` : "");
       const ok = sendReminderForAssignment(a.person, body);
       if (ok) sent += 1;
       else unmatched += 1;
@@ -713,7 +718,8 @@ export function NotificationsPage({
                           `Date: ${formatDateShort(a.date)}\n` +
                           `Venue: ${a.venue}\n` +
                           `Time: ${formatTime12h(a.meeting_time)}` +
-                          (a.topic ? `\nTopic: ${a.topic}` : "");
+                          (a.topic ? `\nTopic: ${a.topic}` : "") +
+                          (a.reference ? `\nReference: ${a.reference}` : "");
                         return (
                           <tr key={a.assignment_id} className="border-t border-[color:var(--border)] hover:bg-slate-50/50">
                             <td className="p-3 whitespace-nowrap">{formatDateShort(a.date)}</td>
@@ -732,7 +738,10 @@ export function NotificationsPage({
                               </div>
                             </td>
                             <td className="p-3">{a.role}</td>
-                            <td className="p-3 text-slate-600 max-w-[200px] truncate" title={a.topic || ""}>{a.topic || "—"}</td>
+                             <td className="p-3 text-slate-600 max-w-[200px] truncate" title={`${a.topic || ""}${a.reference ? ` (${a.reference})` : ""}`}>
+                              {a.topic || "—"}
+                              {a.reference ? <span className="block text-[10px] text-slate-400 italic">Ref: {a.reference}</span> : null}
+                            </td>
                             <td className="p-3">
                               <div className="flex items-center gap-2">
                                 <Button
