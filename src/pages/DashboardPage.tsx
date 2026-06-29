@@ -123,6 +123,13 @@ export function DashboardPage({
 
   const readinessStats = nextSundayInfo ? nextSundayChecklistStats : aggregateChecklistStats;
 
+  const nextSundayDetails = useMemo(() => {
+    if (!nextSundayInfo) return null;
+    const planner = db.PLANNERS.find((p) => p.planner_id === nextSundayInfo.planner_id);
+    if (!planner) return null;
+    return planner.weeks.find((w) => w.week_id === nextSundayInfo.week_id) || null;
+  }, [db.PLANNERS, nextSundayInfo]);
+
   const upcoming = useMemo(() => {
     const todayISO = new Date().toISOString().slice(0, 10);
     return [...new Set([...currentMonthSundays])].filter((d) => d >= todayISO).slice(0, 5);
@@ -354,6 +361,131 @@ export function DashboardPage({
           </>
         )}
       </div>
+
+      {/* ── Next Sunday Program Quick-View ── */}
+      {nextSundayDetails && (
+        <div className="stat-card animate-fade-in-up stagger-4 overflow-hidden border border-slate-100 bg-white shadow-sm p-6 space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">⛪</span>
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">Next Sunday Service Outline</h3>
+                <p className="text-[10px] text-slate-400 font-medium">
+                  {formatDateShort(nextSundayDetails.date)} · Sacrament Meeting
+                </p>
+              </div>
+            </div>
+            <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
+              {nextSundayDetails.meeting_type || "Normal Service"}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
+            {/* Left Column: Leadership & Prayers */}
+            <div className="space-y-3">
+              <div className="font-bold uppercase tracking-wider text-slate-400 text-[10px]">
+                Leadership & Prayers
+              </div>
+              <div className="space-y-2 rounded-xl bg-slate-50/50 p-3 border border-slate-100">
+                <div className="flex justify-between py-1 border-b border-slate-100/50">
+                  <span className="text-slate-500 font-medium">Presiding</span>
+                  <span className="font-semibold text-slate-800">{nextSundayDetails.presiding || "Bishopric"}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-slate-100/50">
+                  <span className="text-slate-500 font-medium">Conducting</span>
+                  <span className="font-semibold text-slate-800">{nextSundayDetails.conducting_officer || "—"}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-slate-100/50">
+                  <span className="text-slate-500 font-medium">Invocation</span>
+                  <span className="font-semibold text-slate-800">{nextSundayDetails.prayers?.invocation || "—"}</span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-slate-500 font-medium">Benediction</span>
+                  <span className="font-semibold text-slate-800">{nextSundayDetails.prayers?.benediction || "—"}</span>
+                </div>
+              </div>
+
+              {/* Music Details */}
+              <div className="font-bold uppercase tracking-wider text-slate-400 text-[10px] pt-1">
+                Sacrament Hymns
+              </div>
+              <div className="space-y-2 rounded-xl bg-slate-50/50 p-3 border border-slate-100">
+                <div className="flex justify-between py-1 border-b border-slate-100/50">
+                  <span className="text-slate-500 font-medium">Opening Hymn</span>
+                  <span className="font-semibold text-slate-800">{nextSundayDetails.hymns?.opening || "—"}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-slate-100/50">
+                  <span className="text-slate-500 font-medium">Sacrament Hymn</span>
+                  <span className="font-semibold text-slate-800">{nextSundayDetails.hymns?.sacrament || "—"}</span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-slate-500 font-medium">Closing Hymn</span>
+                  <span className="font-semibold text-slate-800">{nextSundayDetails.hymns?.closing || "—"}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column: Speakers or Fast Meeting */}
+            <div className="space-y-3">
+              <div className="font-bold uppercase tracking-wider text-slate-400 text-[10px]">
+                Speakers & Messages
+              </div>
+              {nextSundayDetails.fast_testimony ? (
+                <div className="rounded-xl border border-blue-100 bg-blue-50/30 p-4 text-center text-blue-800 h-full flex flex-col justify-center items-center">
+                  <span className="text-2xl mb-1" role="img" aria-label="Dove">🕊️</span>
+                  <div className="font-bold text-sm">Fast & Testimony Meeting</div>
+                  <p className="text-[11px] text-slate-500 mt-1 max-w-[240px] leading-relaxed">
+                    No speakers scheduled. Members of the congregation will be invited to bear their testimonies.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {(nextSundayDetails.speakers || []).filter(s => s.name.trim()).length === 0 ? (
+                    <div className="text-slate-400 text-center py-6 border border-dashed border-slate-200 rounded-xl">
+                      No speakers assigned yet.
+                    </div>
+                  ) : (
+                    (nextSundayDetails.speakers || [])
+                      .filter(s => s.name.trim())
+                      .map((s, sIdx) => (
+                        <div key={sIdx} className="rounded-xl bg-slate-50/50 p-3 border border-slate-100 flex justify-between items-start gap-3">
+                          <div className="space-y-0.5 min-w-0">
+                            <div className="font-bold text-slate-800 truncate">{s.name}</div>
+                            {s.topic && (
+                              <div className="text-[10px] text-slate-500 font-medium leading-normal">
+                                Topic: <span className="text-slate-700">{s.topic}</span>
+                              </div>
+                            )}
+                            {s.reference && (
+                              <div className="text-[10px] text-slate-400 font-medium leading-normal">
+                                Scripture: <span className="text-slate-600 italic">{s.reference}</span>
+                              </div>
+                            )}
+                          </div>
+                          {s.reference_link && (
+                            <a
+                              href={s.reference_link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[10px] font-semibold text-blue-600 hover:text-blue-800 hover:underline shrink-0 bg-blue-50 border border-blue-100 px-2 py-1 rounded-lg transition"
+                            >
+                              Link ↗
+                            </a>
+                          )}
+                        </div>
+                      ))
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex justify-end pt-2 border-t border-slate-100">
+            <Button onClick={() => onNavigate("agenda")} variant="secondary" className="text-xs">
+              Open Agenda Program →
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* ── Quick Actions ── */}
       <div className="animate-fade-in-up stagger-4">

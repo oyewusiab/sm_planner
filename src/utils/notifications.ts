@@ -1,7 +1,36 @@
 import type { Notification, NotificationType, User } from "../types";
 import { getDB, ids, time, updateDB } from "./storage";
 
+export function cleanupOldReadNotifications() {
+  const db = getDB();
+  const eightDaysInMs = 8 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+
+  const toKeep = db.NOTIFICATIONS.filter((n) => {
+    if (!n.read) return true;
+    try {
+      const createdTime = new Date(n.created_date).getTime();
+      const ageMs = now - createdTime;
+      return ageMs < eightDaysInMs;
+    } catch {
+      return true;
+    }
+  });
+
+  if (toKeep.length !== db.NOTIFICATIONS.length) {
+    updateDB((db0) => ({ ...db0, NOTIFICATIONS: toKeep }));
+  }
+}
+
 export function listNotificationsForUser(user_id: string) {
+  setTimeout(() => {
+    try {
+      cleanupOldReadNotifications();
+    } catch (e) {
+      console.error("[Notification Cleanup] Error:", e);
+    }
+  }, 100);
+
   const db = getDB();
   return [...db.NOTIFICATIONS]
     .filter((n) => n.to_user_id === user_id)
