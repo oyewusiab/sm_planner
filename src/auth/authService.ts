@@ -84,6 +84,18 @@ export async function login(identifier: string, password: string): Promise<User>
       // 1. Try to log in directly via Firebase Auth using user's email
       const userCredential = await signInWithEmailAndPassword(auth, emailClean, password);
       console.log("[Auth] Firebase login successful:", userCredential.user.email);
+
+      // Self-heal auth_uid configuration if missing
+      const firebaseUid = userCredential.user.uid;
+      if (user.auth_uid !== firebaseUid) {
+        console.log("[Auth] Synced missing auth_uid with Firebase Auth UID.");
+        updateDB((db0) => ({
+          ...db0,
+          USERS: db0.USERS.map((u) =>
+            u.user_id === user.user_id ? { ...u, auth_uid: firebaseUid } : u
+          ),
+        }));
+      }
     } catch (err: any) {
       const code = err?.code || "";
       // If user does not exist in Firebase Auth yet (legacy user), attempt transition migration
@@ -116,6 +128,9 @@ export async function login(identifier: string, password: string): Promise<User>
           console.log("[Auth] Legacy migration and sign-in completed successfully client-side!");
         } catch (migrationErr: any) {
           console.error("[Auth] Legacy client-side migration failed:", migrationErr);
+          if (migrationErr?.code === "auth/email-already-in-use") {
+            throw new Error("Incorrect password. Please try again.");
+          }
           throw new Error("Unable to complete security migration. Please contact your Administrator.");
         }
       } else {

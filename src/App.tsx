@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { UnitSettings, User, Notification } from "./types";
 import { AppShell, type RouteKey } from "./components/AppShell";
 import { AIChatbot } from "./components/AIChatbot";
+import { auth } from "./utils/firebase";
+import { onAuthStateChanged } from "firebase/auth";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { PlannerPage } from "./pages/PlannerPage";
@@ -61,6 +63,7 @@ export function App() {
 
   const [user, setUser] = useState<User | null>(null);
   const [unit, setUnit] = useState<UnitSettings | null>(() => getDB().UNIT_SETTINGS);
+  const [authReady, setAuthReady] = useState(false);
 
   const [route, setRoute] = useState<RouteKey>(() => {
     const fromHash = getRouteFromHash();
@@ -227,6 +230,19 @@ export function App() {
     });
   }, []);
 
+  // Listen to Firebase Auth state initialization and session syncing
+  useEffect(() => {
+    return onAuthStateChanged(auth, (firebaseUser) => {
+      setAuthReady(true);
+      if (firebaseUser) {
+        console.log("[Auth] Firebase Auth session initialized for:", firebaseUser.email);
+      } else if (user && backendEnabled()) {
+        console.log("[Auth] Firebase Auth session expired or missing. Clearing local session...");
+        logout();
+      }
+    });
+  }, [user]);
+
   // Inactivity & Auto-logout
   useEffect(() => {
     if (!user) return;
@@ -263,13 +279,13 @@ export function App() {
 
   // Real-time listener and foreground refresh triggers.
   useEffect(() => {
-    if (!user || !backendEnabled()) return;
+    if (!authReady || !user || !backendEnabled()) return;
 
-    console.log("[Sync] Initial sync on mount/login");
+    console.log("[Sync] Initial sync on mount/login (auth ready)");
     void syncFromBackend().then((ok) => {
       if (ok) refresh();
     });
-  }, [user]);
+  }, [user, authReady]);
 
   useEffect(() => {
     (async () => {
@@ -336,7 +352,7 @@ export function App() {
           const ageYears = (now.getTime() - archiveTime) / (1000 * 60 * 60 * 24 * 365);
           if (ageYears >= 2) {
             const exists = notifications.some(
-              (n) => n.type === "PLANNER_EXPIRY_APPROVAL" && n.meta?.planner_id === p.planner_id && !n.read
+              (n) => n.type === "PLANNER_EXPIRY_APPROVAL" && n.meta?.planner_id === p.planner_id
             );
             if (!exists) {
               const label = `${p.month}/${p.year} (${p.unit_name})`;
@@ -366,7 +382,7 @@ export function App() {
           const ageYears = (now.getTime() - archiveTime) / (1000 * 60 * 60 * 24 * 365);
           if (ageYears >= 3) {
             const exists = notifications.some(
-              (n) => n.type === "AGENDA_EXPIRY_APPROVAL" && n.meta?.agenda_id === a.agenda_id && !n.read
+              (n) => n.type === "AGENDA_EXPIRY_APPROVAL" && n.meta?.agenda_id === a.agenda_id
             );
             if (!exists) {
               const dateLabel = a.date ? new Date(a.date).toLocaleDateString() : "Unknown Date";
