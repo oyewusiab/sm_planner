@@ -403,9 +403,27 @@ export function App() {
       }
     });
 
-    if (dbUpdated && newNotifications.length > 0) {
+    // Auto-delete read notifications older than 8 days
+    const eightDaysAgo = now.getTime() - 8 * 24 * 60 * 60 * 1000;
+    const activeNotifications = notifications.filter((n) => {
+      if (!n.read) return true;
+      const createdTime = new Date(n.created_date || "").getTime();
+      if (isNaN(createdTime)) return true;
+      return createdTime >= eightDaysAgo;
+    });
+
+    if (activeNotifications.length !== notifications.length) {
+      dbUpdated = true;
+    }
+
+    if (dbUpdated) {
       updateDB((db0) => {
-        const existing = db0.NOTIFICATIONS || [];
+        const existing = (db0.NOTIFICATIONS || []).filter((n) => {
+          if (!n.read) return true;
+          const createdTime = new Date(n.created_date || "").getTime();
+          if (isNaN(createdTime)) return true;
+          return createdTime >= eightDaysAgo;
+        });
         return {
           ...db0,
           NOTIFICATIONS: [...newNotifications, ...existing]
@@ -439,7 +457,6 @@ export function App() {
     if (user) {
       sessionStorage.removeItem(`ai_chat_${user.user_id}_v1`);
     }
-    sessionStorage.removeItem("liahona_ai_temp_key");
     clearSession();
     setUser(null);
     setRoute("dashboard");

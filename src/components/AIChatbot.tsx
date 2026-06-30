@@ -23,10 +23,6 @@ export function AIChatbot({ user, unit }: AIChatbotProps) {
   });
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [tempKey, setTempKey] = useState(() => {
-    return sessionStorage.getItem("liahona_ai_temp_key") || "";
-  });
-
   const { data: members = [] } = useTable("MEMBERS");
   const { data: planners = [] } = useTable("PLANNERS");
 
@@ -37,24 +33,19 @@ export function AIChatbot({ user, unit }: AIChatbotProps) {
     sessionStorage.setItem(chatKey, JSON.stringify(messages));
   }, [messages, chatKey]);
 
-  // Sync temp key to sessionStorage
-  useEffect(() => {
-    sessionStorage.setItem("liahona_ai_temp_key", tempKey);
-  }, [tempKey]);
-
   // Auto scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isOpen]);
 
-  const activeApiKey = unit.prefs?.gemini_api_key || tempKey;
+  const activeApiKey = unit.prefs?.gemini_api_key || "";
 
   const handleSend = async () => {
     const text = input.trim();
     if (!text || loading) return;
 
     if (!activeApiKey) {
-      alert("Please provide a Gemini API Key either in Settings or in the chat panel input.");
+      alert("Gemini API Key is not configured. Please set the API Key in the Settings page.");
       return;
     }
 
@@ -195,22 +186,12 @@ export function AIChatbot({ user, unit }: AIChatbotProps) {
           <CardBody className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
             {/* Warning Banner if API Key is missing */}
             {!activeApiKey && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-amber-800 space-y-2">
-                <div className="font-semibold text-[11px]">
-                  <span role="img" aria-label="Key">🔑</span> Gemini API Key Required
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 text-amber-800 space-y-1.5 shadow-sm">
+                <div className="font-bold text-[11px] flex items-center gap-1.5">
+                  <span role="img" aria-label="Warning">⚠️</span> AI Assistant Disabled
                 </div>
-                <div className="text-[10px] leading-normal">
-                  Provide your Gemini API key below to enable this chatbot. The key is kept temporarily in memory until you close the tab.
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    type="password"
-                    placeholder="AIzaSy..."
-                    value={tempKey}
-                    onChange={(e) => setTempKey(e.target.value)}
-                    className="h-8 text-[11px] bg-white border-amber-300"
-                    aria-label="Temporary API Key"
-                  />
+                <div className="text-[10px] leading-relaxed text-amber-700">
+                  The Gemini API Key is not configured. Please contact your administrator to set up the Gemini API Key in the platform **Settings** page.
                 </div>
               </div>
             )}
