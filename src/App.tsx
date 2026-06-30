@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { UnitSettings, User, Notification } from "./types";
 import { AppShell, type RouteKey } from "./components/AppShell";
 import { AIChatbot } from "./components/AIChatbot";
-import { auth } from "./utils/firebase";
+import { auth as firebaseAuth } from "./utils/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -232,7 +232,7 @@ export function App() {
 
   // Listen to Firebase Auth state initialization and session syncing
   useEffect(() => {
-    return onAuthStateChanged(auth, (firebaseUser) => {
+    return onAuthStateChanged(firebaseAuth, (firebaseUser) => {
       setAuthReady(true);
       if (firebaseUser) {
         console.log("[Auth] Firebase Auth session initialized for:", firebaseUser.email);
