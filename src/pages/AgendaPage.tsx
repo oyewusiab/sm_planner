@@ -70,6 +70,7 @@ function blankAgenda(plannerId: string, weekId: string, userId: string, _planner
     presiding: week.presiding || "",
     presiding_position: "",
     conducting: week.conducting_officer || "",
+    conducting_position: "",
     music_director: week.music?.director || "",
     choir_director: "",
     organist: week.music?.accompanist || "",
@@ -638,16 +639,8 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                     </div>
                     <div className="flex items-end text-[9.5px]">
                       <strong className="w-16 shrink-0">Conducting:</strong>
-                      <span className="w-1/2 border-b border-black min-h-[1.1rem] px-1 truncate">
-                        {agendaData.conducting.split(" (")[0].split(", ")[0]}
-                      </span>
-                      <span className="w-1/3 border-b border-black min-h-[1.1rem] px-1 truncate">
-                        {agendaData.conducting.includes(" (") 
-                          ? agendaData.conducting.split(" (")[1].replace(")", "") 
-                          : agendaData.conducting.includes(", ") 
-                            ? agendaData.conducting.split(", ")[1] 
-                            : ""}
-                      </span>
+                      <span className="w-1/2 border-b border-black min-h-[1.1rem] px-1 truncate">{agendaData.conducting}</span>
+                      <span className="w-1/3 border-b border-black min-h-[1.1rem] px-1 truncate">{agendaData.conducting_position || "Counselor"}</span>
                     </div>
                   </td>
                   <td className="border border-black p-1.5 w-1/2 align-top space-y-1">
@@ -1470,7 +1463,7 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                   <Card className="shadow-sm border border-slate-100">
                     <CardHeader><CardTitle>Officiating Officers & Music</CardTitle></CardHeader>
                     <CardBody className="space-y-4">
-                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                         <div>
                           <Label>Presiding Officer Name</Label>
                           <Input value={localAgenda.presiding} onChange={e => updateAgendaField("presiding", e.target.value)} placeholder="e.g. Olajide" disabled={!canEdit} />
@@ -1480,8 +1473,12 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                           <Input value={localAgenda.presiding_position || ""} onChange={e => updateAgendaField("presiding_position", e.target.value)} placeholder="e.g. Bishop" disabled={!canEdit} />
                         </div>
                         <div>
-                          <Label>Conducting Officer</Label>
-                          <Input value={localAgenda.conducting} onChange={e => updateAgendaField("conducting", e.target.value)} placeholder="Name & Position" disabled={!canEdit} />
+                          <Label>Conducting Officer Name</Label>
+                          <Input value={localAgenda.conducting} onChange={e => updateAgendaField("conducting", e.target.value)} placeholder="e.g. Smith" disabled={!canEdit} />
+                        </div>
+                        <div>
+                          <Label>Conducting Officer Position</Label>
+                          <Input value={localAgenda.conducting_position || ""} onChange={e => updateAgendaField("conducting_position", e.target.value)} placeholder="e.g. Counselor" disabled={!canEdit} />
                         </div>
                       </div>
                       <div>

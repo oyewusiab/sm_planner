@@ -356,6 +356,7 @@ export type Agenda = {
   presiding: string;
   presiding_position?: string;
   conducting: string;
+  conducting_position?: string;
   music_director: string;
   choir_director: string;
   organist: string;
