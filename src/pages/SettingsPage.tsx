@@ -129,12 +129,12 @@ export function SettingsPage({
     const parsedChecklistTasks = parseTaskTemplates(checklistTaskText);
     const next: UnitSettings = {
       ...form,
-      unit_name: (form.unit_name || "").trim(),
-      stake_name: form.stake_name?.trim() || undefined,
-      leader_name: (form.leader_name || "").trim(),
-      phone: (form.phone || "").trim(),
-      venue: (form.venue || "").trim(),
-      meeting_time: (form.meeting_time || "").trim(),
+      unit_name: String(form.unit_name || "").trim(),
+      stake_name: form.stake_name ? String(form.stake_name).trim() : undefined,
+      leader_name: String(form.leader_name || "").trim(),
+      phone: String(form.phone || "").trim(),
+      venue: String(form.venue || "").trim(),
+      meeting_time: String(form.meeting_time || "").trim(),
       prefs: {
         default_speakers: form.prefs?.default_speakers ?? 3,
         default_meeting_duration_min: form.prefs?.default_meeting_duration_min ?? 70,
