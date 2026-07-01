@@ -30,10 +30,10 @@ service cloud.firestore {
       allow update, delete: if isAuthenticated() && (request.auth.uid == userId || request.auth.token.email == resource.data.email || isAdmin());
     }
 
-    // UNIT_SETTINGS: read by anyone, write only by ADMIN, BISHOPRIC, or CLERK
+    // UNIT_SETTINGS: read by anyone, write only by authenticated users
     match /unit_settings/{document} {
       allow read: if true;
-      allow write: if isAuthenticated() && (isAdmin() || getUserData().role == 'BISHOPRIC' || getUserData().role == 'CLERK');
+      allow write: if isAuthenticated();
     }
   }
 }

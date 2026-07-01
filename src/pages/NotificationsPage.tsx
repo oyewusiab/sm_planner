@@ -110,6 +110,9 @@ function clampPatch(patch: Partial<UnitSettings>): Partial<UnitSettings> {
           checklist_tasks: patch.prefs.checklist_tasks,
           assignment_message_template: patch.prefs.assignment_message_template,
           default_country: patch.prefs.default_country,
+          enable_music_toolkit: patch.prefs.enable_music_toolkit,
+          enable_member_analytics: patch.prefs.enable_member_analytics,
+          gemini_api_key: patch.prefs.gemini_api_key,
         }
       : undefined,
   };

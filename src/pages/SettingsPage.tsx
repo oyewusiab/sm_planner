@@ -70,6 +70,7 @@ export function SettingsPage({
       default_country: "NG",
       enable_music_toolkit: unit.prefs?.enable_music_toolkit ?? true,
       enable_member_analytics: unit.prefs?.enable_member_analytics ?? true,
+      gemini_api_key: unit.prefs?.gemini_api_key || "",
     },
   });
   const [checklistTaskText, setChecklistTaskText] = useState((unit.prefs?.checklist_tasks || []).join("\n"));
@@ -102,6 +103,7 @@ export function SettingsPage({
         default_country: "NG",
         enable_music_toolkit: unit.prefs?.enable_music_toolkit ?? true,
         enable_member_analytics: unit.prefs?.enable_member_analytics ?? true,
+        gemini_api_key: unit.prefs?.gemini_api_key || "",
       },
     });
     setChecklistTaskText((unit.prefs?.checklist_tasks || []).join("\n"));
@@ -147,10 +149,15 @@ export function SettingsPage({
       venues: form.venues || [],
     };
 
-    if (!next.unit_name) return setFlash({ tone: "error", msg: "Unit Name is required." });
-    if (!next.leader_name) return setFlash({ tone: "error", msg: "Leader Name is required." });
-    if (!next.venue) return setFlash({ tone: "error", msg: "Venue is required." });
-    if (!next.meeting_time) return setFlash({ tone: "error", msg: "Meeting Time is required." });
+    function showFlash(tone: "success" | "error", msg: string) {
+      setFlash({ tone, msg });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    if (!next.unit_name) return showFlash("error", "Unit Name is required.");
+    if (!next.leader_name) return showFlash("error", "Leader Name is required.");
+    if (!next.venue) return showFlash("error", "Venue is required.");
+    if (!next.meeting_time) return showFlash("error", "Meeting Time is required.");
 
     if (isClerk) {
       const reqId = ids.uid("sreq");
@@ -170,13 +177,13 @@ export function SettingsPage({
         body: `${user.name} (${user.calling}) has submitted a settings change for approval. Please visit the Approvals tab in the Notifications Center.`,
         meta: { request_id: reqId },
       });
-      setFlash({ tone: "success", msg: "Request sent to Bishop for approval." });
+      showFlash("success", "Request sent to Bishop for approval.");
       return;
     }
 
     updateDB((db0) => ({ ...db0, UNIT_SETTINGS: next }));
     onChanged();
-    setFlash({ tone: "success", msg: kind === "unit" ? "Unit settings saved." : "Preferences saved." });
+    showFlash("success", kind === "unit" ? "Unit settings saved." : "Preferences saved.");
   }
 
   async function createUser() {
