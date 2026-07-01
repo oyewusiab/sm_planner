@@ -354,6 +354,7 @@ export type Agenda = {
   type_of_meeting: "Sacrament Meeting" | "Fast & Testimony" | "Stake/District Meeting" | "Ward/Branch Conference" | "Other";
   other_meeting_specify?: string;
   presiding: string;
+  presiding_position?: string;
   conducting: string;
   music_director: string;
   choir_director: string;

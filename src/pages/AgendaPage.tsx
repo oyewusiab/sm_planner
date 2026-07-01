@@ -37,6 +37,16 @@ function parseHymn(rawHymn: string): { title: string; number: string } {
   return { title: rawHymn.trim(), number: "" };
 }
 
+function gender(name: string, g?: "M" | "F") {
+  const n = (name || "").trim();
+  if (!n) return "";
+  const lo = n.toLowerCase();
+  if (lo.startsWith("brother ") || lo.startsWith("sister ")) return n;
+  if (g === "M") return `Brother ${n}`;
+  if (g === "F") return `Sister ${n}`;
+  return n;
+}
+
 function blankAgenda(plannerId: string, weekId: string, userId: string, _planner: Planner, week: WeekPlan, unit: UnitSettings): Agenda {
   const parsedOpening = parseHymn(week.hymns?.opening || "");
   const parsedSacrament = parseHymn(week.hymns?.sacrament || "");
@@ -58,6 +68,7 @@ function blankAgenda(plannerId: string, weekId: string, userId: string, _planner
     type_of_meeting: week.fast_testimony ? "Fast & Testimony" : "Sacrament Meeting",
     other_meeting_specify: "",
     presiding: week.presiding || "",
+    presiding_position: "",
     conducting: week.conducting_officer || "",
     music_director: week.music?.director || "",
     choir_director: "",
@@ -72,14 +83,14 @@ function blankAgenda(plannerId: string, weekId: string, userId: string, _planner
     confirmation_bestowal: "",
     opening_hymn: parsedOpening.title,
     opening_hymn_number: parsedOpening.number,
-    opening_prayer: week.prayers?.invocation || "",
+    opening_prayer: gender(week.prayers?.invocation || "", week.prayers?.invocation_gender),
     sacrament_hymn: parsedSacrament.title,
     sacrament_hymn_number: parsedSacrament.number,
     special_music: "",
-    speakers: week.speakers.map(s => ({ name: s.name, topic: s.topic, reference: s.reference || "" })),
+    speakers: week.speakers.map(s => ({ name: gender(s.name, s.gender), topic: s.topic, reference: s.reference || "" })),
     closing_hymn: parsedClosing.title,
     closing_hymn_number: parsedClosing.number,
-    closing_prayer: week.prayers?.benediction || "",
+    closing_prayer: gender(week.prayers?.benediction || "", week.prayers?.benediction_gender),
     postlude_music: "",
 
     announcements: ["", "", "", "", "", ""],
@@ -620,13 +631,23 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                       <span className="w-1/2 text-left pl-2">Name</span>
                       <span className="w-1/3 text-left">Position</span>
                     </div>
-                    <div className="flex items-end mb-1.5">
+                    <div className="flex items-end mb-1.5 text-[9.5px]">
                       <strong className="w-16 shrink-0">Presiding:</strong>
-                      <span className="flex-1 border-b border-black min-h-[1.1rem] px-1 text-[9.5px] truncate">{agendaData.presiding}</span>
+                      <span className="w-1/2 border-b border-black min-h-[1.1rem] px-1 truncate">{agendaData.presiding}</span>
+                      <span className="w-1/3 border-b border-black min-h-[1.1rem] px-1 truncate">{agendaData.presiding_position || "Bishop"}</span>
                     </div>
-                    <div className="flex items-end">
+                    <div className="flex items-end text-[9.5px]">
                       <strong className="w-16 shrink-0">Conducting:</strong>
-                      <span className="flex-1 border-b border-black min-h-[1.1rem] px-1 text-[9.5px] truncate">{agendaData.conducting}</span>
+                      <span className="w-1/2 border-b border-black min-h-[1.1rem] px-1 truncate">
+                        {agendaData.conducting.split(" (")[0].split(", ")[0]}
+                      </span>
+                      <span className="w-1/3 border-b border-black min-h-[1.1rem] px-1 truncate">
+                        {agendaData.conducting.includes(" (") 
+                          ? agendaData.conducting.split(" (")[1].replace(")", "") 
+                          : agendaData.conducting.includes(", ") 
+                            ? agendaData.conducting.split(", ")[1] 
+                            : ""}
+                      </span>
                     </div>
                   </td>
                   <td className="border border-black p-1.5 w-1/2 align-top space-y-1">
@@ -963,7 +984,7 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
               <table className="w-full border-collapse border border-black text-[8px]">
                 <tbody>
                   {[0, 1, 2].map((i) => (
-                    <tr key={i} className="h-[19px]">
+                    <tr key={i} className="h-[17px]">
                       <td className="border border-black p-0.5 w-6 text-center font-bold bg-slate-50">{i + 1}.</td>
                       <td className="border border-black p-0.5 pl-1.5 w-[46%] align-bottom">
                         <div className="border-b border-black w-full min-h-[0.9rem] leading-none">
@@ -999,19 +1020,8 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                       </tr>
                     </thead>
                     <tbody>
-                      {[0, 1, 2].map((i) => (
-                        <tr key={i} className="h-[19px]">
-                          <td className="border border-black p-0.5 text-center bg-slate-50 font-semibold">{i + 1}</td>
-                          <td className="border border-black p-0.5 pl-1.5 truncate">{releasesList[i]?.name || "\u00A0"}</td>
-                          <td className="border border-black p-0.5 pl-1.5 truncate">{releasesList[i]?.calling || "\u00A0"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <table className="w-full border-collapse border border-black border-t-0 text-[7.8px] text-left">
-                    <tbody>
-                      {[3, 4, 5].map((i) => (
-                        <tr key={i} className="h-[19px]">
+                      {[0, 1, 2, 3, 4, 5].map((i) => (
+                        <tr key={i} className="h-[17px]">
                           <td className="border border-black p-0.5 text-center bg-slate-50 font-semibold">{i + 1}</td>
                           <td className="border border-black p-0.5 pl-1.5 truncate">{releasesList[i]?.name || "\u00A0"}</td>
                           <td className="border border-black p-0.5 pl-1.5 truncate">{releasesList[i]?.calling || "\u00A0"}</td>
@@ -1032,19 +1042,8 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                       </tr>
                     </thead>
                     <tbody>
-                      {[0, 1, 2].map((i) => (
-                        <tr key={i} className="h-[19px]">
-                          <td className="border border-black p-0.5 text-center bg-slate-50 font-semibold">{i + 1}</td>
-                          <td className="border border-black p-0.5 pl-1.5 truncate">{callsList[i]?.name || "\u00A0"}</td>
-                          <td className="border border-black p-0.5 pl-1.5 truncate">{callsList[i]?.calling || "\u00A0"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <table className="w-full border-collapse border border-black border-t-0 text-[7.8px] text-left">
-                    <tbody>
-                      {[3, 4, 5].map((i) => (
-                        <tr key={i} className="h-[19px]">
+                      {[0, 1, 2, 3, 4, 5].map((i) => (
+                        <tr key={i} className="h-[17px]">
                           <td className="border border-black p-0.5 text-center bg-slate-50 font-semibold">{i + 1}</td>
                           <td className="border border-black p-0.5 pl-1.5 truncate">{callsList[i]?.name || "\u00A0"}</td>
                           <td className="border border-black p-0.5 pl-1.5 truncate">{callsList[i]?.calling || "\u00A0"}</td>
@@ -1064,7 +1063,7 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
               <table className="w-full border-collapse border border-black text-[8px] text-left">
                 <tbody>
                   {[0, 1].map((i) => (
-                    <tr key={i} className="h-[19px]">
+                    <tr key={i} className="h-[17px]">
                       <td className="border border-black p-0.5 w-6 text-center font-bold bg-slate-50">{i + 1}.</td>
                       <td className="border border-black p-0.5 pl-1.5 w-[46%] align-bottom">
                         <div className="border-b border-black w-full min-h-[0.9rem] leading-none">
@@ -1104,7 +1103,7 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                 </thead>
                 <tbody>
                   {ordinations.map((o, i) => (
-                    <tr key={i} className="h-[19px]">
+                    <tr key={i} className="h-[17px]">
                       <td className="border border-black p-0.5 text-center bg-slate-50">{i + 1}</td>
                       <td className="border border-black p-0.5 pl-1 truncate">{o.name || "\u00A0"}</td>
                       <td className="border border-black p-0.5 text-center truncate">{o.office || "\u00A0"}</td>
@@ -1138,7 +1137,7 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                 </thead>
                 <tbody>
                   {advancements.map((a, i) => (
-                    <tr key={i} className="h-[19px]">
+                    <tr key={i} className="h-[17px]">
                       <td className="border border-black p-0.5 text-center bg-slate-50">{i + 1}</td>
                       <td className="border border-black p-0.5 pl-1 truncate">{a.name || "\u00A0"}</td>
                       <td className="border border-black p-0.5 text-center truncate">{a.office_from || "\u00A0"}</td>
@@ -1159,7 +1158,7 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
               <table className="w-full border-collapse border border-black text-[8px] text-left">
                 <tbody>
                   {[0, 1].map((i) => (
-                    <tr key={i} className="h-[19px]">
+                    <tr key={i} className="h-[17px]">
                       <td className="border border-black p-0.5 w-6 text-center font-bold bg-slate-50">{i + 1}.</td>
                       <td className="border border-black p-0.5 pl-1.5 w-[46%] align-bottom">
                         <div className="border-b border-black w-full min-h-[0.9rem] leading-none">
@@ -1195,7 +1194,7 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                 </thead>
                 <tbody>
                   {babiesList.map((b, i) => (
-                    <tr key={i} className="h-[19px]">
+                    <tr key={i} className="h-[17px]">
                       <td className="border border-black p-0.5 text-center bg-slate-50">{i + 1}</td>
                       <td className="border border-black p-0.5 pl-1 truncate">{b.family || "\u00A0"}</td>
                       <td className="border border-black p-0.5 pl-1 truncate">{b.baby_name || "\u00A0"}</td>
@@ -1223,7 +1222,7 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                 </thead>
                 <tbody>
                   {confirmationsList.map((c, i) => (
-                    <tr key={i} className="h-[19px]">
+                    <tr key={i} className="h-[17px]">
                       <td className="border border-black p-0.5 text-center bg-slate-50">{i + 1}</td>
                       <td className="border border-black p-0.5 pl-1 truncate">{c.name || "\u00A0"}</td>
                       <td className="border border-black p-0.5 pl-1 truncate">{c.confirmed_by || "\u00A0"}</td>
@@ -1242,7 +1241,7 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
               <table className="w-full border-collapse border border-black text-[8px] text-left">
                 <tbody>
                   {[0, 1, 2, 3].map((i) => (
-                    <tr key={i} className="h-[19px]">
+                    <tr key={i} className="h-[17px]">
                       <td className="border border-black p-0.5 w-6 text-center font-bold bg-slate-50">{i + 1}.</td>
                       <td className="border border-black p-0.5 pl-1.5 w-[46%] align-bottom">
                         <div className="border-b border-black w-full min-h-[0.9rem] leading-none">
@@ -1471,10 +1470,14 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                   <Card className="shadow-sm border border-slate-100">
                     <CardHeader><CardTitle>Officiating Officers & Music</CardTitle></CardHeader>
                     <CardBody className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
+                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
-                          <Label>Presiding Officer</Label>
-                          <Input value={localAgenda.presiding} onChange={e => updateAgendaField("presiding", e.target.value)} placeholder="Name & Position (e.g. Bishop Olajide)" disabled={!canEdit} />
+                          <Label>Presiding Officer Name</Label>
+                          <Input value={localAgenda.presiding} onChange={e => updateAgendaField("presiding", e.target.value)} placeholder="e.g. Olajide" disabled={!canEdit} />
+                        </div>
+                        <div>
+                          <Label>Presiding Officer Position</Label>
+                          <Input value={localAgenda.presiding_position || ""} onChange={e => updateAgendaField("presiding_position", e.target.value)} placeholder="e.g. Bishop" disabled={!canEdit} />
                         </div>
                         <div>
                           <Label>Conducting Officer</Label>
@@ -1942,7 +1945,7 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
             {renderAgendaDocument(localAgenda)}
           </div>
         </div>,
-        document.body
+        document.getElementById("planner-print-portal") || document.body
       )}
       <style dangerouslySetInnerHTML={{__html: `
         /* Position offscreen for layout rendering without flash */
