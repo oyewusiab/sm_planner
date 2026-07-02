@@ -98,7 +98,7 @@ export function AIChatbot({ user, unit }: AIChatbotProps) {
         parts: [{ text: m.text }],
       }));
 
-      const response = await fetch(
+      let response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeApiKey}`,
         {
           method: "POST",
@@ -113,6 +113,26 @@ export function AIChatbot({ user, unit }: AIChatbotProps) {
           }),
         }
       );
+
+      // Automatic fallback to highly stable production model if experimental model is overloaded
+      if (response.status === 503 || response.status === 429) {
+        console.warn(`[AI Assistant] gemini-2.5-flash returned status ${response.status}. Retrying with stable gemini-1.5-flash...`);
+        response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${activeApiKey}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              contents,
+              systemInstruction: {
+                parts: [{ text: systemInstructionText }],
+              },
+            }),
+          }
+        );
+      }
 
       if (!response.ok) {
         const errorData = await response.json();
