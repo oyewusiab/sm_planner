@@ -28,9 +28,12 @@ import {
   getDoc,
   setDoc, 
   deleteDoc, 
-  onSnapshot 
+  onSnapshot,
+  query,
+  where
 } from "firebase/firestore";
 import { uploadSignature } from "./firebaseStorage";
+import { BUNDLED_HYMNS } from "./hymnsCatalog";
 
 const APP_KEY = "sac_meeting_planner_mvp_v1";
 
@@ -102,7 +105,6 @@ export const SYNC_TABLES: { name: keyof DB; idCol: string }[] = [
   { name: "PLANNER_APPROVAL_REQUESTS", idCol: "request_id" },
   { name: "TODOS", idCol: "todo_id" },
   { name: "REMINDERS", idCol: "reminder_id" },
-  { name: "HYMNS", idCol: "number" },
   { name: "AGENDAS", idCol: "agenda_id" },
   { name: "ACTIVITIES", idCol: "activity_id" },
   { name: "OTHER CHURCH PROGRAM", idCol: "program_id" },
@@ -476,6 +478,15 @@ function scheduleRemoteSync() {
   }, 120);
 }
 
+type DBMetadata = {
+  versions: Record<string, number>;
+  last_updated: string;
+};
+
+const METADATA_KEY = "sac_meeting_planner_db_metadata_v2";
+const LAST_SYNC_TIME_KEY = "sac_meeting_planner_last_sync_time_v2";
+let metadataListenerUnsubscribe: (() => void) | null = null;
+
 async function pushAllToBackend() {
   if (!backendEnabled() || suppressRemoteSync > 0) return;
   if (remoteSyncInFlight) return;
@@ -484,11 +495,19 @@ async function pushAllToBackend() {
   try {
     const dbData = serializeDBForRemote(getDB());
     
+    // Load local metadata
+    const localMetadataRaw = localStorage.getItem(METADATA_KEY);
+    const localMetadata: DBMetadata = localMetadataRaw 
+      ? JSON.parse(localMetadataRaw) 
+      : { versions: {}, last_updated: "" };
+
+    const changedTables = new Set<string>();
+
     // We compute differences and write them directly to Firestore
     if (!lastSyncedDB) {
       console.log(`[Sync] Baseline missing. Pushing full database...`);
-      // Initial bootstrap to Firebase: write everything
       for (const t of SYNC_TABLES) {
+        if (t.name === "HYMNS") continue;
         const colName = COLLECTION_MAPPING[t.name];
         const rows = (dbData[t.name] || []) as any[];
         for (const r of rows) {
@@ -500,9 +519,11 @@ async function pushAllToBackend() {
           }
           await setDoc(doc(db, colName, id), r);
         }
+        changedTables.add(t.name);
       }
       if (dbData.UNIT_SETTINGS) {
         await setDoc(doc(db, "unit_settings", "global"), dbData.UNIT_SETTINGS);
+        changedTables.add("UNIT_SETTINGS");
       }
     } else {
       console.log(`[Sync] Calculating row differences for Firestore push...`);
@@ -510,6 +531,7 @@ async function pushAllToBackend() {
       const deletes: any[] = [];
       
       for (const t of SYNC_TABLES) {
+        if (t.name === "HYMNS") continue;
         const currentRows = (dbData[t.name] || []) as any[];
         const lastRows = (lastSyncedDB[t.name] || []) as any[];
         
@@ -525,6 +547,7 @@ async function pushAllToBackend() {
           const oldComparable = old ? getComparableRow(t.name, old) : null;
           if (!oldComparable || JSON.stringify(oldComparable) !== JSON.stringify(nextComparable)) {
             updates.push({ table: t.name, row: nextComparable });
+            changedTables.add(t.name);
           }
         }
 
@@ -535,6 +558,7 @@ async function pushAllToBackend() {
             if (!id) continue;
             if (!currentMap.has(id)) {
               deletes.push({ table: t.name, id });
+              changedTables.add(t.name);
             }
           }
         }
@@ -563,7 +587,26 @@ async function pushAllToBackend() {
 
       if (JSON.stringify(dbData.UNIT_SETTINGS) !== JSON.stringify(lastSyncedDB.UNIT_SETTINGS)) {
         await setDoc(doc(db, "unit_settings", "global"), dbData.UNIT_SETTINGS || {});
+        changedTables.add("UNIT_SETTINGS");
       }
+    }
+
+    // Update metadata versions
+    if (changedTables.size > 0) {
+      const nextSyncTime = new Date().toISOString();
+      const updatedVersions = { ...localMetadata.versions };
+      changedTables.forEach(tableName => {
+        updatedVersions[tableName] = (updatedVersions[tableName] || 0) + 1;
+      });
+
+      const nextMetadata: DBMetadata = {
+        versions: updatedVersions,
+        last_updated: nextSyncTime
+      };
+
+      await setDoc(doc(db, "metadata", "global"), nextMetadata);
+      localStorage.setItem(METADATA_KEY, JSON.stringify(nextMetadata));
+      localStorage.setItem(LAST_SYNC_TIME_KEY, nextSyncTime);
     }
     
     hasPendingPush = false;
@@ -671,35 +714,28 @@ function mergeDatabases(local: DB, remote: DB): { merged: DB; needsPush: boolean
   return { merged, needsPush };
 }
 
-const REALTIME_SYNC_TABLES = new Set<keyof DB>([
-  "PLANNERS",
-  "ASSIGNMENTS",
-  "CHECKLISTS",
-  "NOTIFICATIONS",
-  "PLANNER_APPROVAL_REQUESTS",
-  "TODOS"
-]);
-
-let listenersInitialized = false;
-
 export function initializeFirebaseSync() {
-  if (!backendEnabled() || listenersInitialized) return;
-  listenersInitialized = true;
-  console.log("[Sync] Initializing real-time Firestore listeners for collaborative tables...");
+  if (!backendEnabled()) return;
   
-  SYNC_TABLES.forEach((table) => {
-    if (!REALTIME_SYNC_TABLES.has(table.name)) return;
-    const colName = COLLECTION_MAPPING[table.name];
-    onSnapshot(collection(db, colName), (snapshot) => {
-      // Suppress snapshot updates during an active local push to prevent race overwrites
-      if (remoteSyncInFlight || hasPendingPush) return;
-      
-      const docs = snapshot.docs.map(docSnap => docSnap.data());
-      updateLocalTableFromFirebase(table.name, docs);
-    });
+  if (metadataListenerUnsubscribe) return;
+  console.log("[Sync] Subscribing to global metadata changes...");
+
+  metadataListenerUnsubscribe = onSnapshot(doc(db, "metadata", "global"), (docSnap) => {
+    if (remoteSyncInFlight || hasPendingPush) return;
+    if (docSnap.exists()) {
+      const remoteMeta = docSnap.data() as DBMetadata;
+      const localMetadataRaw = localStorage.getItem(METADATA_KEY);
+      const localMeta: DBMetadata = localMetadataRaw 
+        ? JSON.parse(localMetadataRaw) 
+        : { versions: {}, last_updated: "" };
+
+      if (remoteMeta.last_updated && remoteMeta.last_updated > (localMeta.last_updated || "")) {
+        console.log("[Sync] Metadata change detected. Triggering incremental pull...");
+        void syncFromBackend({ force: false });
+      }
+    }
   });
 
-  // Listen to UNIT_SETTINGS
   onSnapshot(doc(db, "unit_settings", "global"), (docSnap) => {
     if (remoteSyncInFlight || hasPendingPush) return;
     if (docSnap.exists()) {
@@ -753,14 +789,12 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
   const force = options?.force === true;
   const replaceLocal = options?.replaceLocal === true;
 
-  // Throttle background pulls (not forced) to once every 5 minutes
   if (!force && Date.now() - lastPullTime < 5 * 60 * 1000) {
     console.log("[Sync] Throttling background pull (last pull was less than 5m ago).");
     return true;
   }
 
   if (remotePullInFlight) return false;
-
   remotePullInFlight = true;
   notifySyncListeners(true);
 
@@ -772,22 +806,76 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
     }
 
     const local = getDB();
+    const localLastSyncTime = localStorage.getItem(LAST_SYNC_TIME_KEY) || "";
 
-    // Bootstrapping: Pull full DB from Firestore
-    console.log("[Sync] Performing bootstrap load from Firestore...");
+    let remoteMetadata: DBMetadata | null = null;
+    try {
+      const metaSnap = await getDoc(doc(db, "metadata", "global"));
+      if (metaSnap.exists()) {
+        remoteMetadata = metaSnap.data() as DBMetadata;
+      }
+    } catch (e) {
+      console.warn("[Sync] Failed to fetch remote metadata, falling back to full check:", e);
+    }
+
+    const localMetadataRaw = localStorage.getItem(METADATA_KEY);
+    const localMetadata: DBMetadata = localMetadataRaw 
+      ? JSON.parse(localMetadataRaw) 
+      : { versions: {}, last_updated: "" };
+
+    if (!force && remoteMetadata && localLastSyncTime && remoteMetadata.last_updated <= localLastSyncTime) {
+      console.log("[Sync] No remote changes detected (up to date). Skipping pull.");
+      lastPullTime = Date.now();
+      initializeFirebaseSync();
+      return true;
+    }
+
+    console.log("[Sync] Pulling updates from Firestore...");
     const remoteSnap: Partial<DB> = {};
-    
+
     for (const t of SYNC_TABLES) {
-      // Hymns are static catalog data. If we already have them locally, skip fetching
-      // to reduce read quota usage (saves ~350 reads per pull).
-      if (t.name === "HYMNS" && local.HYMNS && local.HYMNS.length > 0) {
-        console.log("[Sync] Skipping hymns fetch (using cached hymns).");
-        remoteSnap.HYMNS = local.HYMNS;
+      if (t.name === "HYMNS") {
+        remoteSnap.HYMNS = local.HYMNS && local.HYMNS.length > 0 ? local.HYMNS : BUNDLED_HYMNS;
         continue;
       }
+
       const colName = COLLECTION_MAPPING[t.name];
-      const snap = await getDocs(collection(db, colName));
-      (remoteSnap as any)[t.name] = snap.docs.map(docSnap => docSnap.data());
+      const remoteVer = remoteMetadata?.versions?.[t.name] || 0;
+      const localVer = localMetadata.versions?.[t.name] || 0;
+
+      if (!force && remoteVer > 0 && remoteVer === localVer && Array.isArray(local[t.name]) && local[t.name].length > 0) {
+        remoteSnap[t.name] = local[t.name] as any;
+        continue;
+      }
+
+      let docs: any[] = [];
+      if (!force && localLastSyncTime && remoteVer > localVer) {
+        console.log(`[Sync] Fetching incremental updates for ${t.name} since ${localLastSyncTime}...`);
+        try {
+          const qUpdate = query(collection(db, colName), where("updated_date", ">", localLastSyncTime));
+          const snapUpdate = await getDocs(qUpdate);
+          const updatedDocs = snapUpdate.docs.map(d => d.data());
+
+          const idCol = t.idCol;
+          const localRows = (local[t.name] || []) as any[];
+          const localMap = new Map(localRows.map(r => [String(r[idCol] || ""), r]));
+          
+          for (const docData of updatedDocs) {
+            localMap.set(String(docData[idCol] || ""), docData);
+          }
+          
+          docs = Array.from(localMap.values());
+        } catch (e) {
+          console.warn(`[Sync] Incremental query failed for ${t.name}, falling back to full fetch:`, e);
+          const snap = await getDocs(collection(db, colName));
+          docs = snap.docs.map(docSnap => docSnap.data());
+        }
+      } else {
+        const snap = await getDocs(collection(db, colName));
+        docs = snap.docs.map(docSnap => docSnap.data());
+      }
+
+      (remoteSnap as any)[t.name] = docs;
     }
 
     const settingsSnap = await getDoc(doc(db, "unit_settings", "global"));
@@ -806,13 +894,25 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
     try {
       setDBInternal(merged, true);
       setLastSyncedDB(comparableRemote);
+      lastPullTime = Date.now();
+      
+      const nextSyncTime = new Date().toISOString();
+      localStorage.setItem(LAST_SYNC_TIME_KEY, nextSyncTime);
+      if (remoteMetadata) {
+        localStorage.setItem(METADATA_KEY, JSON.stringify(remoteMetadata));
+      } else {
+        const initialMetadata: DBMetadata = {
+          versions: SYNC_TABLES.reduce((acc, t) => ({ ...acc, [t.name]: 1 }), {}),
+          last_updated: nextSyncTime
+        };
+        localStorage.setItem(METADATA_KEY, JSON.stringify(initialMetadata));
+      }
+
       console.log("[Sync] Local DB successfully hydrated from Firestore.");
-      lastPullTime = Date.now(); // Update last pull time on success
     } finally {
       suppressRemoteSync -= 1;
     }
 
-    // Now initialize the real-time listeners so we don't need to poll anymore
     initializeFirebaseSync();
 
     if (!replaceLocal && needsPush) {
@@ -871,7 +971,7 @@ export function getDB(): DB {
     PLANNER_APPROVAL_REQUESTS: [],
     TODOS: [],
     REMINDERS: [],
-    HYMNS: [],
+    HYMNS: BUNDLED_HYMNS,
     AGENDAS: [],
     ACTIVITIES: [],
     "OTHER CHURCH PROGRAM": [],
