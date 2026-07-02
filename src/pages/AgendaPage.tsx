@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import html2pdf from "html2pdf.js";
-import type { Agenda, Planner, UnitSettings, User, WeekPlan } from "../types";
+import type { Agenda, Planner, UnitSettings, User, WeekPlan, Member } from "../types";
 import { Badge, Button, Card, CardBody, CardHeader, CardTitle, EmptyState, Input, Label, Select, Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui";
 import { Modal } from "../components/Modal";
+import { MemberAutocomplete } from "../components/MemberAutocomplete";
 import { can } from "../utils/permissions";
 import { useTable, useUpsertMutation, ids, time, updateDB } from "../utils/storage";
 import { formatDateShort } from "../utils/date";
@@ -119,6 +120,7 @@ function padArray<T>(arr: T[], targetSize: number, emptyObj: T): T[] {
 export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSettings; onChanged: () => void }) {
   const { data: planners = [] } = useTable("PLANNERS");
   const { data: agendas = [] } = useTable("AGENDAS");
+  const { data: members = [] } = useTable("MEMBERS");
   const upsert = useUpsertMutation("AGENDAS");
   
   const [selectedPlannerId, setSelectedPlannerId] = useState<string>("");
@@ -481,6 +483,103 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
     alert('Agenda deleted permanently.');
   };
 
+  const handleUpdateAgendaFromPlanner = () => {
+    if (!localAgenda || !activePlanner || !activeWeek) return;
+    
+    if (!window.confirm("Are you sure you want to update this agenda with the latest details from the planner? This will overwrite the hymn, speaker, prayer, presiding, conducting and other planner-derived fields in the agenda with the planner's current version.")) {
+      return;
+    }
+
+    const parsedOpening = parseHymn(activeWeek.hymns?.opening || "");
+    const parsedSacrament = parseHymn(activeWeek.hymns?.sacrament || "");
+    const parsedClosing = parseHymn(activeWeek.hymns?.closing || "");
+
+    const updated: Agenda = {
+      ...localAgenda,
+      date: activeWeek.date,
+      type_of_meeting: activeWeek.fast_testimony ? "Fast & Testimony" : "Sacrament Meeting",
+      presiding: activeWeek.presiding || "",
+      conducting: activeWeek.conducting_officer || "",
+      music_director: activeWeek.music?.director || "",
+      organist: activeWeek.music?.accompanist || "",
+      ward_branch_business: activeWeek.note || "",
+      opening_hymn: parsedOpening.title,
+      opening_hymn_number: parsedOpening.number,
+      opening_prayer: gender(activeWeek.prayers?.invocation || "", activeWeek.prayers?.invocation_gender),
+      sacrament_hymn: parsedSacrament.title,
+      sacrament_hymn_number: parsedSacrament.number,
+      speakers: activeWeek.speakers.map(s => ({ name: gender(s.name, s.gender), topic: s.topic, reference: s.reference || "" })),
+      closing_hymn: parsedClosing.title,
+      closing_hymn_number: parsedClosing.number,
+      closing_prayer: gender(activeWeek.prayers?.benediction || "", activeWeek.prayers?.benediction_gender),
+      updated_date: time.now(),
+    };
+
+    setLocalAgenda(updated);
+    setIsDirty(true);
+    alert("Agenda updated from planner details. Please review and click 'Save' to persist changes.");
+  };
+
+  const handleMemberPick = (field: keyof Agenda, member: Member) => {
+    const prefix = member.gender === "M" ? "Brother " : member.gender === "F" ? "Sister " : "";
+    const fullName = `${prefix}${member.name}`;
+    updateAgendaField(field, fullName);
+  };
+
+  const handleSpeakerMemberPick = (idx: number, member: Member) => {
+    const prefix = member.gender === "M" ? "Brother " : member.gender === "F" ? "Sister " : "";
+    const fullName = `${prefix}${member.name}`;
+    updateAgendaSpeaker(idx, 'name', fullName);
+  };
+
+  const handleReleaseMemberPick = (idx: number, member: Member) => {
+    const prefix = member.gender === "M" ? "Brother " : member.gender === "F" ? "Sister " : "";
+    const fullName = `${prefix}${member.name}`;
+    updateRelease(idx, 'name', fullName);
+  };
+
+  const handleCallMemberPick = (idx: number, member: Member) => {
+    const prefix = member.gender === "M" ? "Brother " : member.gender === "F" ? "Sister " : "";
+    const fullName = `${prefix}${member.name}`;
+    updateCall(idx, 'name', fullName);
+  };
+
+  const handleBaptizedChildMemberPick = (idx: number, member: Member) => {
+    const prefix = member.gender === "M" ? "Brother " : member.gender === "F" ? "Sister " : "";
+    const fullName = `${prefix}${member.name}`;
+    updateBaptizedChild(idx, fullName);
+  };
+
+  const handleOrdinationMemberPick = (idx: number, field: 'name' | 'ordained_by', member: Member) => {
+    const prefix = member.gender === "M" ? "Brother " : member.gender === "F" ? "Sister " : "";
+    const fullName = `${prefix}${member.name}`;
+    updateOrdination(idx, field, fullName);
+  };
+
+  const handleAdvancementMemberPick = (idx: number, field: 'name' | 'ordained_by', member: Member) => {
+    const prefix = member.gender === "M" ? "Brother " : member.gender === "F" ? "Sister " : "";
+    const fullName = `${prefix}${member.name}`;
+    updateAdvancement(idx, field, fullName);
+  };
+
+  const handleBabyMemberPick = (idx: number, field: 'baby_name' | 'blessed_by', member: Member) => {
+    const prefix = member.gender === "M" ? "Brother " : member.gender === "F" ? "Sister " : "";
+    const fullName = `${prefix}${member.name}`;
+    updateBaby(idx, field, fullName);
+  };
+
+  const handleConfirmationMemberPick = (idx: number, field: 'name' | 'confirmed_by', member: Member) => {
+    const prefix = member.gender === "M" ? "Brother " : member.gender === "F" ? "Sister " : "";
+    const fullName = `${prefix}${member.name}`;
+    updateConfirmation(idx, field, fullName);
+  };
+
+  const handleFellowshipMemberPick = (idx: number, member: Member) => {
+    const prefix = member.gender === "M" ? "Brother " : member.gender === "F" ? "Sister " : "";
+    const fullName = `${prefix}${member.name}`;
+    updateFellowship(idx, fullName);
+  };
+
   const saveAgenda = async () => {
     if (!localAgenda || !canEdit) return;
     try {
@@ -626,24 +725,24 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
             <table className="w-full border-collapse border border-black mb-1.5 text-[9.5px]">
               <tbody>
                 <tr>
-                  <td className="border border-black p-1.5 w-1/2 align-top">
-                    <div className="flex justify-between text-[8px] font-bold text-slate-500 mb-1 border-b border-slate-200 pb-0.5">
-                      <span></span>
-                      <span className="w-1/2 text-left pl-2">Name</span>
-                      <span className="w-1/3 text-left">Position</span>
+                  <td className="border border-black p-1.5 w-[58%] align-top">
+                    <div className="flex text-[8px] font-bold text-slate-500 mb-1 border-b border-slate-200 pb-0.5">
+                      <span className="w-16 shrink-0"></span>
+                      <span className="flex-[3] text-left pl-2">Name</span>
+                      <span className="flex-[2] text-left ml-2">Position</span>
                     </div>
                     <div className="flex items-end mb-1.5 text-[9.5px]">
                       <strong className="w-16 shrink-0">Presiding:</strong>
-                      <span className="w-1/2 border-b border-black min-h-[1.1rem] px-1 truncate">{agendaData.presiding}</span>
-                      <span className="w-1/3 border-b border-black min-h-[1.1rem] px-1 truncate">{agendaData.presiding_position || "Bishop"}</span>
+                      <span className="flex-[3] border-b border-black min-h-[1.1rem] px-1 truncate">{agendaData.presiding}</span>
+                      <span className="flex-[2] border-b border-black min-h-[1.1rem] px-1 truncate ml-2">{agendaData.presiding_position || "Bishop"}</span>
                     </div>
                     <div className="flex items-end text-[9.5px]">
                       <strong className="w-16 shrink-0">Conducting:</strong>
-                      <span className="w-1/2 border-b border-black min-h-[1.1rem] px-1 truncate">{agendaData.conducting}</span>
-                      <span className="w-1/3 border-b border-black min-h-[1.1rem] px-1 truncate">{agendaData.conducting_position || "Counselor"}</span>
+                      <span className="flex-[3] border-b border-black min-h-[1.1rem] px-1 truncate">{agendaData.conducting}</span>
+                      <span className="flex-[2] border-b border-black min-h-[1.1rem] px-1 truncate ml-2">{agendaData.conducting_position || "Counselor"}</span>
                     </div>
                   </td>
-                  <td className="border border-black p-1.5 w-1/2 align-top space-y-1">
+                  <td className="border border-black p-1.5 w-[42%] align-top space-y-1">
                     <div className="flex items-end">
                       <strong className="w-24 shrink-0">Music Director:</strong>
                       <span className="flex-1 border-b border-black min-h-[1.1rem] px-1 text-[9.5px] truncate">{agendaData.music_director}</span>
@@ -689,23 +788,23 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                 </div>
               </div>
 
-              <div className="flex items-end justify-between gap-2 h-5">
-                <div className="flex items-end flex-1 truncate">
+              <div className="flex items-start justify-between gap-2 min-h-[1.25rem] py-0.5">
+                <div className="flex flex-wrap items-baseline flex-1 text-[9.5px]">
                   <strong className="shrink-0 mr-1">Greetings and Welcome:</strong>
-                  <span className="border-b border-black flex-1 min-h-[1.1rem] px-1 truncate">{agendaData.greetings_welcome}</span>
+                  <span className="border-b border-black flex-1 min-h-[1.1rem] px-1 whitespace-normal break-words">{agendaData.greetings_welcome}</span>
                 </div>
-                <div className="flex gap-2 shrink-0 w-16">
+                <div className="flex gap-2 shrink-0 w-16 self-stretch items-end">
                   <span className="border-b border-black w-8 text-center min-h-[1.1rem]"></span>
                   <span className="border-b border-black w-8 text-center min-h-[1.1rem]"></span>
                 </div>
               </div>
 
-              <div className="flex items-end justify-between gap-2 h-5">
-                <div className="flex items-end flex-1 truncate">
+              <div className="flex items-start justify-between gap-2 min-h-[1.25rem] py-0.5">
+                <div className="flex flex-wrap items-baseline flex-1 text-[9.5px]">
                   <strong className="shrink-0 mr-1">Acknowledgements:</strong>
-                  <span className="border-b border-black flex-1 min-h-[1.1rem] px-1 truncate">{agendaData.acknowledgements}</span>
+                  <span className="border-b border-black flex-1 min-h-[1.1rem] px-1 whitespace-normal break-words">{agendaData.acknowledgements}</span>
                 </div>
-                <div className="flex gap-2 shrink-0 w-16">
+                <div className="flex gap-2 shrink-0 w-16 self-stretch items-end">
                   <span className="border-b border-black w-8 text-center min-h-[1.1rem]"></span>
                   <span className="border-b border-black w-8 text-center min-h-[1.1rem]"></span>
                 </div>
@@ -1393,6 +1492,16 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                         >
                           Delete
                         </Button>
+                        {existsInDB && (
+                          <Button
+                            variant="secondary"
+                            onClick={handleUpdateAgendaFromPlanner}
+                            className="bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100 font-semibold animate-pulse hover:animate-none"
+                            icon="🔄"
+                          >
+                            Update Agenda
+                          </Button>
+                        )}
                         <Button variant="secondary" onClick={archiveAgenda} disabled={!existsInDB} className="disabled:opacity-40" icon="📦">Archive</Button>
                         {isDirty && (
                           <Button variant="ghost" onClick={discardChanges} className="text-slate-500">Discard Changes</Button>
@@ -1466,7 +1575,14 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                         <div>
                           <Label>Presiding Officer Name</Label>
-                          <Input value={localAgenda.presiding} onChange={e => updateAgendaField("presiding", e.target.value)} placeholder="e.g. Olajide" disabled={!canEdit} />
+                          <MemberAutocomplete
+                            members={members}
+                            value={localAgenda.presiding}
+                            onChange={val => updateAgendaField("presiding", val)}
+                            onPick={m => handleMemberPick("presiding", m)}
+                            disabled={!canEdit}
+                            placeholder="e.g. Olajide"
+                          />
                         </div>
                         <div>
                           <Label>Presiding Officer Position</Label>
@@ -1474,7 +1590,14 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                         </div>
                         <div>
                           <Label>Conducting Officer Name</Label>
-                          <Input value={localAgenda.conducting} onChange={e => updateAgendaField("conducting", e.target.value)} placeholder="e.g. Smith" disabled={!canEdit} />
+                          <MemberAutocomplete
+                            members={members}
+                            value={localAgenda.conducting}
+                            onChange={val => updateAgendaField("conducting", val)}
+                            onPick={m => handleMemberPick("conducting", m)}
+                            disabled={!canEdit}
+                            placeholder="e.g. Smith"
+                          />
                         </div>
                         <div>
                           <Label>Conducting Officer Position</Label>
@@ -1483,16 +1606,34 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                       </div>
                       <div>
                         <Label>Music Director</Label>
-                        <Input value={localAgenda.music_director} onChange={e => updateAgendaField("music_director", e.target.value)} disabled={!canEdit} />
+                        <MemberAutocomplete
+                          members={members}
+                          value={localAgenda.music_director}
+                          onChange={val => updateAgendaField("music_director", val)}
+                          onPick={m => handleMemberPick("music_director", m)}
+                          disabled={!canEdit}
+                        />
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <Label>Choir Director</Label>
-                          <Input value={localAgenda.choir_director} onChange={e => updateAgendaField("choir_director", e.target.value)} disabled={!canEdit} />
+                          <MemberAutocomplete
+                            members={members}
+                            value={localAgenda.choir_director}
+                            onChange={val => updateAgendaField("choir_director", val)}
+                            onPick={m => handleMemberPick("choir_director", m)}
+                            disabled={!canEdit}
+                          />
                         </div>
                         <div>
                           <Label>Organist / Pianist</Label>
-                          <Input value={localAgenda.organist} onChange={e => updateAgendaField("organist", e.target.value)} disabled={!canEdit} />
+                          <MemberAutocomplete
+                            members={members}
+                            value={localAgenda.organist}
+                            onChange={val => updateAgendaField("organist", val)}
+                            onPick={m => handleMemberPick("organist", m)}
+                            disabled={!canEdit}
+                          />
                         </div>
                       </div>
                     </CardBody>
@@ -1546,7 +1687,13 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                         </div>
                         <div>
                           <Label>Opening Prayer (Invocation)</Label>
-                          <Input value={localAgenda.opening_prayer} onChange={e => updateAgendaField("opening_prayer", e.target.value)} disabled={!canEdit} />
+                          <MemberAutocomplete
+                            members={members}
+                            value={localAgenda.opening_prayer}
+                            onChange={val => updateAgendaField("opening_prayer", val)}
+                            onPick={m => handleMemberPick("opening_prayer", m)}
+                            disabled={!canEdit}
+                          />
                         </div>
                       </div>
 
@@ -1578,7 +1725,13 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                         </div>
                         <div>
                           <Label>Closing Prayer (Benediction)</Label>
-                          <Input value={localAgenda.closing_prayer} onChange={e => updateAgendaField("closing_prayer", e.target.value)} disabled={!canEdit} />
+                          <MemberAutocomplete
+                            members={members}
+                            value={localAgenda.closing_prayer}
+                            onChange={val => updateAgendaField("closing_prayer", val)}
+                            onPick={m => handleMemberPick("closing_prayer", m)}
+                            disabled={!canEdit}
+                          />
                         </div>
                       </div>
                     </CardBody>
@@ -1593,7 +1746,13 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                           <div className="col-span-1 text-center font-bold text-slate-500 pb-2">{idx + 1}</div>
                           <div className="col-span-4">
                             <Label>Speaker Name</Label>
-                            <Input value={s.name} onChange={e => updateAgendaSpeaker(idx, 'name', e.target.value)} disabled={!canEdit} />
+                            <MemberAutocomplete
+                              members={members}
+                              value={s.name}
+                              onChange={val => updateAgendaSpeaker(idx, 'name', val)}
+                              onPick={m => handleSpeakerMemberPick(idx, m)}
+                              disabled={!canEdit}
+                            />
                           </div>
                           <div className="col-span-4">
                             <Label>Topic</Label>
@@ -1629,7 +1788,14 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                         <div key={idx} className="grid grid-cols-12 gap-2 items-center">
                           <span className="col-span-1 text-center font-bold text-slate-500">{idx + 1}</span>
                           <div className="col-span-6">
-                            <Input value={r.name} onChange={e => updateRelease(idx, 'name', e.target.value)} placeholder="First Middle SURNAME" disabled={!canEdit} />
+                            <MemberAutocomplete
+                              members={members}
+                              value={r.name}
+                              onChange={val => updateRelease(idx, 'name', val)}
+                              onPick={m => handleReleaseMemberPick(idx, m)}
+                              disabled={!canEdit}
+                              placeholder="First Middle SURNAME"
+                            />
                           </div>
                           <div className="col-span-5">
                             <Input value={r.calling} onChange={e => updateRelease(idx, 'calling', e.target.value)} placeholder=" AS Calling" disabled={!canEdit} />
@@ -1646,7 +1812,14 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                         <div key={idx} className="grid grid-cols-12 gap-2 items-center">
                           <span className="col-span-1 text-center font-bold text-slate-500">{idx + 1}</span>
                           <div className="col-span-6">
-                            <Input value={c.name} onChange={e => updateCall(idx, 'name', e.target.value)} placeholder="First Middle SURNAME" disabled={!canEdit} />
+                            <MemberAutocomplete
+                              members={members}
+                              value={c.name}
+                              onChange={val => updateCall(idx, 'name', val)}
+                              onPick={m => handleCallMemberPick(idx, m)}
+                              disabled={!canEdit}
+                              placeholder="First Middle SURNAME"
+                            />
                           </div>
                           <div className="col-span-5">
                             <Input value={c.calling} onChange={e => updateCall(idx, 'calling', e.target.value)} placeholder=" AS Calling" disabled={!canEdit} />
@@ -1663,7 +1836,15 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                       {baptizedChildren.map((b, idx) => (
                         <div key={idx} className="flex items-center gap-2">
                           <span className="font-semibold text-slate-500 w-4">{idx + 1}.</span>
-                          <Input value={b} onChange={e => updateBaptizedChild(idx, e.target.value)} placeholder="First Middle SURNAME" disabled={!canEdit} />
+                          <MemberAutocomplete
+                            members={members}
+                            value={b}
+                            onChange={val => updateBaptizedChild(idx, val)}
+                            onPick={m => handleBaptizedChildMemberPick(idx, m)}
+                            disabled={!canEdit}
+                            placeholder="First Middle SURNAME"
+                            className="flex-1"
+                          />
                         </div>
                       ))}
                     </CardBody>
@@ -1690,7 +1871,14 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                           <div className="col-span-1 text-center font-bold text-slate-500 pb-2">{idx + 1}</div>
                           <div className="col-span-4">
                             <Label>Name of Ordained</Label>
-                            <Input value={o.name} onChange={e => updateOrdination(idx, 'name', e.target.value)} placeholder="First Middle SURNAME" disabled={!canEdit} />
+                            <MemberAutocomplete
+                              members={members}
+                              value={o.name}
+                              onChange={val => updateOrdination(idx, 'name', val)}
+                              onPick={m => handleOrdinationMemberPick(idx, 'name', m)}
+                              disabled={!canEdit}
+                              placeholder="First Middle SURNAME"
+                            />
                           </div>
                           <div className="col-span-2">
                             <Label>Office</Label>
@@ -1698,7 +1886,14 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                           </div>
                           <div className="col-span-3">
                             <Label>Ordained By</Label>
-                            <Input value={o.ordained_by} onChange={e => updateOrdination(idx, 'ordained_by', e.target.value)} placeholder="First Middle SURNAME" disabled={!canEdit} />
+                            <MemberAutocomplete
+                              members={members}
+                              value={o.ordained_by}
+                              onChange={val => updateOrdination(idx, 'ordained_by', val)}
+                              onPick={m => handleOrdinationMemberPick(idx, 'ordained_by', m)}
+                              disabled={!canEdit}
+                              placeholder="First Middle SURNAME"
+                            />
                           </div>
                           <div className="col-span-2">
                             <Label>Office</Label>
@@ -1717,7 +1912,14 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                           <div className="col-span-1 text-center font-bold text-slate-500 pb-2">{idx + 1}</div>
                           <div className="col-span-3">
                             <Label>Name</Label>
-                            <Input value={a.name} onChange={e => updateAdvancement(idx, 'name', e.target.value)} placeholder="First Middle SURNAME" disabled={!canEdit} />
+                            <MemberAutocomplete
+                              members={members}
+                              value={a.name}
+                              onChange={val => updateAdvancement(idx, 'name', val)}
+                              onPick={m => handleAdvancementMemberPick(idx, 'name', m)}
+                              disabled={!canEdit}
+                              placeholder="First Middle SURNAME"
+                            />
                           </div>
                           <div className="col-span-1.5">
                             <Label>From</Label>
@@ -1729,7 +1931,14 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                           </div>
                           <div className="col-span-3">
                             <Label>Ordained By</Label>
-                            <Input value={a.ordained_by} onChange={e => updateAdvancement(idx, 'ordained_by', e.target.value)} placeholder="First Middle SURNAME" disabled={!canEdit} />
+                            <MemberAutocomplete
+                              members={members}
+                              value={a.ordained_by}
+                              onChange={val => updateAdvancement(idx, 'ordained_by', val)}
+                              onPick={m => handleAdvancementMemberPick(idx, 'ordained_by', m)}
+                              disabled={!canEdit}
+                              placeholder="First Middle SURNAME"
+                            />
                           </div>
                           <div className="col-span-2">
                             <Label>Office</Label>
@@ -1753,11 +1962,25 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                           </div>
                           <div className="col-span-3">
                             <Label>Baby Name</Label>
-                            <Input value={b.baby_name} onChange={e => updateBaby(idx, 'baby_name', e.target.value)} placeholder="SURNAME, First Middle" disabled={!canEdit} />
+                            <MemberAutocomplete
+                              members={members}
+                              value={b.baby_name}
+                              onChange={val => updateBaby(idx, 'baby_name', val)}
+                              onPick={m => handleBabyMemberPick(idx, 'baby_name', m)}
+                              disabled={!canEdit}
+                              placeholder="SURNAME, First Middle"
+                            />
                           </div>
                           <div className="col-span-3">
                             <Label>Blessed By</Label>
-                            <Input value={b.blessed_by} onChange={e => updateBaby(idx, 'blessed_by', e.target.value)} placeholder="First Middle SURNAME" disabled={!canEdit} />
+                            <MemberAutocomplete
+                              members={members}
+                              value={b.blessed_by}
+                              onChange={val => updateBaby(idx, 'blessed_by', val)}
+                              onPick={m => handleBabyMemberPick(idx, 'blessed_by', m)}
+                              disabled={!canEdit}
+                              placeholder="First Middle SURNAME"
+                            />
                           </div>
                           <div className="col-span-2">
                             <Label>Office</Label>
@@ -1777,11 +2000,25 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                           <div className="col-span-1 text-center font-bold text-slate-500 pb-2">{idx + 1}</div>
                           <div className="col-span-4">
                             <Label>Confirmed Name</Label>
-                            <Input value={c.name} onChange={e => updateConfirmation(idx, 'name', e.target.value)} placeholder="First Middle SURNAME" disabled={!canEdit} />
+                            <MemberAutocomplete
+                              members={members}
+                              value={c.name}
+                              onChange={val => updateConfirmation(idx, 'name', val)}
+                              onPick={m => handleConfirmationMemberPick(idx, 'name', m)}
+                              disabled={!canEdit}
+                              placeholder="First Middle SURNAME"
+                            />
                           </div>
                           <div className="col-span-4">
                             <Label>Confirmed By</Label>
-                            <Input value={c.confirmed_by} onChange={e => updateConfirmation(idx, 'confirmed_by', e.target.value)} placeholder="First Middle SURNAME" disabled={!canEdit} />
+                            <MemberAutocomplete
+                              members={members}
+                              value={c.confirmed_by}
+                              onChange={val => updateConfirmation(idx, 'confirmed_by', val)}
+                              onPick={m => handleConfirmationMemberPick(idx, 'confirmed_by', m)}
+                              disabled={!canEdit}
+                              placeholder="First Middle SURNAME"
+                            />
                           </div>
                           <div className="col-span-3">
                             <Label>Office</Label>
@@ -1799,7 +2036,15 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                       {fellowshipsList.map((f, idx) => (
                         <div key={idx} className="flex items-center gap-2">
                           <span className="font-semibold text-slate-500 w-4">{idx + 1}.</span>
-                          <Input value={f} onChange={e => updateFellowship(idx, e.target.value)} placeholder="First Middle SURNAME (New member / Move-in)" disabled={!canEdit} />
+                          <MemberAutocomplete
+                            members={members}
+                            value={f}
+                            onChange={val => updateFellowship(idx, val)}
+                            onPick={m => handleFellowshipMemberPick(idx, m)}
+                            disabled={!canEdit}
+                            placeholder="First Middle SURNAME (New member / Move-in)"
+                            className="flex-1"
+                          />
                         </div>
                       ))}
                     </CardBody>
