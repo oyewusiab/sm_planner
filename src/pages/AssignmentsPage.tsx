@@ -18,7 +18,7 @@ import {
 } from "../components/ui";
 import { Modal } from "../components/Modal";
 import { can } from "../utils/permissions";
-import { formatDateShort, monthName } from "../utils/date";
+import { formatDateShort, monthName, toISODateLocal } from "../utils/date";
 import { formatUserDisplayName } from "../utils/format";
 import { ids, updateDB, useTable, time } from "../utils/storage";
 import { generatePDF } from "../utils/pdf";
@@ -364,6 +364,8 @@ export function AssignmentsPage({
   const extractedAll = useMemo(() => (planner ? extract(planner) : []), [planner]);
 
   const [query, setQuery] = useState("");
+  const [showPast, setShowPast] = useState(false);
+  const todayStr = useMemo(() => toISODateLocal(new Date()), []);
 
   const [minutesByKey, setMinutesByKey] = useState<Record<string, number | undefined>>({});
 
@@ -383,10 +385,11 @@ export function AssignmentsPage({
     return extractedAll
       .map((x) => ({ ...x, minutes: minutesByKey[x.key] ?? x.minutes }))
       .filter((x) => {
+        if (!showPast && x.date < todayStr) return false;
         if (!q) return true;
         return `${x.person} ${x.role} ${x.topic || ""} ${x.date}`.toLowerCase().includes(q);
       });
-  }, [extractedAll, minutesByKey, query]);
+  }, [extractedAll, minutesByKey, query, showPast, todayStr]);
 
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -610,15 +613,26 @@ export function AssignmentsPage({
 
             <Divider />
 
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="text-sm text-slate-600">2) Select who to generate notifications for</div>
-              <div className="flex items-center gap-2">
-                <Button variant="secondary" onClick={() => toggleAll(true)}>
-                  Select all
-                </Button>
-                <Button variant="secondary" onClick={() => toggleAll(false)}>
-                  Select none
-                </Button>
+              <div className="flex flex-wrap items-center gap-4">
+                <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showPast}
+                    onChange={(e) => setShowPast(e.target.checked)}
+                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  Show past assignments
+                </label>
+                <div className="flex items-center gap-2">
+                  <Button variant="secondary" onClick={() => toggleAll(true)}>
+                    Select all
+                  </Button>
+                  <Button variant="secondary" onClick={() => toggleAll(false)}>
+                    Select none
+                  </Button>
+                </div>
               </div>
             </div>
 

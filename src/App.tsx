@@ -15,7 +15,6 @@ import { MusicPage } from "./pages/MusicPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { AgendaPage } from "./pages/AgendaPage";
-import { CalendarPage } from "./pages/CalendarPage";
 import * as auth from "./auth/authService";
 import { clearSession, getSession, newSessionForUser, setSession } from "./auth/session";
 import { syncNow, syncFromBackend, getDB, onSyncStatusChange, updateDB, ids, onDBChange } from "./utils/storage";
@@ -38,7 +37,6 @@ const VALID_ROUTES: RouteKey[] = [
   "dashboard",
   "planner",
   "agenda",
-  "calendar",
   "archive",
   "assignments",
   "checklist",
@@ -542,13 +540,6 @@ export function App() {
         return null;
       }
       return <AgendaPage user={user} unit={effectiveUnit} onChanged={refresh} />;
-    }
-    if (route === "calendar") {
-      if (user.role === "MUSIC") {
-        setRoute("dashboard");
-        return null;
-      }
-      return <CalendarPage user={user} unit={effectiveUnit} onChanged={refresh} />;
     }
     if (route === "music") return <MusicPage user={user} unit={effectiveUnit} onChanged={refresh} />;
     if (route === "notifications") return <NotificationsPage user={user} unit={effectiveUnit} onChanged={refresh} />;

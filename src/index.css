@@ -389,10 +389,4 @@ body {
 .stagger-5 { animation-delay: 0.3s; }
 .stagger-6 { animation-delay: 0.35s; }
 
-/* Dedicated 7-column calendar grid layout */
-.calendar-grid {
-  display: grid !important;
-  grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
-  gap: 4px;
-}
 

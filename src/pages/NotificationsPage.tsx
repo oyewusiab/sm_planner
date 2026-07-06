@@ -410,9 +410,12 @@ export function NotificationsPage({
 
   function approveRequest(req: SettingsChangeRequest) {
     if (user.role !== "ADMIN") return;
-    const patch = clampPatch(req.patch);
     updateDB((db0) => {
-      const UNIT_SETTINGS = db0.UNIT_SETTINGS ? ({ ...db0.UNIT_SETTINGS, ...patch } as UnitSettings) : db0.UNIT_SETTINGS;
+      let UNIT_SETTINGS = db0.UNIT_SETTINGS;
+      if (!req.broadcast) {
+        const patch = clampPatch(req.patch);
+        UNIT_SETTINGS = db0.UNIT_SETTINGS ? ({ ...db0.UNIT_SETTINGS, ...patch } as UnitSettings) : db0.UNIT_SETTINGS;
+      }
       const SETTINGS_REQUESTS = db0.SETTINGS_REQUESTS.map((r) =>
         r.request_id === req.request_id
           ? {
@@ -426,11 +429,27 @@ export function NotificationsPage({
       return { ...db0, UNIT_SETTINGS, SETTINGS_REQUESTS };
     });
 
+    if (req.broadcast) {
+      const { role, title, body } = req.broadcast;
+      const targets = role === "ALL" ? db.USERS : db.USERS.filter((u) => u.role === role);
+      for (const target of targets) {
+        notifyUser({
+          to_user_id: target.user_id,
+          type: "REMINDER",
+          title,
+          body,
+          meta: { source: "bishop_broadcast" },
+        });
+      }
+    }
+
     notifyUser({
       to_user_id: req.requested_by,
       type: "SETTINGS_APPROVAL_DECISION",
-      title: "Settings request approved",
-      body: "Your request to update platform settings was approved and applied.",
+      title: req.broadcast ? "Broadcast request approved" : "Settings request approved",
+      body: req.broadcast
+        ? `Your broadcast announcement "${req.broadcast.title}" was approved and sent to ${req.broadcast.role === "ALL" ? "all users" : req.broadcast.role + " users"}.`
+        : "Your request to update platform settings was approved and applied.",
       meta: { request_id: req.request_id },
     });
 
@@ -456,8 +475,10 @@ export function NotificationsPage({
     notifyUser({
       to_user_id: req.requested_by,
       type: "SETTINGS_APPROVAL_DECISION",
-      title: "Settings request rejected",
-      body: "Your request to update platform settings was not approved.",
+      title: req.broadcast ? "Broadcast request rejected" : "Settings request rejected",
+      body: req.broadcast
+        ? `Your broadcast announcement request "${req.broadcast.title}" was not approved.`
+        : "Your request to update platform settings was not approved.",
       meta: { request_id: req.request_id },
     });
 
@@ -997,9 +1018,11 @@ export function NotificationsPage({
                     return (
                       <div key={r.request_id} className="rounded-xl border border-[color:var(--border)] bg-white p-4">
                         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                          <div className="min-w-0">
+                          <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-2">
-                              <div className="text-sm font-semibold text-slate-900">Settings change request</div>
+                              <div className="text-sm font-semibold text-slate-900">
+                                {r.broadcast ? "Broadcast announcement request" : "Settings change request"}
+                              </div>
                               <Badge tone="amber">Pending</Badge>
                             </div>
                             <div className="mt-1 text-sm text-slate-700">
@@ -1009,10 +1032,23 @@ export function NotificationsPage({
 
                             <Divider className="my-3" />
 
-                            <div className="text-xs font-medium text-slate-600">Patch</div>
-                            <pre className="mt-1 overflow-auto rounded-lg border border-[color:var(--border)] bg-slate-50 p-3 text-xs text-slate-800">
-                              {JSON.stringify(clampPatch(r.patch), null, 2)}
-                            </pre>
+                            {r.broadcast ? (
+                              <div className="space-y-2">
+                                <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Broadcast Details</div>
+                                <div className="text-sm text-slate-900"><span className="font-semibold">Title:</span> {r.broadcast.title}</div>
+                                <div className="text-xs text-slate-600"><span className="font-semibold">Target:</span> {r.broadcast.role === "ALL" ? "All users" : r.broadcast.role + " users"}</div>
+                                <div className="mt-2 p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs text-slate-700 whitespace-pre-wrap font-sans">
+                                  {r.broadcast.body}
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="text-xs font-medium text-slate-600">Patch</div>
+                                <pre className="mt-1 overflow-auto rounded-lg border border-[color:var(--border)] bg-slate-50 p-3 text-xs text-slate-800">
+                                  {JSON.stringify(clampPatch(r.patch), null, 2)}
+                                </pre>
+                              </>
+                            )}
 
                             {r.reason ? (
                               <div className="mt-2 text-sm text-slate-700">
@@ -1022,7 +1058,9 @@ export function NotificationsPage({
                           </div>
 
                           <div className="shrink-0 space-y-2">
-                            <Button onClick={() => approveRequest(r)}>Approve & Apply</Button>
+                            <Button onClick={() => approveRequest(r)}>
+                              {r.broadcast ? "Approve & Send" : "Approve & Apply"}
+                            </Button>
                             <Button variant="secondary" onClick={() => rejectRequest(r)}>
                               Reject
                             </Button>

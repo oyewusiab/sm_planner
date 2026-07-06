@@ -15,7 +15,6 @@ export type RouteKey =
   | "dashboard"
   | "planner"
   | "agenda"
-  | "calendar"
   | "archive"
   | "assignments"
   | "checklist"
@@ -34,7 +33,6 @@ const navItems: {
   { key: "dashboard",     label: "Dashboard",     icon: "⊞" },
   { key: "planner",       label: "Planner",        icon: "📅", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
   { key: "agenda",        label: "Agenda",         icon: "📄", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
-  { key: "calendar",      label: "Calendar",       icon: "🗓️", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
   { key: "assignments",   label: "Assignments",    icon: "✉️", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
   { key: "notifications", label: "Notifications",  icon: "🔔", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY", "MUSIC"] },
   { key: "checklist",     label: "Checklist",      icon: "✅", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },

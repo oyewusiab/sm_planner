@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { UnitSettings, User } from "../types";
 import { Button, EmptyState } from "../components/ui";
 import { formatDateShort, nextSundaysInMonth, yyyyMmToLabel } from "../utils/date";
@@ -13,12 +13,44 @@ const QUOTES = [
   { ref: "3 Nephi 18:32", text: "Nevertheless, ye shall not cast him out of your synagogues, or your places of worship." },
   { ref: "Alma 37:37", text: "Counsel with the Lord in all thy doings, and he will direct thee for good." },
   { ref: "2 Nephi 31:20", text: "Press forward with a steadfastness in Christ, having a perfect brightness of hope." },
+  { ref: "D&C 6:36", text: "Look unto me in every thought; doubt not, fear not." },
+  { ref: "Proverbs 3:5-6", text: "Trust in the Lord with all thine heart; and lean not unto thine own understanding. In all thy ways acknowledge him, and he shall direct thy paths." },
+  { ref: "Joshua 1:9", text: "Be strong and of a good courage; be not afraid, neither be thou dismayed: for the Lord thy God is with thee whithersoever thou goest." },
+  { ref: "Philippians 4:13", text: "I can do all things through Christ which strengtheneth me." },
+  { ref: "D&C 121:45", text: "Let thy bowels also be full of charity towards all men, and to the household of faith, and let virtue garnish thy thoughts unceasingly..." },
+  { ref: "D&C 88:118", text: "Seek ye out of the best books words of wisdom; seek learning, even by study and also by faith." },
+  { ref: "Ether 12:27", text: "And if men come unto me I will show unto them their weakness... for my grace is sufficient for all men that humble themselves before me." },
+  { ref: "John 14:27", text: "Peace I leave with you, my peace I give unto you: not as the world giveth, give I unto you. Let not your heart be troubled, neither let it be afraid." },
+  { ref: "Matthew 11:28-30", text: "Come unto me, all ye that labour and are heavy laden, and I will give you rest. Take my yoke upon you, and learn of me..." },
+  { ref: "Isaiah 40:31", text: "But they that wait upon the Lord shall renew their strength; they shall mount up with wings as eagles; they shall run, and not be weary..." },
+  { ref: "D&C 19:23", text: "Learn of me, and listen to my words; walk in the meekness of my Spirit, and you shall have peace in me." },
+  { ref: "D&C 50:44", text: "Wherefore, I am in your midst, and I am the good shepherd, and the stone of Israel. He that buildeth upon this rock shall never fall." },
+  { ref: "Moroni 7:47", text: "But charity is the pure love of Christ, and it endureth forever; and whoso is found possessed of it at the last day, it shall be well with him." },
+  { ref: "Alma 32:21", text: "Faith is not to have a perfect knowledge of things; therefore if ye have faith ye hope for things which are not seen, which are true." },
+  { ref: "Mosiah 18:9", text: "Mourn with those that mourn; yea, and comfort those that stand in need of comfort, and to stand as witnesses of God at all times and in all things." },
+  { ref: "Mosiah 4:15", text: "But ye will teach them to walk in the ways of truth and soberness; ye will teach them to love one another, and to serve one another." },
+  { ref: "Mosiah 24:14", text: "And I will also ease the burdens which are put upon your shoulders, that even you cannot feel them upon your backs..." },
+  { ref: "Alma 7:11-12", text: "And he shall go forth, suffering pains and afflictions and temptations of every kind; and this that the word might be fulfilled..." },
+  { ref: "Helaman 5:12", text: "Remember that it is upon the rock of our Redeemer, who is Christ, the Son of God, that ye must build your foundation..." },
+  { ref: "2 Nephi 2:25", text: "Adam fell that men might be; and men are, that they might have joy." },
+  { ref: "2 Nephi 25:26", text: "And we talk of Christ, we rejoice in Christ, we preach of Christ, we prophesy of Christ, and we write according to our prophecies..." },
+  { ref: "Mosiah 3:19", text: "For the natural man is an enemy to God, and has been from the fall of Adam, and will be, forever and ever, unless he yields to the enticings of the Holy Spirit..." },
+  { ref: "Alma 34:32", text: "For behold, this life is the time for men to prepare to meet God; behold, the day of this life is the day for men to perform their labors." },
+  { ref: "3 Nephi 12:48", text: "Therefore I would that ye should be perfect even as I, or your Father who is in heaven is perfect." },
+  { ref: "D&C 84:88", text: "I will go before your face. I will be on your right hand and on your left, and my Spirit shall be in your hearts, and mine angels round about you, to bear you up." },
+  { ref: "D&C 90:24", text: "Search diligently, pray always, and be believing, and all things shall work together for your good, if ye walk uprightly..." },
+  { ref: "Russell M. Nelson", text: "Joy has little to do with the circumstances of our lives and everything to do with the focus of our lives." },
+  { ref: "Russell M. Nelson", text: "The temple is at the center of strengthening our faith and spiritual fortitude, because the Savior and His doctrine are the very heart of the temple." },
+  { ref: "Russell M. Nelson", text: "My dear brothers and sisters, the road ahead may be bumpy, but our destination is serene." },
+  { ref: "Thomas S. Monson", text: "The future is as bright as your faith." },
+  { ref: "Gordon B. Hinckley", text: "Just do the best you can, but be sure it is your very best." },
+  { ref: "Dieter F. Uchtdorf", text: "The desire to create is one of the deepest yearnings of the human soul." }
 ];
 
-function pickQuote(seed: string) {
+function pickQuoteIndex(seed: string, count: number) {
   let h = 0;
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-  return QUOTES[h % QUOTES.length];
+  return h % count;
 }
 
 function getGreeting(hour: number): string {
@@ -73,10 +105,38 @@ export function DashboardPage({
   const month = now.getMonth() + 1;
   const year = now.getFullYear();
 
-  const quote = useMemo(
-    () => pickQuote(`${user.user_id}.${now.toISOString().slice(0, 10)}`),
-    [user.user_id]
-  );
+  const [quoteIndex, setQuoteIndex] = useState(() => {
+    const saved = localStorage.getItem("sac_meeting_spiritual_thought_index");
+    if (saved !== null) {
+      const idx = parseInt(saved, 10);
+      if (idx >= 0 && idx < QUOTES.length) return idx;
+    }
+    const todayStr = new Date().toISOString().slice(0, 10);
+    return pickQuoteIndex(`${user.user_id}.${todayStr}`, QUOTES.length);
+  });
+
+  const quote = QUOTES[quoteIndex];
+
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyQuote = () => {
+    const textToCopy = `"${quote.text}" — ${quote.ref}`;
+    void navigator.clipboard.writeText(textToCopy).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const handleShuffleQuote = () => {
+    let nextIdx = quoteIndex;
+    if (QUOTES.length > 1) {
+      while (nextIdx === quoteIndex) {
+        nextIdx = Math.floor(Math.random() * QUOTES.length);
+      }
+    }
+    setQuoteIndex(nextIdx);
+    localStorage.setItem("sac_meeting_spiritual_thought_index", String(nextIdx));
+  };
 
   const currentMonthSundays = nextSundaysInMonth(month, year);
   const submittedPlanners = [...db.PLANNERS]
@@ -614,7 +674,22 @@ export function DashboardPage({
             <div className="text-[10px] font-bold uppercase tracking-widest text-blue-600/80">
               ✦ Spiritual Thought
             </div>
-            <div className="h-2 w-2 rounded-full bg-blue-400/30" />
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleCopyQuote}
+                className="rounded-lg px-2 py-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-all text-xs font-semibold flex items-center gap-1 cursor-pointer border border-slate-200 hover:border-blue-100"
+                title="Copy to Clipboard"
+              >
+                <span>{copied ? "Copied! ✓" : "Copy 📋"}</span>
+              </button>
+              <button
+                onClick={handleShuffleQuote}
+                className="rounded-lg px-2 py-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-all text-xs font-semibold flex items-center gap-1 cursor-pointer border border-slate-200 hover:border-blue-100"
+                title="Next Thought"
+              >
+                <span>Next ↻</span>
+              </button>
+            </div>
           </div>
           <blockquote className="text-lg font-medium leading-relaxed text-slate-700 italic">
             "{quote.text}"

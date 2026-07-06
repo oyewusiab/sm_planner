@@ -790,19 +790,8 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
 
               <div className="flex items-start justify-between gap-2 min-h-[1.25rem] py-0.5">
                 <div className="flex flex-wrap items-baseline flex-1 text-[9.5px]">
-                  <strong className="shrink-0 mr-1">Greetings and Welcome:</strong>
+                  <strong className="shrink-0 mr-1">Greetings, Welcome & Acknowledgements:</strong>
                   <span className="border-b border-black flex-1 min-h-[1.1rem] px-1 whitespace-normal break-words">{agendaData.greetings_welcome}</span>
-                </div>
-                <div className="flex gap-2 shrink-0 w-16 self-stretch items-end">
-                  <span className="border-b border-black w-8 text-center min-h-[1.1rem]"></span>
-                  <span className="border-b border-black w-8 text-center min-h-[1.1rem]"></span>
-                </div>
-              </div>
-
-              <div className="flex items-start justify-between gap-2 min-h-[1.25rem] py-0.5">
-                <div className="flex flex-wrap items-baseline flex-1 text-[9.5px]">
-                  <strong className="shrink-0 mr-1">Acknowledgements:</strong>
-                  <span className="border-b border-black flex-1 min-h-[1.1rem] px-1 whitespace-normal break-words">{agendaData.acknowledgements}</span>
                 </div>
                 <div className="flex gap-2 shrink-0 w-16 self-stretch items-end">
                   <span className="border-b border-black w-8 text-center min-h-[1.1rem]"></span>

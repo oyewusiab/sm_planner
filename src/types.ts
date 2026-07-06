@@ -297,6 +297,11 @@ export type SettingsChangeRequest = {
   /** Partial UnitSettings patch (only supported fields). */
   patch: Partial<UnitSettings>;
   reason?: string;
+  broadcast?: {
+    role: string;
+    title: string;
+    body: string;
+  };
 };
 
 export type TodoPriority = "LOW" | "NORMAL" | "HIGH";
