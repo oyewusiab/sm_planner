@@ -19,7 +19,7 @@ import type {
   CalendarContact,
   CalendarReportLog,
 } from "../types";
-import { db } from "./firebase";
+import { db, auth } from "./firebase";
 import { backendEnabled } from "./backend";
 import { 
   collection, 
@@ -807,15 +807,18 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
 
     const local = getDB();
     const localLastSyncTime = localStorage.getItem(LAST_SYNC_TIME_KEY) || "";
+    const isAuthenticated = !!auth.currentUser;
 
     let remoteMetadata: DBMetadata | null = null;
-    try {
-      const metaSnap = await getDoc(doc(db, "metadata", "global"));
-      if (metaSnap.exists()) {
-        remoteMetadata = metaSnap.data() as DBMetadata;
+    if (isAuthenticated) {
+      try {
+        const metaSnap = await getDoc(doc(db, "metadata", "global"));
+        if (metaSnap.exists()) {
+          remoteMetadata = metaSnap.data() as DBMetadata;
+        }
+      } catch (e) {
+        console.warn("[Sync] Failed to fetch remote metadata, falling back to full check:", e);
       }
-    } catch (e) {
-      console.warn("[Sync] Failed to fetch remote metadata, falling back to full check:", e);
     }
 
     const localMetadataRaw = localStorage.getItem(METADATA_KEY);
@@ -823,7 +826,7 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
       ? JSON.parse(localMetadataRaw) 
       : { versions: {}, last_updated: "" };
 
-    if (!force && remoteMetadata && localLastSyncTime && remoteMetadata.last_updated <= localLastSyncTime) {
+    if (isAuthenticated && !force && remoteMetadata && localLastSyncTime && remoteMetadata.last_updated <= localLastSyncTime) {
       console.log("[Sync] No remote changes detected (up to date). Skipping pull.");
       lastPullTime = Date.now();
       initializeFirebaseSync();
@@ -836,6 +839,12 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
     for (const t of SYNC_TABLES) {
       if (t.name === "HYMNS") {
         remoteSnap.HYMNS = local.HYMNS && local.HYMNS.length > 0 ? local.HYMNS : BUNDLED_HYMNS;
+        continue;
+      }
+
+      if (!isAuthenticated) {
+        // If not authenticated, retain local tables
+        remoteSnap[t.name] = (local[t.name] || []) as any;
         continue;
       }
 
@@ -878,8 +887,16 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
       (remoteSnap as any)[t.name] = docs;
     }
 
-    const settingsSnap = await getDoc(doc(db, "unit_settings", "global"));
-    remoteSnap.UNIT_SETTINGS = settingsSnap.exists() ? (settingsSnap.data() as UnitSettings) : null;
+    let remoteSettings = null;
+    try {
+      const settingsSnap = await getDoc(doc(db, "unit_settings", "global"));
+      if (settingsSnap.exists()) {
+        remoteSettings = settingsSnap.data() as UnitSettings;
+      }
+    } catch (e) {
+      console.warn("[Sync] Failed to fetch unit_settings:", e);
+    }
+    remoteSnap.UNIT_SETTINGS = remoteSettings || local.UNIT_SETTINGS || null;
 
     const normalizedRemote = normalizeDB(remoteSnap);
     const comparableRemote = serializeDBForRemote(normalizedRemote);
@@ -913,9 +930,11 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
       suppressRemoteSync -= 1;
     }
 
-    initializeFirebaseSync();
+    if (isAuthenticated) {
+      initializeFirebaseSync();
+    }
 
-    if (!replaceLocal && needsPush) {
+    if (isAuthenticated && !replaceLocal && needsPush) {
       scheduleRemoteSync();
     }
 
