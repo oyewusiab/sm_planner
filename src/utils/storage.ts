@@ -430,7 +430,7 @@ function normalizeDB(raw: any): DB {
   return base;
 }
 
-function isEmptyDB(db: DB): boolean {
+export function isEmptyDB(db: DB): boolean {
   return (
     !db.UNIT_SETTINGS &&
     db.USERS.length === 0 &&
@@ -454,12 +454,12 @@ function isEmptyDB(db: DB): boolean {
 
 const VERSION_KEY = "sac_meeting_planner_db_version_v1";
 
-function getLocalDBVersion(): number {
+export function getLocalDBVersion(): number {
   const v = localStorage.getItem(VERSION_KEY);
   return v ? parseInt(v, 10) : 0;
 }
 
-function setLocalDBVersion(v: number) {
+export function setLocalDBVersion(v: number) {
   localStorage.setItem(VERSION_KEY, String(v));
 }
 
@@ -491,6 +491,7 @@ async function pushAllToBackend() {
   if (!backendEnabled() || suppressRemoteSync > 0) return;
   if (remoteSyncInFlight) return;
   remoteSyncInFlight = true;
+  hasPendingPush = false; // Reset immediately to detect any changes made while sync is in progress
   notifySyncListeners(true);
   try {
     const dbData = serializeDBForRemote(getDB());
@@ -609,14 +610,17 @@ async function pushAllToBackend() {
       localStorage.setItem(LAST_SYNC_TIME_KEY, nextSyncTime);
     }
     
-    hasPendingPush = false;
     setLastSyncedDB(serializeDBForRemote(getDB()));
     console.log("[Sync] Firestore sync successful.");
   } catch (err) {
     console.warn("[Sync] Firestore push failed:", err);
+    hasPendingPush = true; // Mark as pending again to retry
   } finally {
     remoteSyncInFlight = false;
     notifySyncListeners(false);
+    if (hasPendingPush) {
+      scheduleRemoteSync();
+    }
   }
 }
 
@@ -692,10 +696,25 @@ function mergeDatabases(local: DB, remote: DB): { merged: DB; needsPush: boolean
           }
         }
       } else if (l) {
-        mergedRows.push(l);
-        needsPush = true;
+        // Exists locally but not on remote. Check if it was previously synced.
+        const wasSynced = lastSyncedDB && (lastSyncedDB[t.name] as any[] || []).some(x => String(x[t.idCol] || "") === id);
+        if (wasSynced && REMOTE_DELETABLE_TABLES.has(t.name)) {
+          // It was deleted on remote. Keep it deleted (do not add to mergedRows).
+        } else {
+          // It's a new local row. Keep it and mark for push.
+          mergedRows.push(l);
+          needsPush = true;
+        }
       } else if (r) {
-        mergedRows.push(r);
+        // Exists on remote but not locally. Check if it was previously synced.
+        const wasSynced = lastSyncedDB && (lastSyncedDB[t.name] as any[] || []).some(x => String(x[t.idCol] || "") === id);
+        if (wasSynced && REMOTE_DELETABLE_TABLES.has(t.name)) {
+          // It was deleted locally. Keep it deleted and mark for push so remote is updated.
+          needsPush = true;
+        } else {
+          // It's a new remote row. Keep it.
+          mergedRows.push(r);
+        }
       }
     }
 
@@ -744,7 +763,7 @@ export function initializeFirebaseSync() {
   });
 }
 
-function updateLocalTableFromFirebase(tableName: keyof DB, remoteRows: any[]) {
+export function updateLocalTableFromFirebase(tableName: keyof DB, remoteRows: any[]) {
   updateDB((local) => {
     const idCol = SYNC_TABLES.find((t) => t.name === tableName)?.idCol || "id";
     const localRows = (local[tableName] || []) as any[];
@@ -852,7 +871,8 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
       const remoteVer = remoteMetadata?.versions?.[t.name] || 0;
       const localVer = localMetadata.versions?.[t.name] || 0;
 
-      if (!force && remoteVer > 0 && remoteVer === localVer && Array.isArray(local[t.name]) && local[t.name].length > 0) {
+      const localVal = local[t.name];
+      if (!force && remoteVer > 0 && remoteVer === localVer && localVal && Array.isArray(localVal) && (localVal as any[]).length > 0) {
         remoteSnap[t.name] = local[t.name] as any;
         continue;
       }
