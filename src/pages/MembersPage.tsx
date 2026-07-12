@@ -178,6 +178,7 @@ export function MembersPage({
   onChanged: () => void;
 }) {
   const allowed = can(user.role, "MANAGE_MEMBERS");
+  const canEditOrDelete = user.role === "ADMIN" || user.role === "CLERK";
   const db = getDB();
   const [tab, setTab] = useState<"directory" | "analytics">("directory");
   const [q, setQ] = useState("");
@@ -867,6 +868,19 @@ export function MembersPage({
     onChanged();
   }
 
+  function deleteMember(member: Member) {
+    if (!window.confirm(`Are you sure you want to delete ${member.name}?`)) return;
+    updateDB((db0) => {
+      const targetId = asText(member.member_id || member.name).trim();
+      const MEMBERS = db0.MEMBERS.filter((m) => {
+        const existingId = asText(m.member_id || m.name).trim();
+        return existingId !== targetId;
+      });
+      return { ...db0, MEMBERS };
+    });
+    onChanged();
+  }
+
   function exportCSV() {
     const columns = [
       { key: "name", label: "Name" },
@@ -888,21 +902,23 @@ export function MembersPage({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 w-full">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <SectionTitle title="Members Directory" subtitle="Add, edit, search, and export your unit member list." />
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="secondary" onClick={exportCSV}>
             Export CSV
           </Button>
-          <Button
-            onClick={() => {
-              setEditing(emptyMember());
-              setOpen(true);
-            }}
-          >
-            Add Member
-          </Button>
+          {canEditOrDelete && (
+            <Button
+              onClick={() => {
+                setEditing(emptyMember());
+                setOpen(true);
+              }}
+            >
+              Add Member
+            </Button>
+          )}
         </div>
       </div>
 
@@ -957,8 +973,8 @@ export function MembersPage({
         </CardBody>
       </Card>
 
-      <div className="overflow-hidden rounded-xl border border-[color:var(--border)] bg-white">
-        <table className="w-full text-left text-sm">
+      <div className="overflow-x-auto max-w-full rounded-xl border border-[color:var(--border)] bg-white" style={{ maxWidth: "100%" }}>
+        <table className="w-full text-left text-sm" style={{ minWidth: "950px" }}>
           <thead className="bg-slate-50">
             <tr>
               <th className="p-3 font-medium text-slate-600">Name</th>
@@ -968,13 +984,13 @@ export function MembersPage({
               <th className="p-3 font-medium text-slate-600">Organisation</th>
               <th className="p-3 font-medium text-slate-600">Status</th>
               <th className="p-3 font-medium text-slate-600">Birthday</th>
-              <th className="p-3 font-medium text-slate-600">Actions</th>
+              {canEditOrDelete && <th className="p-3 font-medium text-slate-600">Actions</th>}
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td className="p-3 text-slate-500" colSpan={8}>
+                <td className="p-3 text-slate-500" colSpan={canEditOrDelete ? 8 : 7}>
                   No members found.
                 </td>
               </tr>
@@ -988,17 +1004,29 @@ export function MembersPage({
                   <td className="p-3">{m.organisation ?? ""}</td>
                   <td className="p-3">{m.status ?? ""}</td>
                   <td className="p-3">{m.birth_date ?? ""}</td>
-                  <td className="p-3">
-                    <Button
-                      variant="secondary"
-                      onClick={() => {
-                        setEditing(JSON.parse(JSON.stringify(m)) as Member);
-                        setOpen(true);
-                      }}
-                    >
-                      Edit
-                    </Button>
-                  </td>
+                  {canEditOrDelete && (
+                    <td className="p-3 whitespace-nowrap">
+                      <div className="flex gap-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            setEditing(JSON.parse(JSON.stringify(m)) as Member);
+                            setOpen(true);
+                          }}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => deleteMember(m)}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))
             )}

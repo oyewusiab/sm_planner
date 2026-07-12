@@ -227,7 +227,7 @@ export function AppShell({
           </button>
         </div>
       </div>
-      <div className="grid min-h-screen grid-cols-1 md:grid-cols-[268px_1fr]">
+      <div className="grid min-h-screen grid-cols-1 md:grid-cols-[268px_minmax(0,1fr)]">
         {/* ── Sidebar ── */}
         <aside
           className="no-print sticky top-0 hidden h-screen flex-col text-white md:flex overflow-y-auto"
@@ -358,8 +358,8 @@ export function AppShell({
         </aside>
 
         {/* ── Main content ── */}
-        <main className="p-4 pb-24 md:p-8 md:pb-8">
-          <div className="mx-auto max-w-6xl">{children}</div>
+        <main className="p-4 pb-24 md:p-8 md:pb-8 min-w-0">
+          <div className="mx-auto max-w-full w-full overflow-hidden">{children}</div>
         </main>
 
         {mobileNavOpen ? (
