@@ -48,11 +48,23 @@ function gender(name: string, g?: "M" | "F") {
   return n;
 }
 
-function blankAgenda(plannerId: string, weekId: string, userId: string, _planner: Planner, week: WeekPlan, unit: UnitSettings): Agenda {
+function blankAgenda(plannerId: string, weekId: string, userId: string, _planner: Planner, week: WeekPlan, unit: UnitSettings, activities: any[]): Agenda {
   const parsedOpening = parseHymn(week.hymns?.opening || "");
   const parsedSacrament = parseHymn(week.hymns?.sacrament || "");
   const parsedClosing = parseHymn(week.hymns?.closing || "");
   const defaultWelcome = "We warmly welcome everyone, stake officers, friends of the church and those worshipping with us for the first time.";
+
+  const sundayISO = week.date;
+  const upcoming = activities
+    .filter(a => a.date >= sundayISO)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, 5)
+    .map(a => `${a.activity} (${a.organisation}) — ${formatDateShort(a.date)}`);
+
+  const announcementsList = [...upcoming];
+  while (announcementsList.length < 6) {
+    announcementsList.push("");
+  }
 
   return {
     agenda_id: ids.uid("agenda"),
@@ -95,7 +107,7 @@ function blankAgenda(plannerId: string, weekId: string, userId: string, _planner
     closing_prayer: gender(week.prayers?.benediction || "", week.prayers?.benediction_gender),
     postlude_music: "",
 
-    announcements: ["", "", "", "", "", ""],
+    announcements: announcementsList,
     releases: [],
     calls: [],
     baptized_children: ["", "", "", ""],
@@ -121,6 +133,7 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
   const { data: planners = [] } = useTable("PLANNERS");
   const { data: agendas = [] } = useTable("AGENDAS");
   const { data: members = [] } = useTable("MEMBERS");
+  const { data: activities = [] } = useTable("ACTIVITIES");
   const upsert = useUpsertMutation("AGENDAS");
   
   const [selectedPlannerId, setSelectedPlannerId] = useState<string>("");
@@ -304,7 +317,7 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
       if (!proceed) return;
     }
 
-    const newAgenda = blankAgenda(activePlanner.planner_id, activeWeek.week_id, user.user_id, activePlanner, activeWeek, unit);
+    const newAgenda = blankAgenda(activePlanner.planner_id, activeWeek.week_id, user.user_id, activePlanner, activeWeek, unit, activities);
     setLocalAgenda(newAgenda);
     setIsDirty(true);
     setActiveTab("prepare");

@@ -16,6 +16,8 @@ import { NotificationsPage } from "./pages/NotificationsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { AgendaPage } from "./pages/AgendaPage";
 import { BulletinPage } from "./pages/BulletinPage";
+import { CalendarPage } from "./pages/CalendarPage";
+import { WARD_2026_CALENDAR } from "./utils/calendarDefaults";
 import * as auth from "./auth/authService";
 import { clearSession, getSession, newSessionForUser, setSession } from "./auth/session";
 import { syncNow, syncFromBackend, getDB, onSyncStatusChange, updateDB, ids, onDBChange } from "./utils/storage";
@@ -46,6 +48,7 @@ const VALID_ROUTES: RouteKey[] = [
   "notifications",
   "settings",
   "bulletin",
+  "calendar",
 ];
 
 function getRouteFromHash(): RouteKey | null {
@@ -108,6 +111,29 @@ export function App() {
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, [route, user]);
+
+  // Pre-populate Obantoko Ward 2026 Calendar if empty
+  useEffect(() => {
+    if (booting) return;
+    const db = getDB();
+    if (db.ACTIVITIES && db.ACTIVITIES.length === 0) {
+      updateDB((db0) => {
+        const newItems = WARD_2026_CALENDAR.map(item => ({
+          activity_id: ids.uid("act"),
+          date: item.date,
+          activity: item.activity,
+          organisation: item.organisation,
+          status: false,
+          email_sent: false,
+          those_involved: "",
+          report_submitted: "N/A" as const,
+          time: "12:00 PM"
+        }));
+        return { ...db0, ACTIVITIES: newItems };
+      });
+      refresh();
+    }
+  }, [booting]);
   const [backendStatus, setBackendStatus] = useState<BackendStatus>(() =>
     backendEnabled() ? "connecting" : "disabled"
   );
@@ -528,6 +554,13 @@ export function App() {
         return null;
       }
       return <BulletinPage user={user} unit={effectiveUnit} onChanged={refresh} />;
+    }
+    if (route === "calendar") {
+      if (user.role === "MUSIC") {
+        setRoute("dashboard");
+        return null;
+      }
+      return <CalendarPage user={user} unit={effectiveUnit} onChanged={refresh} />;
     }
     if (route === "checklist") {
       if (user.role === "MUSIC") {

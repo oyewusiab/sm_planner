@@ -203,6 +203,13 @@ export function BulletinPage({
       setFormData(currentBulletin);
     } else {
       const defaultBirthdays = getBirthdaysForWeek(members, activeWeek.date);
+      const sundayISO = activeWeek.date;
+      const upcoming = activities
+        .filter(a => a.date >= sundayISO)
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .slice(0, 5)
+        .map(a => `${a.activity} (${a.organisation}) — ${formatDateShort(a.date)}`);
+
       setFormData({
         theme: "",
         special_music: "",
@@ -218,7 +225,7 @@ export function BulletinPage({
         ward_focus: "Ministering: Reaching out to those in need.",
         welfare_reminders: ["Fast offering donation this Sunday", "Submit service logs to Clerk"],
         bishopric_message: "Focus this week on developing Christlike charity inside your home and community.",
-        upcoming_events: [],
+        upcoming_events: upcoming,
         qr_whatsapp: "",
         qr_familysearch: "https://www.familysearch.org",
         qr_gospel_library: "https://www.churchofjesuschrist.org/study/gospel-library",
