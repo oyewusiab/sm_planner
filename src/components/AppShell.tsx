@@ -21,7 +21,8 @@ export type RouteKey =
   | "members"
   | "music"
   | "notifications"
-  | "settings";
+  | "settings"
+  | "bulletin";
 
 const navItems: {
   key: RouteKey;
@@ -34,6 +35,7 @@ const navItems: {
   { key: "planner",       label: "Planner",        icon: "📅", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
   { key: "agenda",        label: "Agenda",         icon: "📄", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
   { key: "assignments",   label: "Assignments",    icon: "✉️", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
+  { key: "bulletin",      label: "Bulletin",       icon: "📰", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
   { key: "notifications", label: "Notifications",  icon: "🔔", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY", "MUSIC"] },
   { key: "checklist",     label: "Checklist",      icon: "✅", roles: ["ADMIN", "BISHOPRIC", "CLERK", "SECRETARY"] },
   { key: "members",       label: "Members",        icon: "👥", roles: ["ADMIN", "BISHOPRIC", "CLERK"] },

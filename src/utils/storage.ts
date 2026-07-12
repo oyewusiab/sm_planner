@@ -18,6 +18,7 @@ import type {
   PublicHoliday,
   CalendarContact,
   CalendarReportLog,
+  Bulletin,
 } from "../types";
 import { db, auth } from "./firebase";
 import { backendEnabled } from "./backend";
@@ -56,6 +57,7 @@ export type DB = {
   "PUBLIC HOLIDAY": PublicHoliday[];
   CONTACTS: CalendarContact[];
   "REPORT LOG": CalendarReportLog[];
+  BULLETINS: Bulletin[];
 };
 
 const nowISO = () => new Date().toISOString();
@@ -111,6 +113,7 @@ export const SYNC_TABLES: { name: keyof DB; idCol: string }[] = [
   { name: "PUBLIC HOLIDAY", idCol: "holiday_id" },
   { name: "CONTACTS", idCol: "contact_id" },
   { name: "REPORT LOG", idCol: "log_id" },
+  { name: "BULLETINS", idCol: "bulletin_id" },
 ];
 
 export const COLLECTION_MAPPING: Record<keyof DB, string> = {
@@ -132,6 +135,7 @@ export const COLLECTION_MAPPING: Record<keyof DB, string> = {
   "PUBLIC HOLIDAY": "public_holidays",
   CONTACTS: "contacts",
   "REPORT LOG": "report_logs",
+  BULLETINS: "bulletins",
 };
 
 const REMOTE_DELETABLE_TABLES = new Set<keyof DB>([
@@ -143,6 +147,7 @@ const REMOTE_DELETABLE_TABLES = new Set<keyof DB>([
   "PUBLIC HOLIDAY",
   "CONTACTS",
   "REPORT LOG",
+  "BULLETINS",
   "PLANNERS",
   "AGENDAS",
   "ASSIGNMENTS",
@@ -200,6 +205,7 @@ function sanitizeMemberRecord(raw: any) {
     age: Number.isFinite(parsedAge) ? parsedAge : undefined,
     phone: asText(raw?.phone).trim(),
     email: asText(raw?.email).trim(),
+    birth_date: asText(raw?.birth_date).trim() || undefined,
     organisation: asText(raw?.organisation).trim(),
     status: asText(raw?.status).trim(),
     notes: asText(raw?.notes).trim(),
@@ -426,6 +432,7 @@ function normalizeDB(raw: any): DB {
     "PUBLIC HOLIDAY": Array.isArray(raw?.["PUBLIC HOLIDAY"]) ? raw["PUBLIC HOLIDAY"] : [],
     CONTACTS: Array.isArray(raw?.CONTACTS) ? raw.CONTACTS : [],
     "REPORT LOG": Array.isArray(raw?.["REPORT LOG"]) ? raw["REPORT LOG"] : [],
+    BULLETINS: Array.isArray(raw?.BULLETINS) ? raw.BULLETINS : [],
   };
   return base;
 }
@@ -448,7 +455,8 @@ export function isEmptyDB(db: DB): boolean {
     db["OTHER CHURCH PROGRAM"].length === 0 &&
     db["PUBLIC HOLIDAY"].length === 0 &&
     db.CONTACTS.length === 0 &&
-    db["REPORT LOG"].length === 0
+    db["REPORT LOG"].length === 0 &&
+    db.BULLETINS.length === 0
   );
 }
 
@@ -990,6 +998,7 @@ export function getDB(): DB {
       !Array.isArray((existing as any).SETTINGS_REQUESTS) ||
       !Array.isArray((existing as any).TODOS) ||
       !Array.isArray((existing as any).REMINDERS) ||
+      !Array.isArray((existing as any).BULLETINS) ||
       (Array.isArray((existing as any).USERS) && (existing as any).USERS.some((u: any) => !u?.username));
 
     if (needsPersist) {
@@ -1017,6 +1026,7 @@ export function getDB(): DB {
     "PUBLIC HOLIDAY": [],
     CONTACTS: [],
     "REPORT LOG": [],
+    BULLETINS: [],
   };
   localStorage.setItem(APP_KEY, JSON.stringify(fresh));
   cachedDB = fresh;

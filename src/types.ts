@@ -240,6 +240,7 @@ export type Member = {
   organisation?: string;
   status?: string;
   email?: string;
+  birth_date?: string; // YYYY-MM-DD or MM-DD
   notes?: string;
   created_date?: string;
   total_assignments?: number;
@@ -442,5 +443,77 @@ export type CalendarReportLog = {
   recipient: string;
   status: "SUCCESS" | "FAILED";
   timestamp: string;
+};
+
+export type BulletinActivity = {
+  day: string;
+  activity: string;
+  time: string;
+};
+
+export type Bulletin = {
+  bulletin_id: string;
+  planner_id: string;
+  week_id: string;
+  date: string; // YYYY-MM-DD
+  theme?: string;
+  special_music?: string;
+  
+  // Custom week activities
+  activities?: BulletinActivity[];
+  
+  // Custom list of birthdays
+  birthdays?: string[];
+  
+  // Missionary Corner
+  missionaries?: string[];
+  scripture_of_the_week?: string;
+  missionary_challenge?: string;
+  
+  // Temple & Family History
+  temple_trip_date?: string;
+  familysearch_tip?: string;
+  ancestor_challenge?: string;
+  
+  // Self-Reliance
+  self_reliance_classes?: string[];
+  
+  // Focus
+  ward_focus?: string;
+  
+  // Welfare
+  welfare_reminders?: string[];
+  
+  // Bishopric message
+  bishopric_message?: string;
+  
+  // Upcoming events
+  upcoming_events?: string[];
+  
+  // QR Code Config
+  qr_whatsapp?: string;
+  qr_familysearch?: string;
+  qr_gospel_library?: string;
+  qr_website?: string;
+  qr_planner_link?: string;
+  
+  // Visibility toggles
+  show_sacrament?: boolean;
+  show_activities?: boolean;
+  show_birthdays?: boolean;
+  show_missionary?: boolean;
+  show_temple?: boolean;
+  show_self_reliance?: boolean;
+  show_focus?: boolean;
+  show_welfare?: boolean;
+  show_bishopric?: boolean;
+  show_upcoming?: boolean;
+  show_qr?: boolean;
+  
+  color_theme?: string;
+  pdf_layout?: string;
+  
+  created_date: string;
+  updated_date: string;
 };
 

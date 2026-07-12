@@ -27,6 +27,7 @@ function emptyMember(): Member {
     organisation: "",
     status: "",
     email: "",
+    birth_date: "",
     notes: "",
     created_date: new Date().toISOString().split("T")[0],
   };
@@ -966,13 +967,14 @@ export function MembersPage({
               <th className="p-3 font-medium text-slate-600">Phone</th>
               <th className="p-3 font-medium text-slate-600">Organisation</th>
               <th className="p-3 font-medium text-slate-600">Status</th>
+              <th className="p-3 font-medium text-slate-600">Birthday</th>
               <th className="p-3 font-medium text-slate-600">Actions</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td className="p-3 text-slate-500" colSpan={7}>
+                <td className="p-3 text-slate-500" colSpan={8}>
                   No members found.
                 </td>
               </tr>
@@ -985,6 +987,7 @@ export function MembersPage({
                   <td className="p-3">{m.phone ?? ""}</td>
                   <td className="p-3">{m.organisation ?? ""}</td>
                   <td className="p-3">{m.status ?? ""}</td>
+                  <td className="p-3">{m.birth_date ?? ""}</td>
                   <td className="p-3">
                     <Button
                       variant="secondary"
@@ -1790,6 +1793,10 @@ export function MembersPage({
             <div className="space-y-1">
               <Label>Email (optional)</Label>
               <Input value={editing.email ?? ""} onChange={(e) => setEditing((m) => (m ? { ...m, email: e.target.value } : m))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Birthday (YYYY-MM-DD or MM-DD)</Label>
+              <Input value={editing.birth_date ?? ""} onChange={(e) => setEditing((m) => (m ? { ...m, birth_date: e.target.value } : m))} placeholder="e.g. 1990-07-14 or 07-14" />
             </div>
             <div className="space-y-1 md:col-span-2">
               <Label>Notes</Label>

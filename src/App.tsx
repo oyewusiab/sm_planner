@@ -15,6 +15,7 @@ import { MusicPage } from "./pages/MusicPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { AgendaPage } from "./pages/AgendaPage";
+import { BulletinPage } from "./pages/BulletinPage";
 import * as auth from "./auth/authService";
 import { clearSession, getSession, newSessionForUser, setSession } from "./auth/session";
 import { syncNow, syncFromBackend, getDB, onSyncStatusChange, updateDB, ids, onDBChange } from "./utils/storage";
@@ -44,6 +45,7 @@ const VALID_ROUTES: RouteKey[] = [
   "music",
   "notifications",
   "settings",
+  "bulletin",
 ];
 
 function getRouteFromHash(): RouteKey | null {
@@ -520,6 +522,13 @@ export function App() {
       return <PlannerArchivePage user={user} unit={effectiveUnit} onChanged={refresh} />;
     }
     if (route === "assignments") return <AssignmentsPage user={user} unit={effectiveUnit} onChanged={refresh} />;
+    if (route === "bulletin") {
+      if (user.role === "MUSIC") {
+        setRoute("dashboard");
+        return null;
+      }
+      return <BulletinPage user={user} unit={effectiveUnit} onChanged={refresh} />;
+    }
     if (route === "checklist") {
       if (user.role === "MUSIC") {
         setRoute("dashboard");
