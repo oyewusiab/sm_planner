@@ -600,16 +600,33 @@ async function pushAllToBackend() {
       }
     }
 
+    // Load remote metadata to get the latest remote versions and prevent regression
+    let remoteMeta: DBMetadata | null = null;
+    try {
+      const metaSnap = await getDoc(doc(db, "metadata", "global"));
+      if (metaSnap.exists()) {
+        remoteMeta = metaSnap.data() as DBMetadata;
+      }
+    } catch (e) {
+      console.warn("[Sync] Failed to fetch remote metadata before push:", e);
+    }
+
+    const mergedVersions = { ...(localMetadata.versions || {}) };
+    if (remoteMeta && remoteMeta.versions) {
+      for (const key of Object.keys(remoteMeta.versions)) {
+        mergedVersions[key] = Math.max(mergedVersions[key] || 0, remoteMeta.versions[key] || 0);
+      }
+    }
+
     // Update metadata versions
     if (changedTables.size > 0) {
       const nextSyncTime = new Date().toISOString();
-      const updatedVersions = { ...localMetadata.versions };
       changedTables.forEach(tableName => {
-        updatedVersions[tableName] = (updatedVersions[tableName] || 0) + 1;
+        mergedVersions[tableName] = (mergedVersions[tableName] || 0) + 1;
       });
 
       const nextMetadata: DBMetadata = {
-        versions: updatedVersions,
+        versions: mergedVersions,
         last_updated: nextSyncTime
       };
 
@@ -886,30 +903,12 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
       }
 
       let docs: any[] = [];
-      if (!force && localLastSyncTime && remoteVer > localVer) {
-        console.log(`[Sync] Fetching incremental updates for ${t.name} since ${localLastSyncTime}...`);
-        try {
-          const qUpdate = query(collection(db, colName), where("updated_date", ">", localLastSyncTime));
-          const snapUpdate = await getDocs(qUpdate);
-          const updatedDocs = snapUpdate.docs.map(d => d.data());
-
-          const idCol = t.idCol;
-          const localRows = (local[t.name] || []) as any[];
-          const localMap = new Map(localRows.map(r => [String(r[idCol] || ""), r]));
-          
-          for (const docData of updatedDocs) {
-            localMap.set(String(docData[idCol] || ""), docData);
-          }
-          
-          docs = Array.from(localMap.values());
-        } catch (e) {
-          console.warn(`[Sync] Incremental query failed for ${t.name}, falling back to full fetch:`, e);
-          const snap = await getDocs(collection(db, colName));
-          docs = snap.docs.map(docSnap => docSnap.data());
-        }
-      } else {
+      try {
         const snap = await getDocs(collection(db, colName));
         docs = snap.docs.map(docSnap => docSnap.data());
+      } catch (e) {
+        console.warn(`[Sync] Fetch failed for ${t.name}, falling back to local:`, e);
+        docs = (local[t.name] || []) as any;
       }
 
       (remoteSnap as any)[t.name] = docs;
