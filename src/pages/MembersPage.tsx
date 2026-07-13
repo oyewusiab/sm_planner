@@ -19,6 +19,98 @@ function upperText(value: unknown) {
   return asText(value).toUpperCase();
 }
 
+function parseBirthDateInput(input: string | undefined | null): { month: number; day: number; year?: number } | null {
+  if (!input) return null;
+  const clean = input.trim();
+  const monthNames = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  
+  const mmmMatch = clean.match(/^(\d{1,2})[-/\s]([A-Za-z]{3,})([-/\s](\d{4}))?$/);
+  if (mmmMatch) {
+    const day = parseInt(mmmMatch[1], 10);
+    const monthStr = mmmMatch[2].toLowerCase().substring(0, 3);
+    const monthIdx = monthNames.indexOf(monthStr);
+    if (monthIdx !== -1 && day >= 1 && day <= 31) {
+      const year = mmmMatch[4] ? parseInt(mmmMatch[4], 10) : undefined;
+      return { month: monthIdx + 1, day, year };
+    }
+  }
+
+  const yyyymmddMatch = clean.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (yyyymmddMatch) {
+    const year = parseInt(yyyymmddMatch[1], 10);
+    const month = parseInt(yyyymmddMatch[2], 10);
+    const day = parseInt(yyyymmddMatch[3], 10);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return { month, day, year };
+    }
+  }
+
+  const twoPartsMatch = clean.match(/^(\d{1,2})[-/](\d{1,2})$/);
+  if (twoPartsMatch) {
+    const p1 = parseInt(twoPartsMatch[1], 10);
+    const p2 = parseInt(twoPartsMatch[2], 10);
+    if (p1 >= 1 && p1 <= 31 && p2 >= 1 && p2 <= 31) {
+      if (p1 > 12) return { month: p2, day: p1 };
+      if (p2 > 12) return { month: p1, day: p2 };
+      return { month: p2, day: p1 };
+    }
+  }
+
+  const parsed = Date.parse(clean);
+  if (!isNaN(parsed)) {
+    const d = new Date(parsed);
+    const hasYear = /\d{4}/.test(clean);
+    return {
+      month: d.getMonth() + 1,
+      day: d.getDate(),
+      year: hasYear ? d.getFullYear() : undefined
+    };
+  }
+  return null;
+}
+
+function normalizeBirthDate(input: string | undefined | null): string {
+  if (!input) return "";
+  const parsed = parseBirthDateInput(input);
+  if (!parsed) return String(input).trim();
+  const mm = String(parsed.month).padStart(2, "0");
+  const dd = String(parsed.day).padStart(2, "0");
+  if (parsed.year) {
+    return `${parsed.year}-${mm}-${dd}`;
+  }
+  return `${mm}-${dd}`;
+}
+
+function formatBirthDate(dateStr: string | undefined | null): string {
+  if (!dateStr) return "";
+  const parsed = parseBirthDateInput(dateStr);
+  if (!parsed) return String(dateStr).trim();
+  
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const mmm = monthNames[parsed.month - 1];
+  const dd = String(parsed.day).padStart(2, "0");
+  
+  if (parsed.year) {
+    return `${dd}-${mmm}-${parsed.year}`;
+  }
+  return `${dd}-${mmm}`;
+}
+
+function getDynamicAge(birthDateStr: string | undefined | null, storedAge?: number): number | undefined {
+  if (!birthDateStr) return storedAge;
+  const parsed = parseBirthDateInput(birthDateStr);
+  if (!parsed || !parsed.year) return storedAge;
+  
+  const today = new Date();
+  let age = today.getFullYear() - parsed.year;
+  const mDiff = (today.getMonth() + 1) - parsed.month;
+  const dDiff = today.getDate() - parsed.day;
+  if (mDiff < 0 || (mDiff === 0 && dDiff < 0)) {
+    age--;
+  }
+  return age;
+}
+
 function emptyMember(): Member {
   return {
     member_id: ids.uid("mem"),
@@ -572,9 +664,12 @@ export function MembersPage({
         if (!isNewcomer) readiness += 10;
       }
 
+      const dynamicAge = getDynamicAge(m.birth_date, m.age);
+
       return {
         ...m,
         ...s,
+        age: dynamicAge,
         status,
         orgs,
         surname,
@@ -1156,7 +1251,7 @@ export function MembersPage({
                   <td className="p-3">{m.phone ?? ""}</td>
                   <td className="p-3">{m.organisation ?? ""}</td>
                   <td className="p-3">{m.status ?? ""}</td>
-                  <td className="p-3">{m.birth_date ?? ""}</td>
+                  <td className="p-3">{formatBirthDate(m.birth_date)}</td>
                   {canEditOrDelete && (
                     <td className="p-3 whitespace-nowrap no-print">
                       <div className="flex gap-2">
@@ -1917,16 +2012,8 @@ export function MembersPage({
                 if (!editing.name.trim()) return;
                 const cleanName = editing.name.trim();
                 
-                let calculatedAge = editing.age ? Number(editing.age) : undefined;
-                if (editing.birth_date) {
-                  const birthDateTrimmed = editing.birth_date.trim();
-                  const yearMatch = birthDateTrimmed.match(/^(\d{4})[-/]\d{2}[-/]\d{2}$/);
-                  if (yearMatch) {
-                    const birthYear = Number(yearMatch[1]);
-                    const currentYear = new Date().getFullYear();
-                    calculatedAge = currentYear - birthYear;
-                  }
-                }
+                const normalizedBirth = normalizeBirthDate(editing.birth_date);
+                const calculatedAge = getDynamicAge(normalizedBirth, editing.age);
 
                 save({
                   ...editing,
@@ -1937,7 +2024,7 @@ export function MembersPage({
                   status: editing.status?.trim() || undefined,
                   email: editing.email?.trim() || undefined,
                   notes: editing.notes?.trim() || undefined,
-                  birth_date: cleanDateToYYYYMMDD(editing.birth_date) || undefined,
+                  birth_date: normalizedBirth || undefined,
                   age: calculatedAge,
                 }, editing.member_id || editing.name);
                 setOpen(false);
@@ -1986,8 +2073,8 @@ export function MembersPage({
               <Input value={editing.email ?? ""} onChange={(e) => setEditing((m) => (m ? { ...m, email: e.target.value } : m))} />
             </div>
             <div className="space-y-1">
-              <Label>Date of Birth (YYYY-MM-DD or MM-DD)</Label>
-              <Input value={editing.birth_date ?? ""} onChange={(e) => setEditing((m) => (m ? { ...m, birth_date: e.target.value } : m))} placeholder="e.g. 1990-07-14 or 07-14" />
+              <Label>Date of Birth (DD-MMM-YYYY, YYYY-MM-DD, or DD-MMM)</Label>
+              <Input value={editing.birth_date ?? ""} onChange={(e) => setEditing((m) => (m ? { ...m, birth_date: e.target.value } : m))} placeholder="e.g. 14-Jul-1990 or 14-Jul" />
             </div>
             <div className="space-y-1 md:col-span-2">
               <Label>Notes</Label>
@@ -2051,7 +2138,7 @@ export function MembersPage({
                     <td className="p-2">{m.phone}</td>
                     <td className="p-2">{m.organisation}</td>
                     <td className="p-2">{m.status}</td>
-                    <td className="p-2">{m.birth_date}</td>
+                    <td className="p-2">{formatBirthDate(m.birth_date)}</td>
                   </tr>
                 ))}
               </tbody>

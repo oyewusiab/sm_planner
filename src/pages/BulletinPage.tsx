@@ -18,34 +18,70 @@ function getBirthdaysForWeek(members: Member[], sundayDateStr: string): string[]
     weekDates.push({ month: d.getMonth() + 1, day: d.getDate() });
   }
 
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const parseMonths = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
   const matches: string[] = [];
+
   for (const m of members) {
     if (!m.birth_date) continue;
     
-    // Normalize delimiters to dash
-    const cleanBirth = m.birth_date.replace(/\//g, "-").trim();
-    const parts = cleanBirth.split("-");
+    const clean = m.birth_date.trim();
     let mMonth = 0;
     let mDay = 0;
-    
-    if (parts.length === 3) {
-      // YYYY-MM-DD or DD-MM-YYYY
-      if (parts[0].length === 4) {
-        mMonth = parseInt(parts[1], 10);
-        mDay = parseInt(parts[2], 10);
-      } else if (parts[2].length === 4) {
-        mMonth = parseInt(parts[1], 10);
-        mDay = parseInt(parts[0], 10);
+
+    const mmmMatch = clean.match(/^(\d{1,2})[-/\s]([A-Za-z]{3,})([-/\s](\d{4}))?$/);
+    if (mmmMatch) {
+      const day = parseInt(mmmMatch[1], 10);
+      const monthStr = mmmMatch[2].toLowerCase().substring(0, 3);
+      const monthIdx = parseMonths.indexOf(monthStr);
+      if (monthIdx !== -1 && day >= 1 && day <= 31) {
+        mMonth = monthIdx + 1;
+        mDay = day;
       }
-    } else if (parts.length === 2) {
-      mMonth = parseInt(parts[0], 10);
-      mDay = parseInt(parts[1], 10);
     }
-    
+
+    if (!mMonth) {
+      const yyyymmddMatch = clean.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+      if (yyyymmddMatch) {
+        mMonth = parseInt(yyyymmddMatch[2], 10);
+        mDay = parseInt(yyyymmddMatch[3], 10);
+      }
+    }
+
+    if (!mMonth) {
+      const twoPartsMatch = clean.match(/^(\d{1,2})[-/](\d{1,2})$/);
+      if (twoPartsMatch) {
+        const p1 = parseInt(twoPartsMatch[1], 10);
+        const p2 = parseInt(twoPartsMatch[2], 10);
+        if (p1 >= 1 && p1 <= 31 && p2 >= 1 && p2 <= 31) {
+          if (p1 > 12) {
+            mMonth = p2;
+            mDay = p1;
+          } else if (p2 > 12) {
+            mMonth = p1;
+            mDay = p2;
+          } else {
+            mMonth = p2;
+            mDay = p1;
+          }
+        }
+      }
+    }
+
+    if (!mMonth) {
+      const parsed = Date.parse(clean);
+      if (!isNaN(parsed)) {
+        const d = new Date(parsed);
+        mMonth = d.getMonth() + 1;
+        mDay = d.getDate();
+      }
+    }
+
     if (mMonth && mDay && !isNaN(mMonth) && !isNaN(mDay)) {
       const isBirthdayThisWeek = weekDates.some(wd => wd.month === mMonth && wd.day === mDay);
       if (isBirthdayThisWeek) {
-        matches.push(m.name);
+        const mStr = monthNames[mMonth - 1];
+        matches.push(`${m.name} (${mDay} ${mStr})`);
       }
     }
   }
@@ -1290,7 +1326,7 @@ const allWeeks = useMemo(() => {
             )}
 
             {/* Come Follow Me */}
-            {formData.come_follow_me && (
+            {formData.show_focus !== false && formData.come_follow_me && (
               <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs space-y-2" style={{ backgroundColor: theme.cardBg }}>
                 <div className="flex items-center gap-2 border-b pb-1.5 font-bold text-sm" style={{ color: theme.primary, borderColor: theme.border }}>
                   <span>📖</span> Come, Follow Me Reading
@@ -1530,7 +1566,7 @@ const allWeeks = useMemo(() => {
                     )}
 
                     {/* Come Follow Me */}
-                    {formData.come_follow_me && (
+                    {formData.show_focus !== false && formData.come_follow_me && (
                       <div className="bg-white border p-4 rounded-2xl space-y-2" style={{ backgroundColor: theme.cardBg, borderColor: theme.border }}>
                         <div className="flex items-center gap-2 font-bold text-sm border-b pb-1.5" style={{ color: theme.primary, borderColor: theme.border }}>
                           <span>📖</span> Come, Follow Me Reading
@@ -1661,7 +1697,7 @@ const allWeeks = useMemo(() => {
                 {/* PAGE 1 */}
                 <div
                   className="bg-white text-black p-10 border shadow-lg font-serif relative"
-                  style={{ width: "11in", minWidth: "11in", height: "8.5in", maxHeight: "8.5in", overflow: "hidden", boxSizing: "border-box", backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }}
+                  style={{ width: "297mm", minWidth: "297mm", height: "210mm", maxHeight: "210mm", overflow: "hidden", boxSizing: "border-box", backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }}
                 >
                   {/* PDF Header */}
                   <div className="text-center border-b-2 pb-4 mb-6" style={{ borderColor: theme.primary }}>
@@ -1737,7 +1773,7 @@ const allWeeks = useMemo(() => {
                 {/* PAGE 2 */}
                 <div
                   className="bg-white text-black p-10 border shadow-lg font-serif relative"
-                  style={{ width: "11in", height: "8.5in", maxHeight: "8.5in", overflow: "hidden", boxSizing: "border-box", backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }}
+                  style={{ width: "297mm", minWidth: "297mm", height: "210mm", maxHeight: "210mm", overflow: "hidden", boxSizing: "border-box", backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }}
                 >
                   {/* Page 2 Header */}
                   <div className="text-center border-b pb-2 mb-4" style={{ borderColor: theme.primary }}>
@@ -1817,7 +1853,7 @@ const allWeeks = useMemo(() => {
               <div
                 id="bulletin-pdf-print-area"
                 className="bg-white text-black p-8 border border-slate-300 shadow-lg font-serif grid grid-cols-2 gap-12"
-                style={{ width: "11in", minWidth: "11in", height: "8.5in", maxHeight: "8.5in", overflow: "hidden", boxSizing: "border-box", fontSize: "11px", borderLeft: "1px dashed #cbd5e1" }}
+                style={{ width: "297mm", minWidth: "297mm", height: "210mm", maxHeight: "210mm", overflow: "hidden", boxSizing: "border-box", fontSize: "11px", borderLeft: "1px dashed #cbd5e1" }}
               >
                 {/* LEFT HALF (BACK PAGE / INSIDE LEFT) */}
                 <div className="space-y-5 flex flex-col justify-between border-r border-dashed border-slate-200 pr-6">
@@ -1919,7 +1955,7 @@ const allWeeks = useMemo(() => {
                       </div>
                     )}
 
-                    {formData.come_follow_me && (
+                    {formData.show_focus !== false && formData.come_follow_me && (
                       <div className="mt-3 pt-2 border-t border-dashed border-slate-200" style={{ borderColor: theme.border }}>
                         <div className="text-[10px] uppercase font-bold text-slate-500">📖 Come, Follow Me Reading</div>
                         <div className="font-semibold text-[11px] text-slate-800 mt-0.5" style={{ whiteSpace: "pre-line" }}>{formData.come_follow_me}</div>
@@ -1982,7 +2018,7 @@ const allWeeks = useMemo(() => {
               <div
                 id="bulletin-pdf-print-area"
                 className="bg-white text-black p-10 border shadow-lg font-serif"
-                style={{ width: "11in", minWidth: "11in", height: "8.5in", maxHeight: "8.5in", overflow: "hidden", boxSizing: "border-box", backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }}
+                style={{ width: "297mm", minWidth: "297mm", height: "210mm", maxHeight: "210mm", overflow: "hidden", boxSizing: "border-box", backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }}
               >
                 {/* PDF Header */}
                 <div className="text-center border-b-2 pb-4 mb-6" style={{ borderColor: theme.primary }}>
@@ -2023,7 +2059,7 @@ const allWeeks = useMemo(() => {
                     )}
 
                     {/* Come Follow Me Section */}
-                    {formData.come_follow_me && (
+                    {formData.show_focus !== false && formData.come_follow_me && (
                       <div className="space-y-1.5 pt-3 border-t" style={{ borderColor: theme.border }}>
                         <h3 className="font-bold text-xs uppercase tracking-wider font-sans" style={{ color: theme.primary }}>📖 Come, Follow Me Reading</h3>
                         <p className="font-semibold text-slate-800 text-xs font-sans" style={{ whiteSpace: "pre-line" }}>

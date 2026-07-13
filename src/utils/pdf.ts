@@ -9,17 +9,22 @@ export async function generatePDF(elementId: string, filename: string) {
   }
 
   try {
+    const isBulletin = elementId.includes("bulletin");
     const opt = {
-      margin: 0.25,
+      margin: isBulletin ? 0 : 0.25,
       filename: `${filename}.pdf`,
       image: { type: "jpeg", quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true },
-      jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
+      html2canvas: { scale: 2.5, useCORS: true, logging: false },
+      jsPDF: { 
+        unit: isBulletin ? "mm" : "in", 
+        format: isBulletin ? "a4" : "letter", 
+        orientation: isBulletin ? "landscape" : "portrait" 
+      },
     };
 
     if (elementId === "assignments-print-area") {
       opt.jsPDF.orientation = "portrait";
-    } else {
+    } else if (!isBulletin) {
       opt.jsPDF.orientation = "landscape";
     }
 
