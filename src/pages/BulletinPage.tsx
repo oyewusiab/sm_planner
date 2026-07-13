@@ -53,13 +53,13 @@ function getBirthdaysForWeek(members: Member[], sundayDateStr: string): string[]
 }
 
 const DEFAULT_ACTIVITIES: BulletinActivity[] = [
-  { day: "Monday", activity: "Family Home Evening", time: "7:00 PM", type: "Ward" },
-  { day: "Tuesday", activity: "Institute / Seminary", time: "6:00 PM", type: "Ward" },
-  { day: "Wednesday", activity: "Self-Reliance Class", time: "6:30 PM", type: "Ward" },
-  { day: "Thursday", activity: "Choir Practice", time: "7:00 PM", type: "Ward" },
-  { day: "Friday", activity: "Youth Activity", time: "6:00 PM", type: "Ward" },
-  { day: "Saturday", activity: "Building Cleaning / Baptisms", time: "8:00 AM", type: "Ward" },
-  { day: "Sunday", activity: "Sacrament Meeting", time: "9:00 AM", type: "Ward" },
+  { day: "Monday", activity: "Family Home Evening", time: "7:00 PM", type: "Ward", id: "def-mon" },
+  { day: "Tuesday", activity: "Institute / Seminary", time: "6:00 PM", type: "Ward", id: "def-tue" },
+  { day: "Wednesday", activity: "Self-Reliance Class", time: "6:30 PM", type: "Ward", id: "def-wed" },
+  { day: "Thursday", activity: "Choir Practice", time: "7:00 PM", type: "Ward", id: "def-thu" },
+  { day: "Friday", activity: "Youth Activity", time: "6:00 PM", type: "Ward", id: "def-fri" },
+  { day: "Saturday", activity: "Building Cleaning / Baptisms", time: "8:00 AM", type: "Ward", id: "def-sat" },
+  { day: "Sunday", activity: "Sacrament Meeting", time: "9:00 AM", type: "Ward", id: "def-sun" },
 ];
 
 export const THEMES: Record<string, {
@@ -285,11 +285,28 @@ const allWeeks = useMemo(() => {
     upcomingList.sort((a, b) => a.date.localeCompare(b.date));
     const upcoming = upcomingList.map(item => `${formatDateShort(item.date)} — ${item.label}`);
 
+    // Carry forward recurring activities from the most recent bulletin
+    const sortedBulletins = [...bulletins].sort((a, b) => (b.created_date || "").localeCompare(a.created_date || ""));
+    const lastBulletin = sortedBulletins[0];
+    const recurringActivities = lastBulletin ? (lastBulletin.activities || []).filter(a => a.is_recurring) : [];
+
+    const activitiesList: BulletinActivity[] = [];
+    const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    
+    daysOfWeek.forEach((dayName, idx) => {
+      const dayRecs = recurringActivities.filter(r => r.day === dayName);
+      if (dayRecs.length > 0) {
+        activitiesList.push(...dayRecs.map(r => ({ ...r, id: r.id || Math.random().toString(36).substring(2) })));
+      } else {
+        activitiesList.push({ ...DEFAULT_ACTIVITIES[idx] });
+      }
+    });
+
     setFormData({
       theme: "",
       special_music: "",
       come_follow_me: "",
-      activities: DEFAULT_ACTIVITIES,
+      activities: activitiesList,
       birthdays: defaultBirthdays,
       missionaries: [],
       scripture_of_the_week: "",
@@ -528,7 +545,7 @@ const allWeeks = useMemo(() => {
 
   const handleAddActivityRow = () => {
     const list = [...(formData.activities || [])];
-    list.push({ day: "Sunday", activity: "", time: "12:00 PM", type: "Ward" });
+    list.push({ day: "Sunday", activity: "", time: "12:00 PM", type: "Ward", id: Math.random().toString(36).substring(2) });
     handleFieldChange("activities", list);
   };
 
@@ -561,6 +578,11 @@ const allWeeks = useMemo(() => {
     const sunday = new Date(activeWeek.date);
     const importedList: BulletinActivity[] = [];
 
+    // Find last bulletin recurring activities to carry forward
+    const sortedBulletins = [...bulletins].sort((a, b) => (b.created_date || "").localeCompare(a.created_date || ""));
+    const lastBulletin = sortedBulletins[0];
+    const recurringActivities = lastBulletin ? (lastBulletin.activities || []).filter(a => a.is_recurring) : [];
+
     const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
     for (let idx = 0; idx < 7; idx++) {
@@ -569,26 +591,39 @@ const allWeeks = useMemo(() => {
       const isoDate = d.toISOString().split("T")[0];
       const dayName = daysOfWeek[idx];
 
-      // Find all events for this date
       const dayEvents = activities.filter(a => a.date === isoDate);
       const dayPrograms = otherPrograms.filter(p => p.date === isoDate);
+      
+      // Fetch recurring activities for this day
+      const dayRecs = recurringActivities.filter(r => r.day === dayName);
 
       if (dayEvents.length === 0 && dayPrograms.length === 0) {
-        const defaultAct = DEFAULT_ACTIVITIES[idx];
-        importedList.push({ 
-          day: dayName, 
-          activity: defaultAct.activity, 
-          time: defaultAct.time,
-          type: "Ward"
-        });
+        if (dayRecs.length > 0) {
+          importedList.push(...dayRecs.map(r => ({ ...r, id: r.id || Math.random().toString(36).substring(2) })));
+        } else {
+          const defaultAct = DEFAULT_ACTIVITIES[idx];
+          importedList.push({ 
+            day: dayName, 
+            activity: defaultAct.activity, 
+            time: defaultAct.time,
+            type: "Ward",
+            id: `def-${dayName.toLowerCase().substring(0, 3)}`
+          });
+        }
       } else {
+        // Carry forward recurring activities
+        if (dayRecs.length > 0) {
+          importedList.push(...dayRecs.map(r => ({ ...r, id: r.id || Math.random().toString(36).substring(2) })));
+        }
+
         dayEvents.forEach(evt => {
           const isStake = evt.organisation?.toLowerCase().includes("stake");
           importedList.push({
             day: dayName,
             activity: `${evt.organisation}: ${evt.activity}`,
             time: evt.time || "12:00 PM",
-            type: isStake ? "Stake" : "Ward"
+            type: isStake ? "Stake" : "Ward",
+            id: Math.random().toString(36).substring(2)
           });
         });
 
@@ -599,7 +634,8 @@ const allWeeks = useMemo(() => {
               day: dayName,
               activity: `${prog.organisation}: ${prog.program}`,
               time: "12:00 PM",
-              type: isStake ? "Stake" : "Ward"
+              type: isStake ? "Stake" : "Ward",
+              id: Math.random().toString(36).substring(2)
             });
           }
         });
@@ -607,7 +643,7 @@ const allWeeks = useMemo(() => {
     }
 
     handleFieldChange("activities", importedList);
-    alert("Activities auto-filled from calendar! Duplicate days are supported for multiple events.");
+    alert("Activities auto-filled from calendar! Recurring activities have been preserved.");
   };
 
   // Pulling Suggested Upcoming Events
@@ -919,7 +955,7 @@ const allWeeks = useMemo(() => {
                         </thead>
                         <tbody>
                           {(formData.activities || []).map((act, index) => (
-                            <tr key={index} className="border-t border-slate-200">
+                            <tr key={act.id || index} className="border-t border-slate-200">
                               <td className="p-2">
                                 <Input value={act.day} onChange={e => handleActivityCellChange(index, "day", e.target.value)} className="h-8 w-full shadow-none bg-transparent" />
                               </td>
