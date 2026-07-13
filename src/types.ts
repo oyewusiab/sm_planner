@@ -459,6 +459,7 @@ export type Bulletin = {
   date: string; // YYYY-MM-DD
   theme?: string;
   special_music?: string;
+  come_follow_me?: string;
   
   // Custom week activities
   activities?: BulletinActivity[];

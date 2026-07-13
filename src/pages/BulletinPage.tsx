@@ -53,13 +53,13 @@ function getBirthdaysForWeek(members: Member[], sundayDateStr: string): string[]
 }
 
 const DEFAULT_ACTIVITIES: BulletinActivity[] = [
-  { day: "Sunday", activity: "Sacrament Meeting", time: "9:00 AM" },
-  { day: "Monday", activity: "Family Home Evening", time: "7:00 PM" },
-  { day: "Tuesday", activity: "Institute / Seminary", time: "6:00 PM" },
-  { day: "Wednesday", activity: "Self-Reliance Class", time: "6:30 PM" },
-  { day: "Thursday", activity: "Choir Practice", time: "7:00 PM" },
-  { day: "Friday", activity: "Youth Activity", time: "6:00 PM" },
-  { day: "Saturday", activity: "Building Cleaning / Baptisms", time: "8:00 AM" },
+  { day: "Monday", activity: "Family Home Evening", time: "7:00 PM", type: "Ward" },
+  { day: "Tuesday", activity: "Institute / Seminary", time: "6:00 PM", type: "Ward" },
+  { day: "Wednesday", activity: "Self-Reliance Class", time: "6:30 PM", type: "Ward" },
+  { day: "Thursday", activity: "Choir Practice", time: "7:00 PM", type: "Ward" },
+  { day: "Friday", activity: "Youth Activity", time: "6:00 PM", type: "Ward" },
+  { day: "Saturday", activity: "Building Cleaning / Baptisms", time: "8:00 AM", type: "Ward" },
+  { day: "Sunday", activity: "Sacrament Meeting", time: "9:00 AM", type: "Ward" },
 ];
 
 export const THEMES: Record<string, {
@@ -414,11 +414,11 @@ export function BulletinPage({
     const sunday = new Date(activeWeek.date);
     const importedList: BulletinActivity[] = [];
 
-    const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
     for (let idx = 0; idx < 7; idx++) {
       const d = new Date(sunday);
-      d.setDate(sunday.getDate() + idx);
+      d.setDate(sunday.getDate() + 1 + idx);
       const isoDate = d.toISOString().split("T")[0];
       const dayName = daysOfWeek[idx];
 
@@ -668,6 +668,10 @@ export function BulletinPage({
                       <div>
                         <Label>Special Musical Number Detail (Optional)</Label>
                         <Input value={formData.special_music || ""} onChange={e => handleFieldChange("special_music", e.target.value)} placeholder="e.g. Solo by Sister Smith" />
+                      </div>
+                      <div className="md:col-span-2">
+                        <Label>Come, Follow Me Study (Weekly Reading)</Label>
+                        <Input value={formData.come_follow_me || ""} onChange={e => handleFieldChange("come_follow_me", e.target.value)} placeholder="e.g. Matthew 1-2, Luke 1" />
                       </div>
                     </div>
                   )}
@@ -998,6 +1002,18 @@ export function BulletinPage({
               </div>
             )}
 
+            {/* Come Follow Me */}
+            {formData.come_follow_me && (
+              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs space-y-2" style={{ backgroundColor: theme.cardBg }}>
+                <div className="flex items-center gap-2 border-b pb-1.5 font-bold text-sm" style={{ color: theme.primary, borderColor: theme.border }}>
+                  <span>📖</span> Come, Follow Me Reading
+                </div>
+                <div className="text-xs font-semibold text-slate-800">
+                  {formData.come_follow_me}
+                </div>
+              </div>
+            )}
+
             {/* Activities */}
             {formData.show_activities !== false && (formData.activities || []).length > 0 && (
               <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs space-y-3" style={{ backgroundColor: theme.cardBg }}>
@@ -1227,6 +1243,16 @@ export function BulletinPage({
                       </div>
                     )}
 
+                    {/* Come Follow Me */}
+                    {formData.come_follow_me && (
+                      <div className="bg-white border p-4 rounded-2xl space-y-2" style={{ backgroundColor: theme.cardBg, borderColor: theme.border }}>
+                        <div className="flex items-center gap-2 font-bold text-sm border-b pb-1.5" style={{ color: theme.primary, borderColor: theme.border }}>
+                          <span>📖</span> Come, Follow Me Reading
+                        </div>
+                        <div className="text-xs font-semibold text-slate-800">{formData.come_follow_me}</div>
+                      </div>
+                    )}
+
                     {/* Birthdays */}
                     {formData.show_birthdays !== false && (formData.birthdays || []).length > 0 && (
                       <div className="border p-4 rounded-2xl space-y-2" style={{ backgroundColor: theme.accentLight, borderColor: theme.border }}>
@@ -1447,6 +1473,13 @@ export function BulletinPage({
                       </div>
                     )}
 
+                    {formData.come_follow_me && (
+                      <div className="mt-3 pt-2 border-t border-dashed border-slate-200" style={{ borderColor: theme.border }}>
+                        <div className="text-[10px] uppercase font-bold text-slate-500">📖 Come, Follow Me Reading</div>
+                        <div className="font-semibold text-[11px] text-slate-800 mt-0.5">{formData.come_follow_me}</div>
+                      </div>
+                    )}
+
                     {/* Weekly Activities */}
                     {formData.show_activities !== false && (formData.activities || []).length > 0 && (
                       <div className="space-y-1.5">
@@ -1542,6 +1575,16 @@ export function BulletinPage({
                             <tr><td className="py-1 text-slate-500">Closing Prayer</td><td className="py-1 text-right font-medium">{closingPrayer}</td></tr>
                           </tbody>
                         </table>
+                      </div>
+                    )}
+
+                    {/* Come Follow Me Section */}
+                    {formData.come_follow_me && (
+                      <div className="space-y-1.5 pt-3 border-t" style={{ borderColor: theme.border }}>
+                        <h3 className="font-bold text-xs uppercase tracking-wider font-sans" style={{ color: theme.primary }}>📖 Come, Follow Me Reading</h3>
+                        <p className="font-semibold text-slate-800 text-xs font-sans">
+                          {formData.come_follow_me}
+                        </p>
                       </div>
                     )}
 
