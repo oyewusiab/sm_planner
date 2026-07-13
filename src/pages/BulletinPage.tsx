@@ -9,18 +9,21 @@ import html2canvas from "html2canvas-pro";
 // Helper to determine if a member's birthday falls in the week (Sunday to Saturday)
 function getBirthdaysForWeek(members: Member[], sundayDateStr: string): string[] {
   if (!sundayDateStr) return [];
-  const sunday = new Date(sundayDateStr);
-  const weekDates: { month: number; day: number }[] = [];
+  const parts = sundayDateStr.split("-");
+  const y = parseInt(parts[0], 10);
+  const mVal = parseInt(parts[1], 10) - 1;
+  const dVal = parseInt(parts[2], 10);
+  const sunday = new Date(Date.UTC(y, mVal, dVal));
   
+  const weekDates: { month: number; day: number }[] = [];
   for (let i = 0; i < 7; i++) {
     const d = new Date(sunday);
-    d.setDate(sunday.getDate() - 6 + i);
-    weekDates.push({ month: d.getMonth() + 1, day: d.getDate() });
+    d.setUTCDate(sunday.getUTCDate() - 6 + i);
+    weekDates.push({ month: d.getUTCMonth() + 1, day: d.getUTCDate() });
   }
 
-  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const parseMonths = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
-  const matches: string[] = [];
+  const matches: { name: string; mDay: number; prefix: string }[] = [];
 
   for (const m of members) {
     if (!m.birth_date) continue;
@@ -82,11 +85,15 @@ function getBirthdaysForWeek(members: Member[], sundayDateStr: string): string[]
       if (isBirthdayThisWeek) {
         const gender = (m.gender || "").trim().toUpperCase();
         const prefix = gender === "M" ? "Brother " : gender === "F" ? "Sister " : "";
-        matches.push(`${prefix}${m.name} (${mDay})`);
+        matches.push({ name: m.name, mDay, prefix });
       }
     }
   }
-  return matches;
+
+  // Sort by day number ascending (e.g. 13, 14, 15)
+  matches.sort((a, b) => a.mDay - b.mDay);
+
+  return matches.map(item => `${item.prefix}${item.name} (${item.mDay})`);
 }
 
 function formatMemberNameWithPrefix(nameStr: string, membersList: Member[]): string {
@@ -332,12 +339,18 @@ const allWeeks = useMemo(() => {
     if (!activeWeek) return;
     const defaultBirthdays = getBirthdaysForWeek(members, activeWeek.date);
     const sundayISO = activeWeek.date;
-    const monday = new Date(sundayISO);
-    monday.setDate(monday.getDate() - 6);
+    const parts = sundayISO.split("-");
+    const y = parseInt(parts[0], 10);
+    const mVal = parseInt(parts[1], 10) - 1;
+    const dVal = parseInt(parts[2], 10);
+    const sunday = new Date(Date.UTC(y, mVal, dVal));
+
+    const monday = new Date(sunday);
+    monday.setUTCDate(sunday.getUTCDate() - 6);
     const startISO = monday.toISOString().split("T")[0];
     
-    const thirtyDaysLater = new Date(sundayISO);
-    thirtyDaysLater.setDate(thirtyDaysLater.getDate() + 30);
+    const thirtyDaysLater = new Date(sunday);
+    thirtyDaysLater.setUTCDate(sunday.getUTCDate() + 30);
     const endISO = thirtyDaysLater.toISOString().split("T")[0];
 
     const upcomingList: { label: string; date: string }[] = [];
@@ -469,20 +482,28 @@ const allWeeks = useMemo(() => {
     } else {
       const defaultBirthdays = getBirthdaysForWeek(members, activeWeek.date);
       const sundayISO = activeWeek.date;
+      const parts = sundayISO.split("-");
+      const y = parseInt(parts[0], 10);
+      const mVal = parseInt(parts[1], 10) - 1;
+      const dVal = parseInt(parts[2], 10);
+      const sunday = new Date(Date.UTC(y, mVal, dVal));
+
+      const monday = new Date(sunday);
+      monday.setUTCDate(sunday.getUTCDate() - 6);
+      const startISO = monday.toISOString().split("T")[0];
       
-      // Calculate the next 30 days
-      const thirtyDaysLater = new Date(sundayISO);
-      thirtyDaysLater.setDate(thirtyDaysLater.getDate() + 30);
+      const thirtyDaysLater = new Date(sunday);
+      thirtyDaysLater.setUTCDate(sunday.getUTCDate() + 30);
       const endISO = thirtyDaysLater.toISOString().split("T")[0];
 
       const upcomingList: { label: string; date: string }[] = [];
       activities.forEach(a => {
-        if (a.activity && a.activity.trim() && a.date >= sundayISO && a.date <= endISO) {
+        if (a.activity && a.activity.trim() && a.date >= startISO && a.date <= endISO) {
           upcomingList.push({ label: `${a.activity} (${a.organisation})`, date: a.date });
         }
       });
       otherPrograms.forEach(p => {
-        if (p.program && p.program.trim() && p.date >= sundayISO && p.date <= endISO) {
+        if (p.program && p.program.trim() && p.date >= startISO && p.date <= endISO) {
           upcomingList.push({ label: `${p.program} (${p.organisation})`, date: p.date });
         }
       });
@@ -540,6 +561,47 @@ const allWeeks = useMemo(() => {
       return prev;
     });
   }, [members, activeWeek]);
+
+  // Keep upcoming events list in sync with calendar changes dynamically
+  useEffect(() => {
+    if (!activeWeek) return;
+    const sundayISO = activeWeek.date;
+    const parts = sundayISO.split("-");
+    const y = parseInt(parts[0], 10);
+    const mVal = parseInt(parts[1], 10) - 1;
+    const dVal = parseInt(parts[2], 10);
+    const sunday = new Date(Date.UTC(y, mVal, dVal));
+
+    const monday = new Date(sunday);
+    monday.setUTCDate(sunday.getUTCDate() - 6);
+    const startISO = monday.toISOString().split("T")[0];
+    
+    const thirtyDaysLater = new Date(sunday);
+    thirtyDaysLater.setUTCDate(sunday.getUTCDate() + 30);
+    const endISO = thirtyDaysLater.toISOString().split("T")[0];
+
+    const upcomingList: { label: string; date: string }[] = [];
+    activities.forEach(a => {
+      if (a.activity && a.activity.trim() && a.date >= startISO && a.date <= endISO) {
+        upcomingList.push({ label: `${a.activity} (${a.organisation})`, date: a.date });
+      }
+    });
+    otherPrograms.forEach(p => {
+      if (p.program && p.program.trim() && p.date >= startISO && p.date <= endISO) {
+        upcomingList.push({ label: `${p.program} (${p.organisation})`, date: p.date });
+      }
+    });
+    upcomingList.sort((a, b) => a.date.localeCompare(b.date));
+    const liveUpcoming = upcomingList.map(item => `${formatDateShort(item.date)} — ${item.label}`);
+
+    setFormData(prev => {
+      const current = prev.upcoming_events || [];
+      if (JSON.stringify(current) !== JSON.stringify(liveUpcoming)) {
+        return { ...prev, upcoming_events: liveUpcoming };
+      }
+      return prev;
+    });
+  }, [activities, otherPrograms, activeWeek]);
 
   // Save/Update helper
   const handleSave = () => {
@@ -662,7 +724,11 @@ const allWeeks = useMemo(() => {
   // Calendar Auto-fill Helper
   const handleImportWeeklyActivities = () => {
     if (!activeWeek) return;
-    const sunday = new Date(activeWeek.date);
+    const parts = activeWeek.date.split("-");
+    const y = parseInt(parts[0], 10);
+    const mVal = parseInt(parts[1], 10) - 1;
+    const dVal = parseInt(parts[2], 10);
+    const sunday = new Date(Date.UTC(y, mVal, dVal));
     const importedList: BulletinActivity[] = [];
 
     // Find last bulletin recurring activities to carry forward
@@ -674,7 +740,7 @@ const allWeeks = useMemo(() => {
 
     for (let idx = 0; idx < 7; idx++) {
       const d = new Date(sunday);
-      d.setDate(sunday.getDate() - 6 + idx);
+      d.setUTCDate(sunday.getUTCDate() - 6 + idx);
       const isoDate = d.toISOString().split("T")[0];
       const dayName = daysOfWeek[idx];
 
@@ -736,11 +802,17 @@ const allWeeks = useMemo(() => {
   // Pulling Suggested Upcoming Events
   const suggestedEvents = useMemo(() => {
     if (!activeWeek) return [];
-    const sunday = new Date(activeWeek.date);
+    const parts = activeWeek.date.split("-");
+    const y = parseInt(parts[0], 10);
+    const mVal = parseInt(parts[1], 10) - 1;
+    const dVal = parseInt(parts[2], 10);
+    const sunday = new Date(Date.UTC(y, mVal, dVal));
+    
     const monday = new Date(sunday);
-    monday.setDate(monday.getDate() - 6);
+    monday.setUTCDate(sunday.getUTCDate() - 6);
+    
     const thirtyDaysLater = new Date(sunday);
-    thirtyDaysLater.setDate(sunday.getDate() + 30);
+    thirtyDaysLater.setUTCDate(sunday.getUTCDate() + 30);
 
     const startISO = monday.toISOString().split("T")[0];
     const endISO = thirtyDaysLater.toISOString().split("T")[0];
