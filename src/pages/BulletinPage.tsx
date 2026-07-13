@@ -428,7 +428,11 @@ const allWeeks = useMemo(() => {
     if (!selectedWeekId || !activeWeek) return;
 
     if (currentBulletin) {
-      setFormData(currentBulletin);
+      const liveBirthdays = getBirthdaysForWeek(members, activeWeek.date);
+      setFormData({
+        ...currentBulletin,
+        birthdays: liveBirthdays
+      });
     } else {
       const defaultBirthdays = getBirthdaysForWeek(members, activeWeek.date);
       const sundayISO = activeWeek.date;
@@ -491,6 +495,19 @@ const allWeeks = useMemo(() => {
     }
   }, [currentBulletin, selectedWeekId, activeWeek, members]);
 
+  // Keep birthdays list in sync with directory changes dynamically
+  useEffect(() => {
+    if (!activeWeek) return;
+    const liveBirthdays = getBirthdaysForWeek(members, activeWeek.date);
+    setFormData(prev => {
+      const current = prev.birthdays || [];
+      if (JSON.stringify(current) !== JSON.stringify(liveBirthdays)) {
+        return { ...prev, birthdays: liveBirthdays };
+      }
+      return prev;
+    });
+  }, [members, activeWeek]);
+
   // Save/Update helper
   const handleSave = () => {
     if (!selectedPlannerId || !selectedWeekId || !activeWeek) return;
@@ -506,6 +523,7 @@ const allWeeks = useMemo(() => {
       date: activeWeek.date,
       theme: formData.theme || "",
       special_music: formData.special_music || "",
+      come_follow_me: formData.come_follow_me || "",
       activities: formData.activities || [],
       birthdays: formData.birthdays || [],
       missionaries: formData.missionaries || [],
@@ -1177,45 +1195,28 @@ const allWeeks = useMemo(() => {
           {/* Quick-import Sidebar */}
           <div className="space-y-6">
             
-            {/* Quick-import Birthdays */}
+            {/* Automatically Generated Birthdays Card */}
             <Card>
               <CardHeader className="border-b pb-2">
-                <CardTitle className="text-sm">🎂 Birthdays in Ward</CardTitle>
+                <CardTitle className="text-sm">🎂 Birthdays This Week</CardTitle>
               </CardHeader>
               <CardBody className="space-y-3">
-                <div className="text-xs text-slate-500">Search member directory to quickly toggle their birthday on the bulletin list:</div>
-                <Input value={birthdaySearch} onChange={e => setBirthdaySearch(e.target.value)} placeholder="Type name..." className="h-8" />
-                {filteredBirthdayMembers.length > 0 && (
-                  <div className="border border-slate-200 rounded divide-y divide-slate-100 bg-slate-50 max-h-40 overflow-y-auto text-xs">
-                    {filteredBirthdayMembers.map(m => {
-                      const isAdded = (formData.birthdays || []).includes(m.name);
-                      return (
-                        <div key={m.member_id} className="p-2 flex justify-between items-center">
-                          <div>
-                            <span className="font-semibold">{m.name}</span>
-                            {m.birth_date && <span className="text-[10px] text-slate-400 block">Bday: {m.birth_date}</span>}
-                          </div>
-                          <Button variant="ghost" className="h-6 py-0 px-2 text-xs" onClick={() => handleToggleBirthdayName(m.name)}>
-                            {isAdded ? "Remove" : "Add"}
-                          </Button>
-                        </div>
-                      );
-                    })}
+                <div className="text-xs text-slate-500 font-sans">
+                  Birthdays are automatically generated from the Member Directory for the week's Monday-to-Sunday range:
+                </div>
+                {(formData.birthdays || []).length === 0 ? (
+                  <div className="text-center text-slate-400 text-xs italic py-4">No member birthdays this week.</div>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {(formData.birthdays || []).map((name, idx) => (
+                      <span key={idx} className="bg-pink-50 border border-pink-200 text-pink-900 text-xs px-2.5 py-0.5 rounded-full font-medium inline-block">
+                        {name}
+                      </span>
+                    ))}
                   </div>
                 )}
-                <Divider />
-                <div className="text-xs font-semibold text-slate-600">Selected Birthdays:</div>
-                <div className="flex flex-wrap gap-1.5 max-h-44 overflow-y-auto pt-1">
-                  {(formData.birthdays || []).length === 0 ? (
-                    <span className="text-slate-400 text-xs">No birthdays selected.</span>
-                  ) : (
-                    (formData.birthdays || []).map((name, idx) => (
-                      <span key={idx} className="bg-pink-50 border text-pink-900 text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1 font-medium">
-                        {name}
-                        <button type="button" onClick={() => handleToggleBirthdayName(name)} className="hover:text-red-500">×</button>
-                      </span>
-                    ))
-                  )}
+                <div className="text-[10px] text-slate-400 font-sans italic border-t pt-2">
+                  Tip: To show or hide this list on the printed bulletin, use the checkmark toggle in the editor sections.
                 </div>
               </CardBody>
             </Card>
