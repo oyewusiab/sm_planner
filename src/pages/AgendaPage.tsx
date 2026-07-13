@@ -129,6 +129,12 @@ function padArray<T>(arr: T[], targetSize: number, emptyObj: T): T[] {
   return result.slice(0, targetSize);
 }
 
+function toMmmYyyy(month: number, year: number) {
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const mIdx = Math.max(1, Math.min(12, Number(month || 1))) - 1;
+  return `${months[mIdx]}-${year}`;
+}
+
 export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSettings; onChanged: () => void }) {
   const { data: planners = [] } = useTable("PLANNERS");
   const { data: agendas = [] } = useTable("AGENDAS");
@@ -160,7 +166,7 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
 
   const activePlanners = useMemo(() => {
     const safePlanners = Array.isArray(planners) ? planners : [];
-    return safePlanners.filter(p => p.state === "SUBMITTED" || p.state === "ARCHIVED")
+    return safePlanners.filter(p => p.state === "SUBMITTED")
       .sort((a, b) => b.created_date.localeCompare(a.created_date));
   }, [planners]);
 
@@ -1500,7 +1506,7 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
                 <Select value={selectedPlannerId} onChange={e => handleSelectPlannerChange(e.target.value)} className="w-full">
                   {activePlanners.length === 0 && <option value="">No Active Planners</option>}
                   {activePlanners.map(p => (
-                    <option key={p.planner_id} value={p.planner_id}>{p.month}/{p.year} — {p.unit_name}</option>
+                    <option key={p.planner_id} value={p.planner_id}>{toMmmYyyy(p.month, p.year)}</option>
                   ))}
                 </Select>
               </div>
