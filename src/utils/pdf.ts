@@ -1,3 +1,5 @@
+import html2pdf from "html2pdf.js";
+
 export async function generatePDF(elementId: string, filename: string) {
   const element = document.getElementById(elementId);
   if (!element) {
@@ -7,19 +9,6 @@ export async function generatePDF(elementId: string, filename: string) {
   }
 
   try {
-    // Dynamically load html2pdf.js if it's not already available
-    if (!(window as any).html2pdf) {
-      await new Promise<void>((resolve, reject) => {
-        const script = document.createElement("script");
-        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
-        script.crossOrigin = "anonymous";
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error("Failed to load html2pdf.js"));
-        document.head.appendChild(script);
-      });
-    }
-
-    // Temporarily adjust styles for better PDF output if needed
     const opt = {
       margin: 0.25,
       filename: `${filename}.pdf`,
@@ -28,19 +17,16 @@ export async function generatePDF(elementId: string, filename: string) {
       jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
     };
 
-    // If it's the assignments page, we want a portrait orientation
     if (elementId === "assignments-print-area") {
       opt.jsPDF.orientation = "portrait";
     } else {
-      // Planner pages usually print better in landscape
       opt.jsPDF.orientation = "landscape";
     }
 
-    // Show a loading indicator natively or rely on the UI
     const originalCursor = document.body.style.cursor;
     document.body.style.cursor = "wait";
 
-    await (window as any).html2pdf().set(opt).from(element).save();
+    await html2pdf().set(opt).from(element).save();
 
     document.body.style.cursor = originalCursor;
   } catch (error) {

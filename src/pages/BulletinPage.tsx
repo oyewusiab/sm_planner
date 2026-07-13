@@ -170,10 +170,50 @@ export function BulletinPage({
   const { data: activities = [] } = useTable("ACTIVITIES") as { data: CalendarActivity[] };
   const { data: otherPrograms = [] } = useTable("OTHER CHURCH PROGRAM") as { data: OtherChurchProgram[] };
 
-  // Filter submitted planners
-  const activePlanners = useMemo(() => {
-    return planners.filter(p => p.state === "SUBMITTED");
-  }, [planners]);
+function getWeekRangeLabel(sundayStr: string) {
+  if (!sundayStr) return "";
+  const sunday = new Date(sundayStr);
+  const monday = new Date(sunday);
+  monday.setDate(sunday.getDate() - 6);
+
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  
+  const monDay = monday.getDate();
+  const monMon = months[monday.getMonth()];
+  const monYr = monday.getFullYear();
+
+  const sunDay = sunday.getDate();
+  const sunMon = months[sunday.getMonth()];
+  const sunYr = sunday.getFullYear();
+
+  if (monMon === sunMon && monYr === sunYr) {
+    return `${monDay}-${sunDay} ${sunMon} ${sunYr}`;
+  } else if (monYr === sunYr) {
+    return `${monDay} ${monMon} - ${sunDay} ${sunMon} ${sunYr}`;
+  } else {
+    return `${monDay} ${monMon} ${monYr} - ${sunDay} ${sunMon} ${sunYr}`;
+  }
+}
+
+// Filter submitted planners
+const activePlanners = useMemo(() => {
+  return planners.filter(p => p.state === "SUBMITTED");
+}, [planners]);
+
+const allWeeks = useMemo(() => {
+  const list: { week_id: string; date: string; planner_id: string; weekObj: any }[] = [];
+  activePlanners.forEach(p => {
+    (p.weeks || []).forEach(w => {
+      list.push({
+        week_id: w.week_id,
+        date: w.date,
+        planner_id: p.planner_id,
+        weekObj: w
+      });
+    });
+  });
+  return list.sort((a, b) => b.date.localeCompare(a.date));
+}, [activePlanners]);
 
   const [selectedPlannerId, setSelectedPlannerId] = useState<string>(() => {
     return localStorage.getItem("shared_selected_planner_id") || "";
@@ -199,32 +239,30 @@ export function BulletinPage({
 
   // Load first planner/week by default matching local storage
   useEffect(() => {
-    const savedPlannerId = localStorage.getItem("shared_selected_planner_id");
-    if (savedPlannerId && activePlanners.some(p => p.planner_id === savedPlannerId)) {
-      setSelectedPlannerId(savedPlannerId);
-    } else if (activePlanners.length > 0) {
-      setSelectedPlannerId(activePlanners[0].planner_id);
-    }
-  }, [activePlanners]);
-
-  const activePlanner = useMemo(() => {
-    return activePlanners.find(p => p.planner_id === selectedPlannerId);
-  }, [activePlanners, selectedPlannerId]);
-
-  useEffect(() => {
     const savedWeekId = localStorage.getItem("shared_selected_week_id");
-    if (activePlanner) {
-      if (savedWeekId && activePlanner.weeks.some(w => w.week_id === savedWeekId)) {
-        setSelectedWeekId(savedWeekId);
-      } else if (activePlanner.weeks.length > 0) {
-        setSelectedWeekId(activePlanner.weeks[0].week_id);
-      }
+    if (savedWeekId && allWeeks.some(w => w.week_id === savedWeekId)) {
+      setSelectedWeekId(savedWeekId);
+      const wMeta = allWeeks.find(x => x.week_id === savedWeekId);
+      if (wMeta) setSelectedPlannerId(wMeta.planner_id);
+    } else if (allWeeks.length > 0) {
+      setSelectedWeekId(allWeeks[0].week_id);
+      setSelectedPlannerId(allWeeks[0].planner_id);
     }
-  }, [activePlanner]);
+  }, [allWeeks]);
+
+  const activeWeekMeta = useMemo(() => {
+    return allWeeks.find(w => w.week_id === selectedWeekId) || null;
+  }, [allWeeks, selectedWeekId]);
 
   const activeWeek = useMemo(() => {
-    return activePlanner?.weeks.find(w => w.week_id === selectedWeekId);
-  }, [activePlanner, selectedWeekId]);
+    return activeWeekMeta?.weekObj || null;
+  }, [activeWeekMeta]);
+
+  const activePlanner = useMemo(() => {
+    if (!activeWeekMeta) return null;
+    return activePlanners.find(p => p.planner_id === activeWeekMeta.planner_id) || null;
+  }, [activePlanners, activeWeekMeta]);
+
 
   const currentBulletin = useMemo(() => {
     if (!selectedWeekId) return null;
@@ -571,27 +609,24 @@ export function BulletinPage({
         <CardBody className="flex flex-col md:flex-row gap-4 justify-between items-center">
           <div className="flex flex-wrap gap-4 items-center">
             <div>
-              <Label className="text-slate-600 font-semibold mb-1 block">1. Select Planner</Label>
-              <Select value={selectedPlannerId} onChange={e => { setSelectedPlannerId(e.target.value); setSelectedWeekId(""); }} className="w-52">
-                {activePlanners.map(p => (
-                  <option key={p.planner_id} value={p.planner_id}>
-                    {toMmmYyyy(p.month, p.year)}
+              <Label className="text-slate-600 font-semibold mb-1 block">Select Week / Bulletin</Label>
+              <Select value={selectedWeekId} onChange={e => {
+                const wId = e.target.value;
+                setSelectedWeekId(wId);
+                localStorage.setItem("shared_selected_week_id", wId);
+                const found = allWeeks.find(x => x.week_id === wId);
+                if (found) {
+                  setSelectedPlannerId(found.planner_id);
+                  localStorage.setItem("shared_selected_planner_id", found.planner_id);
+                }
+              }} className="w-64">
+                {allWeeks.map(w => (
+                  <option key={w.week_id} value={w.week_id}>
+                    {getWeekRangeLabel(w.date)} Bulletin
                   </option>
                 ))}
               </Select>
             </div>
-            {activePlanner && (
-              <div>
-                <Label className="text-slate-600 font-semibold mb-1 block">2. Select Week</Label>
-                <Select value={selectedWeekId} onChange={e => setSelectedWeekId(e.target.value)} className="w-52">
-                  {activePlanner.weeks.map(w => (
-                    <option key={w.week_id} value={w.week_id}>
-                      {formatDateShort(w.date)} {w.fast_testimony ? "(Fast)" : ""}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            )}
             <div>
               <Label className="text-slate-600 font-semibold mb-1 block">3. Color Theme</Label>
               <Select value={formData.color_theme || "navy"} onChange={e => handleFieldChange("color_theme", e.target.value)} className="w-52">
@@ -975,8 +1010,6 @@ export function BulletinPage({
                   </div>
                 )}
                 <div className="text-xs space-y-2">
-                  <div className="flex justify-between"><span className="text-slate-500">Presiding:</span><span className="font-semibold" style={{ color: theme.text }}>{presiding}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Conducting:</span><span className="font-semibold" style={{ color: theme.text }}>{conducting}</span></div>
                   <div className="flex justify-between"><span className="text-slate-500">Opening Hymn:</span><span className="font-semibold" style={{ color: theme.text }}>{openingHymn}</span></div>
                   <div className="flex justify-between"><span className="text-slate-500">Sacrament Hymn:</span><span className="font-semibold" style={{ color: theme.text }}>{sacramentHymn}</span></div>
                   {formData.special_music && (
@@ -1218,8 +1251,6 @@ export function BulletinPage({
                           <div className="italic text-xs font-semibold" style={{ color: theme.textMuted }}>"{formData.theme}"</div>
                         )}
                         <div className="text-xs space-y-1.5">
-                          <div className="flex justify-between"><span className="text-slate-500">Presiding:</span><span className="font-semibold" style={{ color: theme.text }}>{presiding}</span></div>
-                          <div className="flex justify-between"><span className="text-slate-500">Conducting:</span><span className="font-semibold" style={{ color: theme.text }}>{conducting}</span></div>
                           <div className="flex justify-between"><span className="text-slate-500">Opening Hymn:</span><span className="font-semibold" style={{ color: theme.text }}>{openingHymn}</span></div>
                           <div className="flex justify-between"><span className="text-slate-500">Sacrament Hymn:</span><span className="font-semibold" style={{ color: theme.text }}>{sacramentHymn}</span></div>
                           {formData.special_music && (
@@ -1442,7 +1473,7 @@ export function BulletinPage({
                       <h2 className="text-2xl font-bold uppercase tracking-wider text-slate-900 leading-none">{unit.unit_name || "Obantoko Ward"}</h2>
                       <p className="text-[10px] font-semibold uppercase tracking-widest mt-1.5" style={{ color: theme.textAccent }}>Weekly bulletin program</p>
                       <div className="text-xs font-semibold text-slate-600 mt-2 font-sans">
-                        Sunday, {formatDateShort(activeWeek.date)}
+                        {getWeekRangeLabel(activeWeek.date)} Bulletin
                       </div>
                     </div>
 
@@ -1452,7 +1483,6 @@ export function BulletinPage({
                         <h4 className="font-bold border-b pb-0.5 text-center" style={{ color: theme.primary, borderColor: theme.border }}>SACRAMENT MEETING PROGRAM</h4>
                         {formData.theme && <div className="italic text-center text-slate-600">Theme: "{formData.theme}"</div>}
                         <div className="space-y-1 font-sans text-xs">
-                          <div className="flex justify-between"><span className="text-slate-500">Conducting Officer:</span><span className="font-semibold">{conducting}</span></div>
                           <div className="flex justify-between"><span className="text-slate-500">Opening Hymn:</span><span className="font-semibold">{openingHymn}</span></div>
                           <div className="flex justify-between"><span className="text-slate-500">Sacrament Hymn:</span><span className="font-semibold">{sacramentHymn}</span></div>
                           {formData.special_music && (
@@ -1543,7 +1573,7 @@ export function BulletinPage({
                   <h1 className="text-3xl font-bold tracking-wide uppercase" style={{ color: theme.primary }}>{unit.unit_name || "Obantoko Ward"}</h1>
                   <p className="text-sm font-semibold tracking-widest uppercase mt-1" style={{ color: theme.textAccent }}>Weekly Ward Bulletin</p>
                   <div className="mt-2 text-xs font-medium text-slate-500">
-                    Sunday, {formatDateShort(activeWeek.date)} — Prepared for Ward Members
+                    {getWeekRangeLabel(activeWeek.date)} Bulletin — Prepared for Ward Members
                   </div>
                 </div>
 
@@ -1557,8 +1587,6 @@ export function BulletinPage({
                         {formData.theme && <div className="italic text-slate-650">Theme: "{formData.theme}"</div>}
                         <table className="w-full">
                           <tbody className="divide-y divide-slate-100" style={{ borderColor: theme.border }}>
-                            <tr><td className="py-1 text-slate-500">Presiding</td><td className="py-1 text-right font-medium">{presiding}</td></tr>
-                            <tr><td className="py-1 text-slate-500">Conducting</td><td className="py-1 text-right font-medium">{conducting}</td></tr>
                             <tr><td className="py-1 text-slate-500">Opening Hymn</td><td className="py-1 text-right font-medium">{openingHymn}</td></tr>
                             <tr><td className="py-1 text-slate-500">Sacrament Hymn</td><td className="py-1 text-right font-medium">{sacramentHymn}</td></tr>
                             {formData.special_music && (
