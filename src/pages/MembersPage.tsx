@@ -5,7 +5,7 @@ import { extractTextFromPDF } from "../utils/pdfParser";
 import { Button, Card, CardBody, CardHeader, CardTitle, EmptyState, Input, Label, SectionTitle, Select, Textarea } from "../components/ui";
 import { Modal } from "../components/Modal";
 import { can } from "../utils/permissions";
-import { getDB, ids, updateDB } from "../utils/storage";
+import { getDB, ids, updateDB, cleanDateToYYYYMMDD } from "../utils/storage";
 import { downloadTextFile, toCSV } from "../utils/csv";
 import { normalizeMemberName, getSurname } from "../utils/format";
 import { cn } from "../utils/cn";
@@ -1937,6 +1937,7 @@ export function MembersPage({
                   status: editing.status?.trim() || undefined,
                   email: editing.email?.trim() || undefined,
                   notes: editing.notes?.trim() || undefined,
+                  birth_date: cleanDateToYYYYMMDD(editing.birth_date) || undefined,
                   age: calculatedAge,
                 }, editing.member_id || editing.name);
                 setOpen(false);

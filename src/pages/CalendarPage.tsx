@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import type { CalendarActivity, UnitSettings, User } from "../types";
 import { Button, Card, CardBody, CardHeader, CardTitle, Divider, Input, Label, Select } from "../components/ui";
-import { ids, updateDB, useTable } from "../utils/storage";
+import { ids, updateDB, useTable, cleanDateToYYYYMMDD } from "../utils/storage";
 import { formatDateShort, formatTime12h } from "../utils/date";
 import { generatePDF } from "../utils/pdf";
 import { extractTextFromPDF } from "../utils/pdfParser";
@@ -147,7 +147,7 @@ export function CalendarPage({
 
     const nextActivity: CalendarActivity = {
       activity_id: targetId,
-      date: editing.date,
+      date: cleanDateToYYYYMMDD(editing.date),
       activity: editing.activity.trim(),
       organisation: editing.organisation,
       status: editing.status ?? false,
