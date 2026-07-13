@@ -833,10 +833,7 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
   const force = options?.force === true;
   const replaceLocal = options?.replaceLocal === true;
 
-  if (!force && Date.now() - lastPullTime < 5 * 60 * 1000) {
-    console.log("[Sync] Throttling background pull (last pull was less than 5m ago).");
-    return true;
-  }
+
 
   if (remotePullInFlight) return false;
   remotePullInFlight = true;
