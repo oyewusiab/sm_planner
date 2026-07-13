@@ -16,7 +16,7 @@ import {
   Textarea,
 } from "../components/ui";
 import { can } from "../utils/permissions";
-import { getDB, ids, time, updateDB } from "../utils/storage";
+import { getDB, ids, time, updateDB, triggerDatabaseReset } from "../utils/storage";
 import { sha256 } from "../utils/crypto";
 import { notifyRoles, notifyUser } from "../utils/notifications";
 import * as auth from "../auth/authService";
@@ -505,14 +505,18 @@ export function SettingsPage({
         MEMBERS: [...memberMap.values()],
       }));
 
-      onChanged();
-
-      alert(`Database successfully cleaned and repaired!\n\n` +
-            `- Empty activities removed: ${emptyActivitiesRemoved}\n` +
-            `- Duplicate activities merged: ${duplicateActivitiesMerged}\n` +
-            `- Invalid members removed: ${invalidMembersRemoved}\n` +
-            `- Duplicate members merged: ${duplicateMembersMerged}\n\n` +
-            `Changes are being synced to Firebase backend.`);
+      // Trigger a hard database reset to force propagate to all other users immediately
+      triggerDatabaseReset().then(() => {
+        onChanged();
+        alert(`Database successfully cleaned and repaired!\n\n` +
+              `- Empty activities removed: ${emptyActivitiesRemoved}\n` +
+              `- Duplicate activities merged: ${duplicateActivitiesMerged}\n` +
+              `- Invalid members removed: ${invalidMembersRemoved}\n` +
+              `- Duplicate members merged: ${duplicateMembersMerged}\n\n` +
+              `All other users will automatically be hard-refreshed to this clean database.`);
+      }).catch((err) => {
+        alert(`Database was repaired locally, but remote sync failed: ${err.message || String(err)}`);
+      });
     } catch (err: any) {
       alert(`Repair failed: ${err.message || String(err)}`);
     }

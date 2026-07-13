@@ -489,6 +489,7 @@ function scheduleRemoteSync() {
 type DBMetadata = {
   versions: Record<string, number>;
   last_updated: string;
+  db_reset_version?: number;
 };
 
 const METADATA_KEY = "sac_meeting_planner_db_metadata_v2";
@@ -765,7 +766,6 @@ export function initializeFirebaseSync() {
   console.log("[Sync] Subscribing to global metadata changes...");
 
   metadataListenerUnsubscribe = onSnapshot(doc(db, "metadata", "global"), (docSnap) => {
-    if (remoteSyncInFlight || hasPendingPush) return;
     if (docSnap.exists()) {
       const remoteMeta = docSnap.data() as DBMetadata;
       const localMetadataRaw = localStorage.getItem(METADATA_KEY);
@@ -773,8 +773,20 @@ export function initializeFirebaseSync() {
         ? JSON.parse(localMetadataRaw) 
         : { versions: {}, last_updated: "" };
 
+      // Force a hard pull if a database reset version is incremented
+      const remoteReset = remoteMeta.db_reset_version || 0;
+      const localReset = localMeta.db_reset_version || 0;
+      if (remoteReset > localReset) {
+        console.log("[Sync] Hard reset version increment detected. Wiping local cache and pulling remote...");
+        hasPendingPush = false; // Discard pending changes
+        void syncFromBackend({ force: true, replaceLocal: true });
+        return;
+      }
+
+      if (remoteSyncInFlight || hasPendingPush) return;
+
       if (remoteMeta.last_updated && remoteMeta.last_updated > (localMeta.last_updated || "")) {
-        console.log("[Sync] Metadata change detected. Triggering incremental pull...");
+        console.log("[Sync] Metadata change detected. Triggering pull...");
         void syncFromBackend({ force: false });
       }
     }
@@ -1133,4 +1145,67 @@ export function useUpsertMutation<K extends keyof DB>(tableName: K) {
   };
 
   return { mutate, loading, error };
+}
+
+export async function triggerDatabaseReset() {
+  if (!backendEnabled()) return;
+  
+  try {
+    console.log("[Reset] Fetching remote metadata before hard reset...");
+    let remoteMeta: DBMetadata = { versions: {}, last_updated: "", db_reset_version: 0 };
+    const metaSnap = await getDoc(doc(db, "metadata", "global"));
+    if (metaSnap.exists()) {
+      remoteMeta = metaSnap.data() as DBMetadata;
+    }
+
+    const nextReset = (remoteMeta.db_reset_version || 0) + 1;
+    const nextSyncTime = new Date().toISOString();
+
+    const nextMetadata: DBMetadata = {
+      versions: remoteMeta.versions || {},
+      last_updated: nextSyncTime,
+      db_reset_version: nextReset
+    };
+
+    console.log("[Reset] Aligning remote collections with clean local DB...");
+    const dbData = serializeDBForRemote(getDB());
+    for (const t of SYNC_TABLES) {
+      if (t.name === "HYMNS") continue;
+      const colName = COLLECTION_MAPPING[t.name];
+      
+      const rows = (dbData[t.name] || []) as any[];
+      const localIds = new Set(rows.map(r => String(r[t.idCol] || "")));
+      
+      // Fetch all remote documents to find and remove deleted ones
+      const snap = await getDocs(collection(db, colName));
+      for (const remoteDoc of snap.docs) {
+        if (!localIds.has(remoteDoc.id)) {
+          console.log(`[Reset] Deleting orphaned remote doc: ${colName}/${remoteDoc.id}`);
+          await deleteDoc(doc(db, colName, remoteDoc.id));
+        }
+      }
+      
+      // Upload current clean local rows
+      for (const r of rows) {
+        const id = String(r[t.idCol] || "");
+        if (!id) continue;
+        await setDoc(doc(db, colName, id), r);
+      }
+    }
+
+    if (dbData.UNIT_SETTINGS) {
+      await setDoc(doc(db, "unit_settings", "global"), dbData.UNIT_SETTINGS);
+    }
+
+    // Write metadata to trigger other clients
+    await setDoc(doc(db, "metadata", "global"), nextMetadata);
+    localStorage.setItem(METADATA_KEY, JSON.stringify(nextMetadata));
+    localStorage.setItem(LAST_SYNC_TIME_KEY, nextSyncTime);
+    setLastSyncedDB(dbData);
+    
+    console.log(`[Reset] Database reset version ${nextReset} pushed successfully.`);
+  } catch (err) {
+    console.error("[Reset] Database reset failed:", err);
+    throw err;
+  }
 }
