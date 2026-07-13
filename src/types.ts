@@ -449,6 +449,7 @@ export type BulletinActivity = {
   day: string;
   activity: string;
   time: string;
+  type?: "Ward" | "Stake";
 };
 
 export type Bulletin = {

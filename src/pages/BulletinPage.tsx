@@ -148,6 +148,12 @@ export const THEMES: Record<string, {
   }
 };
 
+function toMmmYyyy(month: number, year: number) {
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const mIdx = Math.max(1, Math.min(12, Number(month || 1))) - 1;
+  return `${months[mIdx]}-${year}`;
+}
+
 export function BulletinPage({
   user,
   unit,
@@ -164,9 +170,9 @@ export function BulletinPage({
   const { data: activities = [] } = useTable("ACTIVITIES") as { data: CalendarActivity[] };
   const { data: otherPrograms = [] } = useTable("OTHER CHURCH PROGRAM") as { data: OtherChurchProgram[] };
 
-  // Filter submitted/archived planners
+  // Filter submitted planners
   const activePlanners = useMemo(() => {
-    return planners.filter(p => p.state === "SUBMITTED" || p.state === "ARCHIVED");
+    return planners.filter(p => p.state === "SUBMITTED");
   }, [planners]);
 
   const [selectedPlannerId, setSelectedPlannerId] = useState<string>(() => {
@@ -236,11 +242,26 @@ export function BulletinPage({
     } else {
       const defaultBirthdays = getBirthdaysForWeek(members, activeWeek.date);
       const sundayISO = activeWeek.date;
-      const upcoming = activities
-        .filter(a => a.date >= sundayISO)
-        .sort((a, b) => a.date.localeCompare(b.date))
-        .slice(0, 5)
-        .map(a => `${a.activity} (${a.organisation}) — ${formatDateShort(a.date)}`);
+      
+      // Calculate the next 30 days
+      const thirtyDaysLater = new Date(sundayISO);
+      thirtyDaysLater.setDate(thirtyDaysLater.getDate() + 30);
+      const endISO = thirtyDaysLater.toISOString().split("T")[0];
+
+      const upcomingList: { label: string; date: string }[] = [];
+      activities.forEach(a => {
+        if (a.activity && a.activity.trim() && a.date >= sundayISO && a.date <= endISO) {
+          upcomingList.push({ label: `${a.activity} (${a.organisation})`, date: a.date });
+        }
+      });
+      otherPrograms.forEach(p => {
+        if (p.date >= sundayISO && p.date <= endISO) {
+          upcomingList.push({ label: `${p.program} (${p.organisation})`, date: p.date });
+        }
+      });
+      upcomingList.sort((a, b) => a.date.localeCompare(b.date));
+
+      const upcoming = upcomingList.map(item => `${formatDateShort(item.date)} — ${item.label}`);
 
       setFormData({
         theme: "",
@@ -368,8 +389,20 @@ export function BulletinPage({
     handleFieldChange(key, list);
   };
 
+  const handleAddActivityRow = () => {
+    const list = [...(formData.activities || [])];
+    list.push({ day: "Sunday", activity: "", time: "12:00 PM", type: "Ward" });
+    handleFieldChange("activities", list);
+  };
+
+  const handleRemoveActivityRow = (index: number) => {
+    const list = [...(formData.activities || [])];
+    list.splice(index, 1);
+    handleFieldChange("activities", list);
+  };
+
   // Activity cell update
-  const handleActivityCellChange = (index: number, col: keyof BulletinActivity, value: string) => {
+  const handleActivityCellChange = (index: number, col: keyof BulletinActivity, value: any) => {
     const list = [...(formData.activities || [])];
     list[index] = { ...list[index], [col]: value };
     handleFieldChange("activities", list);
@@ -379,30 +412,53 @@ export function BulletinPage({
   const handleImportWeeklyActivities = () => {
     if (!activeWeek) return;
     const sunday = new Date(activeWeek.date);
-    const updated = (formData.activities || DEFAULT_ACTIVITIES).map((act, idx) => {
+    const importedList: BulletinActivity[] = [];
+
+    const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+    for (let idx = 0; idx < 7; idx++) {
       const d = new Date(sunday);
       d.setDate(sunday.getDate() + idx);
       const isoDate = d.toISOString().split("T")[0];
+      const dayName = daysOfWeek[idx];
 
-      // Find first calendar event or other church program on this date
-      const event = activities.find(a => a.date === isoDate);
-      const program = otherPrograms.find(p => p.date === isoDate);
+      // Find all events for this date
+      const dayEvents = activities.filter(a => a.date === isoDate);
+      const dayPrograms = otherPrograms.filter(p => p.date === isoDate);
 
-      let text = act.activity;
-      let timeText = act.time;
+      if (dayEvents.length === 0 && dayPrograms.length === 0) {
+        const defaultAct = DEFAULT_ACTIVITIES[idx];
+        importedList.push({ 
+          day: dayName, 
+          activity: defaultAct.activity, 
+          time: defaultAct.time,
+          type: "Ward"
+        });
+      } else {
+        dayEvents.forEach(evt => {
+          const isStake = evt.organisation?.toLowerCase().includes("stake");
+          importedList.push({
+            day: dayName,
+            activity: `${evt.organisation}: ${evt.activity}`,
+            time: evt.time || "12:00 PM",
+            type: isStake ? "Stake" : "Ward"
+          });
+        });
 
-      if (event) {
-        text = `${event.organisation}: ${event.activity}`;
-        timeText = event.time || timeText;
-      } else if (program) {
-        text = `${program.organisation}: ${program.program}`;
+        dayPrograms.forEach(prog => {
+          const isStake = prog.organisation?.toLowerCase().includes("stake");
+          importedList.push({
+            day: dayName,
+            activity: `${prog.organisation}: ${prog.program}`,
+            time: "12:00 PM",
+            type: isStake ? "Stake" : "Ward"
+          });
+        });
       }
+    }
 
-      return { day: act.day, activity: text, time: timeText };
-    });
-
-    handleFieldChange("activities", updated);
-    alert("Activities auto-filled from ward calendar!");
+    handleFieldChange("activities", importedList);
+    alert("Activities auto-filled from calendar! Duplicate days are supported for multiple events.");
   };
 
   // Pulling Suggested Upcoming Events
@@ -517,7 +573,7 @@ export function BulletinPage({
               <Select value={selectedPlannerId} onChange={e => { setSelectedPlannerId(e.target.value); setSelectedWeekId(""); }} className="w-52">
                 {activePlanners.map(p => (
                   <option key={p.planner_id} value={p.planner_id}>
-                    {yyyyMmToLabel(p.year, p.month)}
+                    {toMmmYyyy(p.month, p.year)}
                   </option>
                 ))}
               </Select>
@@ -619,39 +675,59 @@ export function BulletinPage({
                 <div className="pt-6 space-y-4">
                   <div className="flex justify-between items-center">
                     <h3 className="font-semibold text-slate-900 text-base">2. Weekly Activities</h3>
-                    <div className="flex items-center gap-3">
-                      <Button variant="secondary" onClick={handleImportWeeklyActivities} className="h-8 text-xs py-0">
-                        ⚡ Auto-fill from Calendar
-                      </Button>
-                      <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
-                        <input type="checkbox" checked={formData.show_activities !== false} onChange={e => handleFieldChange("show_activities", e.target.checked)} className="rounded" />
-                        Show Section
-                      </label>
-                    </div>
+                    <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                      <input type="checkbox" checked={formData.show_activities !== false} onChange={e => handleFieldChange("show_activities", e.target.checked)} className="rounded" />
+                      Show Section
+                    </label>
                   </div>
                   {formData.show_activities !== false && (
-                    <table className="w-full text-left text-sm border rounded-lg overflow-hidden">
-                      <thead className="bg-slate-100 text-slate-700">
-                        <tr>
-                          <th className="p-2 w-32 font-semibold">Day</th>
-                          <th className="p-2 font-semibold">Activity Details</th>
-                          <th className="p-2 w-40 font-semibold">Time / Info</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(formData.activities || []).map((act, index) => (
-                          <tr key={act.day} className="border-t border-slate-200">
-                            <td className="p-2 font-medium text-slate-700">{act.day}</td>
-                            <td className="p-2">
-                              <Input value={act.activity} onChange={e => handleActivityCellChange(index, "activity", e.target.value)} className="h-8" />
-                            </td>
-                            <td className="p-2">
-                              <Input value={act.time} onChange={e => handleActivityCellChange(index, "time", e.target.value)} className="h-8" />
-                            </td>
+                    <div className="space-y-4">
+                      <table className="w-full text-left text-sm border rounded-lg overflow-hidden">
+                        <thead className="bg-slate-100 text-slate-700">
+                          <tr>
+                            <th className="p-2 w-32 font-semibold">Day/Date</th>
+                            <th className="p-2 font-semibold">Activity Details</th>
+                            <th className="p-2 w-36 font-semibold">Time / Info</th>
+                            <th className="p-2 w-28 font-semibold">Scope</th>
+                            <th className="p-2 w-16 font-semibold text-center">Actions</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {(formData.activities || []).map((act, index) => (
+                            <tr key={index} className="border-t border-slate-200">
+                              <td className="p-2">
+                                <Input value={act.day} onChange={e => handleActivityCellChange(index, "day", e.target.value)} className="h-8 w-full shadow-none bg-transparent" />
+                              </td>
+                              <td className="p-2">
+                                <Input value={act.activity} onChange={e => handleActivityCellChange(index, "activity", e.target.value)} className="h-8 w-full shadow-none bg-transparent" />
+                              </td>
+                              <td className="p-2">
+                                <Input value={act.time} onChange={e => handleActivityCellChange(index, "time", e.target.value)} className="h-8 w-full shadow-none bg-transparent" />
+                              </td>
+                              <td className="p-2">
+                                <Select value={act.type || "Ward"} onChange={e => handleActivityCellChange(index, "type", e.target.value as any)} className="h-8 w-full p-0 px-2 text-xs">
+                                  <option value="Ward">Ward</option>
+                                  <option value="Stake">Stake</option>
+                                </Select>
+                              </td>
+                              <td className="p-2 text-center">
+                                <button type="button" onClick={() => handleRemoveActivityRow(index)} className="text-red-500 hover:text-red-700 font-semibold text-xs">
+                                  Remove
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <div className="flex justify-between items-center">
+                        <Button variant="secondary" onClick={handleAddActivityRow} className="h-8 text-xs font-semibold" icon="➕">
+                          Add Custom Activity
+                        </Button>
+                        <Button variant="outline" onClick={handleImportWeeklyActivities} className="h-8 text-xs font-semibold" icon="🔄">
+                          Auto-fill Week from Calendar
+                        </Button>
+                      </div>
+                    </div>
                   )}
                 </div>
 
@@ -927,10 +1003,17 @@ export function BulletinPage({
                   <span>📅</span> Weekly Activities
                 </div>
                 <div className="space-y-2.5">
-                  {(formData.activities || []).map((act) => (
-                    <div key={act.day} className="flex justify-between items-start text-xs border-b border-slate-100/50 pb-2 last:border-0 last:pb-0">
+                  {(formData.activities || []).map((act, idx) => (
+                    <div key={idx} className="flex justify-between items-start text-xs border-b border-slate-100/50 pb-2 last:border-0 last:pb-0">
                       <div className="font-bold w-20 shrink-0" style={{ color: theme.textAccent }}>{act.day}</div>
-                      <div className="flex-1 font-semibold text-slate-800">{act.activity || "None"}</div>
+                      <div className="flex-1 font-semibold text-slate-800">
+                        {act.activity || "None"}
+                        {act.type && (
+                          <span className="ml-1.5 text-[8px] px-1 py-0.5 rounded font-extrabold uppercase bg-slate-100 text-slate-500 border border-slate-200 inline-block">
+                            {act.type}
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[11px] text-slate-500 italic ml-2 shrink-0">{formatTime12h(act.time)}</div>
                     </div>
                   ))}
@@ -1170,10 +1253,17 @@ export function BulletinPage({
                           <span>📅</span> Weekly Activities
                         </div>
                         <div className="space-y-2">
-                          {(formData.activities || []).filter(act => act.activity).map((act) => (
-                            <div key={act.day} className="flex justify-between items-start text-xs border-b border-slate-100/60 pb-1.5 last:border-0 last:pb-0">
+                          {(formData.activities || []).filter(act => act.activity).map((act, idx) => (
+                            <div key={idx} className="flex justify-between items-start text-xs border-b border-slate-100/60 pb-1.5 last:border-0 last:pb-0">
                               <div className="font-bold w-20 shrink-0" style={{ color: theme.textAccent }}>{act.day}</div>
-                              <div className="flex-1 text-slate-800 font-semibold">{act.activity || "None"}</div>
+                              <div className="flex-1 text-slate-800 font-semibold">
+                                {act.activity || "None"}
+                                {act.type && (
+                                  <span className="ml-1.5 text-[8px] px-1 py-0.5 rounded font-extrabold uppercase bg-slate-100 text-slate-500 border border-slate-200 inline-block">
+                                    {act.type}
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-[10px] text-slate-500 italic ml-2 shrink-0">{formatTime12h(act.time)}</div>
                             </div>
                           ))}
@@ -1361,10 +1451,17 @@ export function BulletinPage({
                         <h4 className="font-bold border-b pb-0.5" style={{ color: theme.primary, borderColor: theme.border }}>Weekly Activities</h4>
                         <table className="w-full text-left font-sans text-xs">
                           <tbody>
-                            {(formData.activities || []).filter(act => act.activity).map((act) => (
-                              <tr key={act.day} className="border-b border-slate-100 last:border-0">
+                            {(formData.activities || []).filter(act => act.activity).map((act, idx) => (
+                              <tr key={idx} className="border-b border-slate-100 last:border-0">
                                 <td className="py-0.5 w-16 font-bold" style={{ color: theme.textAccent }}>{act.day}</td>
-                                <td className="py-0.5 font-medium text-slate-800">{act.activity}</td>
+                                <td className="py-0.5 font-medium text-slate-800">
+                                  {act.activity}
+                                  {act.type && (
+                                    <span className="ml-1 text-[7px] px-0.5 py-px rounded font-extrabold uppercase bg-slate-100 text-slate-600 border border-slate-200 inline-block">
+                                      {act.type}
+                                    </span>
+                                  )}
+                                </td>
                                 <td className="py-0.5 text-right text-slate-400 italic text-[10px]">{formatTime12h(act.time)}</td>
                               </tr>
                             ))}
@@ -1475,10 +1572,17 @@ export function BulletinPage({
                         <h3 className="font-bold text-sm border-b pb-1" style={{ color: theme.primary, borderColor: theme.border }}>WEEKLY ACTIVITIES</h3>
                         <table className="w-full">
                           <tbody>
-                            {(formData.activities || []).filter(act => act.activity).map((act) => (
-                              <tr key={act.day} className="border-b" style={{ borderColor: theme.border }}>
+                            {(formData.activities || []).filter(act => act.activity).map((act, idx) => (
+                              <tr key={idx} className="border-b" style={{ borderColor: theme.border }}>
                                 <td className="py-1 w-24 font-bold" style={{ color: theme.textAccent }}>{act.day}</td>
-                                <td className="py-1 font-medium">{act.activity || "None scheduled"}</td>
+                                <td className="py-1 font-medium">
+                                  {act.activity || "None scheduled"}
+                                  {act.type && (
+                                    <span className="ml-1.5 text-[8px] px-1 py-0.5 rounded font-extrabold uppercase bg-slate-100 text-slate-500 border border-slate-200 inline-block">
+                                      {act.type}
+                                    </span>
+                                  )}
+                                </td>
                                 <td className="py-1 w-28 text-right text-slate-500 text-xs italic">{formatTime12h(act.time)}</td>
                               </tr>
                             ))}
