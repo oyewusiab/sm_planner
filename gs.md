@@ -763,7 +763,7 @@ function handleSyncV2_(payload) {
 
 function normalizeHeader_(h) {
   const s = String(h || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-  if (s === "activityprogram") return "activity";
+  if (s === "activityprogram" || s === "activities") return "activity";
   if (s === "organization" || s === "org") return "organisation";
   return s;
 }

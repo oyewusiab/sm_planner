@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Role, SettingsChangeRequest, UnitSettings, UnitType, User } from "../types";
+import type { Role, SettingsChangeRequest, UnitSettings, UnitType, User, Member, CalendarActivity } from "../types";
 import {
   Badge,
   Button,
@@ -20,6 +20,7 @@ import { getDB, ids, time, updateDB } from "../utils/storage";
 import { sha256 } from "../utils/crypto";
 import { notifyRoles, notifyUser } from "../utils/notifications";
 import * as auth from "../auth/authService";
+import { formatTime12h } from "../utils/date";
 
 const bishopricCallings = ["1st Counsellor", "2nd Counsellor"] as const;
 const clerkCallings = ["Clerk (Co-admin)", "Assistant Clerk"] as const;
@@ -396,6 +397,126 @@ export function SettingsPage({
       setFlash({ tone: "error", msg: err?.message || "Invalid snapshot JSON." });
     }
   }
+
+  const repairDatabase = () => {
+    if (!isBishop) return;
+    if (!window.confirm("Are you sure you want to repair and deduplicate the database? This will remove empty calendar activities, merge duplicate members by name, and merge duplicate calendar activities. Local changes will be pushed to Firebase.")) return;
+
+    try {
+      const db0 = getDB() as any;
+      
+      // 1. Repair ACTIVITIES
+      const activitiesList = (db0.ACTIVITIES || []) as CalendarActivity[];
+      const activityMap = new Map<string, CalendarActivity>();
+      
+      let emptyActivitiesRemoved = 0;
+      let duplicateActivitiesMerged = 0;
+
+      activitiesList.forEach(act => {
+        if (!act.activity || !act.activity.trim()) {
+          emptyActivitiesRemoved++;
+          return;
+        }
+
+        let timeVal = act.time || "12:00 PM";
+        if (timeVal.startsWith("1899-12-30")) {
+          timeVal = formatTime12h(timeVal);
+        }
+
+        const normalizedAct: CalendarActivity = {
+          ...act,
+          activity: act.activity.trim(),
+          time: timeVal,
+          organisation: act.organisation || "WARD",
+        };
+
+        const key = `${normalizedAct.date.trim()}_${normalizedAct.activity.toLowerCase()}_${normalizedAct.organisation.toLowerCase()}_${normalizedAct.time.toLowerCase()}`;
+        
+        if (activityMap.has(key)) {
+          duplicateActivitiesMerged++;
+          const existing = activityMap.get(key)!;
+          activityMap.set(key, {
+            ...existing,
+            status: existing.status || normalizedAct.status,
+            email_sent: existing.email_sent || normalizedAct.email_sent,
+            those_involved: existing.those_involved || normalizedAct.those_involved,
+            report_submitted: existing.report_submitted !== "N/A" ? existing.report_submitted : normalizedAct.report_submitted,
+            last_reminder: existing.last_reminder || normalizedAct.last_reminder,
+          });
+        } else {
+          activityMap.set(key, normalizedAct);
+        }
+      });
+
+      // 2. Repair MEMBERS
+      const membersList = (db0.MEMBERS || []) as Member[];
+      const memberMap = new Map<string, Member>();
+      let duplicateMembersMerged = 0;
+      let invalidMembersRemoved = 0;
+
+      membersList.forEach(mem => {
+        const cleanName = (mem.name || "").trim();
+        if (!cleanName) return;
+        
+        // Remove names containing numbers (figures) or characters other than letters, space, comma, and hyphen
+        const hasDigit = /\d/.test(cleanName);
+        const hasInvalidChars = !/^[\p{L}\s,\-]+$/u.test(cleanName);
+        if (hasDigit || hasInvalidChars) {
+          invalidMembersRemoved++;
+          return;
+        }
+
+        const normKey = cleanName.toLowerCase();
+        
+        const sanitizedMem: Member = {
+          ...mem,
+          name: cleanName,
+          member_id: cleanName,
+          created_date: mem.created_date || new Date().toISOString().split("T")[0],
+        };
+
+        if (memberMap.has(normKey)) {
+          duplicateMembersMerged++;
+          const existing = memberMap.get(normKey)!;
+          memberMap.set(normKey, {
+            ...existing,
+            gender: existing.gender || sanitizedMem.gender,
+            age: existing.age ?? sanitizedMem.age,
+            phone: existing.phone || sanitizedMem.phone,
+            email: existing.email || sanitizedMem.email,
+            organisation: existing.organisation || sanitizedMem.organisation,
+            status: existing.status || sanitizedMem.status,
+            notes: existing.notes || sanitizedMem.notes,
+            total_assignments: Math.max(existing.total_assignments || 0, sanitizedMem.total_assignments || 0) || undefined,
+            spoken_count: Math.max(existing.spoken_count || 0, sanitizedMem.spoken_count || 0) || undefined,
+            prayers_count: Math.max(existing.prayers_count || 0, sanitizedMem.prayers_count || 0) || undefined,
+            last_assigned_date: (existing.last_assigned_date && sanitizedMem.last_assigned_date)
+              ? (existing.last_assigned_date > sanitizedMem.last_assigned_date ? existing.last_assigned_date : sanitizedMem.last_assigned_date)
+              : (existing.last_assigned_date || sanitizedMem.last_assigned_date),
+          });
+        } else {
+          memberMap.set(normKey, sanitizedMem);
+        }
+      });
+
+      updateDB((prev) => ({
+        ...prev,
+        ACTIVITIES: [...activityMap.values()],
+        MEMBERS: [...memberMap.values()],
+      }));
+
+      onChanged();
+
+      alert(`Database successfully cleaned and repaired!\n\n` +
+            `- Empty activities removed: ${emptyActivitiesRemoved}\n` +
+            `- Duplicate activities merged: ${duplicateActivitiesMerged}\n` +
+            `- Invalid members removed: ${invalidMembersRemoved}\n` +
+            `- Duplicate members merged: ${duplicateMembersMerged}\n\n` +
+            `Changes are being synced to Firebase backend.`);
+    } catch (err: any) {
+      alert(`Repair failed: ${err.message || String(err)}`);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -1067,6 +1188,22 @@ export function SettingsPage({
               </div>
               <div className="text-xs text-slate-500">
                 Use replace only for full restore; merge will keep existing records and update by row IDs.
+              </div>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Database Optimization and Repair</CardTitle>
+            </CardHeader>
+            <CardBody className="space-y-3">
+              <div className="text-sm text-slate-600">
+                If the database contains duplicate entries or corrupted records (such as empty activities or duplicate members from external syncing), use this tool to automatically deduplicate and repair the database.
+              </div>
+              <div className="flex justify-start">
+                <Button variant="danger" onClick={repairDatabase}>
+                  Repair & Deduplicate Database
+                </Button>
               </div>
             </CardBody>
           </Card>

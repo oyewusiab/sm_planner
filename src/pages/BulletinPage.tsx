@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import type { Bulletin, BulletinActivity, Member, Planner, UnitSettings, User, CalendarActivity, OtherChurchProgram } from "../types";
 import { Button, Card, CardBody, CardHeader, CardTitle, Divider, EmptyState, Input, Label, Select, Textarea } from "../components/ui";
 import { ids, updateDB, useTable } from "../utils/storage";
-import { formatDateShort, yyyyMmToLabel } from "../utils/date";
+import { formatDateShort, yyyyMmToLabel, formatTime12h } from "../utils/date";
 import { generatePDF } from "../utils/pdf";
 import html2canvas from "html2canvas-pro";
 
@@ -387,7 +387,7 @@ export function BulletinPage({
 
     // Filter activities
     activities.forEach(a => {
-      if (a.date >= startISO && a.date <= endISO) {
+      if (a.activity && a.activity.trim() && a.date >= startISO && a.date <= endISO) {
         list.push({ label: `${a.activity} (${a.organisation})`, date: a.date });
       }
     });
@@ -884,7 +884,7 @@ export function BulletinPage({
                     <div key={act.day} className="flex justify-between items-start text-xs border-b border-slate-100/50 pb-2 last:border-0 last:pb-0">
                       <div className="font-bold w-20 shrink-0" style={{ color: theme.textAccent }}>{act.day}</div>
                       <div className="flex-1 font-semibold text-slate-800">{act.activity || "None"}</div>
-                      <div className="text-[11px] text-slate-500 italic ml-2 shrink-0">{act.time}</div>
+                      <div className="text-[11px] text-slate-500 italic ml-2 shrink-0">{formatTime12h(act.time)}</div>
                     </div>
                   ))}
                 </div>
@@ -1123,11 +1123,11 @@ export function BulletinPage({
                           <span>📅</span> Weekly Activities
                         </div>
                         <div className="space-y-2">
-                          {(formData.activities || []).map((act) => (
+                          {(formData.activities || []).filter(act => act.activity).map((act) => (
                             <div key={act.day} className="flex justify-between items-start text-xs border-b border-slate-100/60 pb-1.5 last:border-0 last:pb-0">
                               <div className="font-bold w-20 shrink-0" style={{ color: theme.textAccent }}>{act.day}</div>
                               <div className="flex-1 text-slate-800 font-semibold">{act.activity || "None"}</div>
-                              <div className="text-[10px] text-slate-500 italic ml-2 shrink-0">{act.time}</div>
+                              <div className="text-[10px] text-slate-500 italic ml-2 shrink-0">{formatTime12h(act.time)}</div>
                             </div>
                           ))}
                         </div>
@@ -1314,11 +1314,11 @@ export function BulletinPage({
                         <h4 className="font-bold border-b pb-0.5" style={{ color: theme.primary, borderColor: theme.border }}>Weekly Activities</h4>
                         <table className="w-full text-left font-sans text-xs">
                           <tbody>
-                            {(formData.activities || []).map((act) => (
+                            {(formData.activities || []).filter(act => act.activity).map((act) => (
                               <tr key={act.day} className="border-b border-slate-100 last:border-0">
                                 <td className="py-0.5 w-16 font-bold" style={{ color: theme.textAccent }}>{act.day}</td>
                                 <td className="py-0.5 font-medium text-slate-800">{act.activity}</td>
-                                <td className="py-0.5 text-right text-slate-400 italic text-[10px]">{act.time}</td>
+                                <td className="py-0.5 text-right text-slate-400 italic text-[10px]">{formatTime12h(act.time)}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -1428,11 +1428,11 @@ export function BulletinPage({
                         <h3 className="font-bold text-slate-900 text-sm border-b border-slate-400 pb-1">WEEKLY ACTIVITIES</h3>
                         <table className="w-full">
                           <tbody>
-                            {(formData.activities || []).map((act) => (
+                            {(formData.activities || []).filter(act => act.activity).map((act) => (
                               <tr key={act.day} className="border-b border-slate-100">
                                 <td className="py-1 w-24 font-semibold text-slate-800">{act.day}</td>
                                 <td className="py-1 font-medium">{act.activity || "None scheduled"}</td>
-                                <td className="py-1 w-28 text-right text-slate-500 text-xs italic">{act.time}</td>
+                                <td className="py-1 w-28 text-right text-slate-500 text-xs italic">{formatTime12h(act.time)}</td>
                               </tr>
                             ))}
                           </tbody>

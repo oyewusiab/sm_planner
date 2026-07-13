@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import type { Member, UnitSettings, User } from "../types";
+import { generatePDF } from "../utils/pdf";
+import { extractTextFromPDF } from "../utils/pdfParser";
 import { Button, Card, CardBody, CardHeader, CardTitle, EmptyState, Input, Label, SectionTitle, Select, Textarea } from "../components/ui";
 import { Modal } from "../components/Modal";
 import { can } from "../utils/permissions";
@@ -185,6 +187,67 @@ export function MembersPage({
   const [org, setOrg] = useState("ALL");
   const [filterMode, setFilterMode] = useState<string | null>(null);
   const [recRole, setRecRole] = useState<string>("speaker");
+
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [parsedMembers, setParsedMembers] = useState<Member[]>([]);
+  const [importMode, setImportMode] = useState<"merge" | "overwrite">("merge");
+  const [isImporting, setIsImporting] = useState(false);
+
+  const handlePDFImportChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsImporting(true);
+      const text = await extractTextFromPDF(file);
+      const parsed = parseMembersFromPDFText(text);
+      if (parsed.length === 0) {
+        alert("No valid members could be parsed from the PDF. Please check the PDF layout.");
+      } else {
+        setParsedMembers(parsed as Member[]);
+        setIsImportModalOpen(true);
+      }
+    } catch (err: any) {
+      alert(`Failed to parse PDF: ${err.message || String(err)}`);
+    } finally {
+      setIsImporting(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleSaveImported = () => {
+    updateDB((db0) => {
+      const existing = db0.MEMBERS || [];
+      const newItems = parsedMembers.map(item => ({
+        ...item,
+        member_id: item.name,
+        name: item.name,
+        created_date: item.created_date || new Date().toISOString().split("T")[0],
+      }));
+
+      let nextList: Member[] = [];
+      if (importMode === "overwrite") {
+        nextList = newItems;
+      } else {
+        nextList = [...existing];
+        newItems.forEach(newItem => {
+          const isDuplicate = existing.some(ext => 
+            ext.name.toLowerCase() === newItem.name.toLowerCase()
+          );
+          if (!isDuplicate) {
+            nextList.push(newItem);
+          }
+        });
+      }
+
+      return { ...db0, MEMBERS: nextList };
+    });
+
+    setIsImportModalOpen(false);
+    setParsedMembers([]);
+    onChanged();
+  };
 
   const organisations = useMemo(() => {
     const set = new Set<string>();
@@ -906,18 +969,60 @@ export function MembersPage({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <SectionTitle title="Members Directory" subtitle="Add, edit, search, and export your unit member list." />
         <div className="flex flex-wrap items-center gap-2">
+          {selectedIds.length > 0 && canEditOrDelete && (
+            <Button
+              variant="danger"
+              onClick={() => {
+                if (!window.confirm(`Are you sure you want to delete the ${selectedIds.length} selected members?`)) return;
+                updateDB((db0) => {
+                  const list = (db0.MEMBERS || []).filter(m => !selectedIds.includes(m.member_id || m.name));
+                  return { ...db0, MEMBERS: list };
+                });
+                setSelectedIds([]);
+                onChanged();
+              }}
+            >
+              Delete Selected ({selectedIds.length})
+            </Button>
+          )}
           <Button variant="secondary" onClick={exportCSV}>
             Export CSV
           </Button>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              generatePDF("members-table-print", `Members_Directory_${new Date().toISOString().split("T")[0]}`);
+            }}
+          >
+            Export PDF
+          </Button>
           {canEditOrDelete && (
-            <Button
-              onClick={() => {
-                setEditing(emptyMember());
-                setOpen(true);
-              }}
-            >
-              Add Member
-            </Button>
+            <>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  document.getElementById("members-pdf-import-input")?.click();
+                }}
+                disabled={isImporting}
+              >
+                {isImporting ? "Importing..." : "Import PDF"}
+              </Button>
+              <input
+                id="members-pdf-import-input"
+                type="file"
+                accept=".pdf"
+                className="hidden"
+                onChange={handlePDFImportChange}
+              />
+              <Button
+                onClick={() => {
+                  setEditing(emptyMember());
+                  setOpen(true);
+                }}
+              >
+                Add Member
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -972,11 +1077,33 @@ export function MembersPage({
           </div>
         </CardBody>
       </Card>
-
-      <div className="overflow-x-auto max-w-full rounded-xl border border-[color:var(--border)] bg-white" style={{ maxWidth: "100%" }}>
+        <div id="members-table-print" className="overflow-x-auto max-w-full rounded-xl border border-[color:var(--border)] bg-white" style={{ maxWidth: "100%" }}>
         <table className="w-full text-left text-sm" style={{ minWidth: "950px" }}>
           <thead className="bg-slate-50">
             <tr>
+              {canEditOrDelete && (
+                <th className="p-3 w-10 no-print">
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    checked={filtered.length > 0 && filtered.every(item => selectedIds.includes(item.member_id || item.name))}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedIds(prev => {
+                          const next = [...prev];
+                          filtered.forEach(item => {
+                            const id = item.member_id || item.name;
+                            if (!next.includes(id)) next.push(id);
+                          });
+                          return next;
+                        });
+                      } else {
+                        setSelectedIds(prev => prev.filter(id => !filtered.some(item => (item.member_id || item.name) === id)));
+                      }
+                    }}
+                  />
+                </th>
+              )}
               <th className="p-3 font-medium text-slate-600">Name</th>
               <th className="p-3 font-medium text-slate-600">Age</th>
               <th className="p-3 font-medium text-slate-600">Gender</th>
@@ -984,19 +1111,36 @@ export function MembersPage({
               <th className="p-3 font-medium text-slate-600">Organisation</th>
               <th className="p-3 font-medium text-slate-600">Status</th>
               <th className="p-3 font-medium text-slate-600">Birthday</th>
-              {canEditOrDelete && <th className="p-3 font-medium text-slate-600">Actions</th>}
+              {canEditOrDelete && <th className="p-3 font-medium text-slate-600 no-print">Actions</th>}
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td className="p-3 text-slate-500" colSpan={canEditOrDelete ? 8 : 7}>
+                <td className="p-3 text-slate-500 text-center" colSpan={(canEditOrDelete ? 8 : 7) + (canEditOrDelete ? 1 : 0)}>
                   No members found.
                 </td>
               </tr>
             ) : (
               filtered.map((m) => (
                 <tr key={m.member_id} className="border-t border-[color:var(--border)]">
+                  {canEditOrDelete && (
+                    <td className="p-3 no-print">
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        checked={selectedIds.includes(m.member_id || m.name)}
+                        onChange={(e) => {
+                          const id = m.member_id || m.name;
+                          if (e.target.checked) {
+                            setSelectedIds(prev => [...prev, id]);
+                          } else {
+                            setSelectedIds(prev => prev.filter(x => x !== id));
+                          }
+                        }}
+                      />
+                    </td>
+                  )}
                   <td className="p-3 font-medium">{m.name}</td>
                   <td className="p-3">{m.age ?? ""}</td>
                   <td className="p-3">{m.gender ?? ""}</td>
@@ -1005,7 +1149,7 @@ export function MembersPage({
                   <td className="p-3">{m.status ?? ""}</td>
                   <td className="p-3">{m.birth_date ?? ""}</td>
                   {canEditOrDelete && (
-                    <td className="p-3 whitespace-nowrap">
+                    <td className="p-3 whitespace-nowrap no-print">
                       <div className="flex gap-2">
                         <Button
                           variant="secondary"
@@ -1833,6 +1977,148 @@ export function MembersPage({
           </div>
         ) : null}
       </Modal>
+
+      {/* PDF Import Preview Modal */}
+      <Modal
+        open={isImportModalOpen}
+        title="Preview Parsed Members"
+        onClose={() => {
+          setIsImportModalOpen(false);
+          setParsedMembers([]);
+        }}
+        footer={
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={() => { setIsImportModalOpen(false); setParsedMembers([]); }}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={handleSaveImported}>
+              Import {parsedMembers.length} Items
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="text-sm text-slate-600">
+            We found the following {parsedMembers.length} members in the PDF. Choose whether you want to merge them into your existing list or replace all existing members.
+          </div>
+          
+          <div className="flex items-center gap-4">
+            <label className="text-sm font-medium text-slate-700">Import Mode:</label>
+            <Select value={importMode} onChange={(e) => setImportMode(e.target.value as any)}>
+              <option value="merge">Add to Existing List</option>
+              <option value="overwrite">Overwrite/Replace Existing List</option>
+            </Select>
+          </div>
+
+          <div className="max-h-60 overflow-y-auto border rounded-lg">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 sticky top-0 border-b">
+                <tr>
+                  <th className="p-2 font-medium text-slate-600">Name</th>
+                  <th className="p-2 font-medium text-slate-600">Age</th>
+                  <th className="p-2 font-medium text-slate-600">Gender</th>
+                  <th className="p-2 font-medium text-slate-600">Phone</th>
+                  <th className="p-2 font-medium text-slate-600">Organisation</th>
+                  <th className="p-2 font-medium text-slate-600">Status</th>
+                  <th className="p-2 font-medium text-slate-600">Birthday</th>
+                </tr>
+              </thead>
+              <tbody>
+                {parsedMembers.map((m, idx) => (
+                  <tr key={idx} className="border-b last:border-0 hover:bg-slate-50/50">
+                    <td className="p-2 font-semibold text-slate-700">{m.name}</td>
+                    <td className="p-2">{m.age ?? ""}</td>
+                    <td className="p-2">{m.gender}</td>
+                    <td className="p-2">{m.phone}</td>
+                    <td className="p-2">{m.organisation}</td>
+                    <td className="p-2">{m.status}</td>
+                    <td className="p-2">{m.birth_date}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
+
+const parseMembersFromPDFText = (text: string): Partial<Member>[] => {
+  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+  const parsed: Partial<Member>[] = [];
+  
+  const ORGANISATIONS = [
+    "WARD", "ELDERS QUORUM", "RELIEF SOCIETY", "PRIMARY", "SUNDAY SCHOOL",
+    "YOUNG MEN", "YOUNG WOMEN", "YOUTH", "YSA"
+  ];
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const upper = line.toUpperCase();
+    
+    if (upper === "M" || upper === "F" || upper === "MALE" || upper === "FEMALE") {
+      const name = lines[i - 1];
+      if (name && name !== "Name" && name !== "Gender" && name !== "Age" && name !== "Phone" && name !== "Organisation" && name !== "Status" && name !== "Birthday" && name !== "Actions" && name !== "Export CSV" && name !== "Export PDF" && name !== "Import PDF" && name !== "Add Member") {
+        const genderVal = (upper === "M" || upper === "MALE") ? "M" : "F";
+        
+        let age: number | undefined = undefined;
+        let phone = "";
+        let organisation = "WARD";
+        let status = "ACTIVE";
+        let birth_date = "";
+        
+        let offset = 1;
+        
+        if (i + offset < lines.length && /^\d+$/.test(lines[i + offset])) {
+          age = Number(lines[i + offset]);
+          offset++;
+        }
+        
+        if (i + offset < lines.length && /^[\d\+\-\s]{5,20}$/.test(lines[i + offset])) {
+          phone = lines[i + offset];
+          offset++;
+        }
+        
+        if (i + offset < lines.length) {
+          const possibleOrg = lines[i + offset].toUpperCase();
+          if (ORGANISATIONS.includes(possibleOrg)) {
+            organisation = possibleOrg;
+            offset++;
+          }
+        }
+        
+        if (i + offset < lines.length) {
+          const possibleStatus = lines[i + offset];
+          if (["ACTIVE", "INACTIVE", "LESS ACTIVE", "PROSPECTIVE"].includes(possibleStatus.toUpperCase())) {
+            status = possibleStatus;
+            offset++;
+          }
+        }
+        
+        if (i + offset < lines.length && /^\d{4}-\d{2}-\d{2}$/.test(lines[i + offset])) {
+          birth_date = lines[i + offset];
+          offset++;
+        }
+
+        parsed.push({
+          member_id: name,
+          name,
+          gender: genderVal,
+          age,
+          phone,
+          organisation,
+          status,
+          birth_date,
+          notes: ""
+        });
+        
+        i += offset;
+        continue;
+      }
+    }
+    i++;
+  }
+  return parsed;
+};

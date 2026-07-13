@@ -359,9 +359,8 @@ export function AppShell({
           </div>
         </aside>
 
-        {/* ── Main content ── */}
         <main className="p-4 pb-24 md:p-8 md:pb-8 min-w-0">
-          <div className="mx-auto max-w-full w-full overflow-hidden">{children}</div>
+          <div className="mx-auto max-w-7xl w-full">{children}</div>
         </main>
 
         {mobileNavOpen ? (

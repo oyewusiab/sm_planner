@@ -56,7 +56,7 @@ function blankAgenda(plannerId: string, weekId: string, userId: string, _planner
 
   const sundayISO = week.date;
   const upcoming = activities
-    .filter(a => a.date >= sundayISO)
+    .filter(a => a.activity && a.activity.trim() && a.date >= sundayISO)
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(0, 5)
     .map(a => `${a.activity} (${a.organisation}) — ${formatDateShort(a.date)}`);
