@@ -450,6 +450,7 @@ export type BulletinActivity = {
   activity: string;
   time: string;
   type?: "Ward" | "Stake";
+  is_recurring?: boolean;
 };
 
 export type Bulletin = {

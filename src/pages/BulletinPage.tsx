@@ -538,6 +538,16 @@ const allWeeks = useMemo(() => {
     handleFieldChange("activities", list);
   };
 
+  const handleMoveActivity = (index: number, direction: -1 | 1) => {
+    const list = [...(formData.activities || [])];
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= list.length) return;
+    const temp = list[index];
+    list[index] = list[targetIndex];
+    list[targetIndex] = temp;
+    handleFieldChange("activities", list);
+  };
+
   // Activity cell update
   const handleActivityCellChange = (index: number, col: keyof BulletinActivity, value: any) => {
     const list = [...(formData.activities || [])];
@@ -903,7 +913,8 @@ const allWeeks = useMemo(() => {
                             <th className="p-2 font-semibold">Activity Details</th>
                             <th className="p-2 w-36 font-semibold">Time / Info</th>
                             <th className="p-2 w-28 font-semibold">Scope</th>
-                            <th className="p-2 w-16 font-semibold text-center">Actions</th>
+                            <th className="p-2 w-24 font-semibold text-center">Reoccurring</th>
+                            <th className="p-2 w-28 font-semibold text-center">Actions</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -925,9 +936,42 @@ const allWeeks = useMemo(() => {
                                 </Select>
                               </td>
                               <td className="p-2 text-center">
-                                <button type="button" onClick={() => handleRemoveActivityRow(index)} className="text-red-500 hover:text-red-700 font-semibold text-xs">
-                                  Remove
-                                </button>
+                                <input
+                                  type="checkbox"
+                                  checked={act.is_recurring === true}
+                                  onChange={e => handleActivityCellChange(index, "is_recurring", e.target.checked)}
+                                  className="rounded cursor-pointer"
+                                />
+                              </td>
+                              <td className="p-2">
+                                <div className="flex items-center justify-center gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={index === 0}
+                                    onClick={() => handleMoveActivity(index, -1)}
+                                    className="text-slate-500 hover:text-slate-800 disabled:opacity-30 disabled:cursor-not-allowed text-sm font-semibold p-1"
+                                    title="Move Up"
+                                  >
+                                    ⬆️
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={index === (formData.activities || []).length - 1}
+                                    onClick={() => handleMoveActivity(index, 1)}
+                                    className="text-slate-500 hover:text-slate-800 disabled:opacity-30 disabled:cursor-not-allowed text-sm font-semibold p-1"
+                                    title="Move Down"
+                                  >
+                                    ⬇️
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveActivityRow(index)}
+                                    className="text-red-500 hover:text-red-700 text-sm p-1 ml-1"
+                                    title="Remove"
+                                  >
+                                    🗑️
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -1232,7 +1276,8 @@ const allWeeks = useMemo(() => {
                     <div key={idx} className="flex justify-between items-start text-xs border-b border-slate-100/50 pb-2 last:border-0 last:pb-0">
                       <div className="font-bold w-20 shrink-0" style={{ color: theme.textAccent }}>{act.day}</div>
                       <div className="flex-1 font-semibold text-slate-800">
-                        {act.activity || "None"}
+                        {formatActivityName(act.activity) || "None"}
+                        {act.is_recurring && <span className="ml-1 text-[9px] text-slate-400" title="Recurring Activity">🔄</span>}
                         {act.type && (
                           <span className="ml-1.5 text-[8px] px-1 py-0.5 rounded font-extrabold uppercase bg-slate-100 text-slate-500 border border-slate-200 inline-block">
                             {act.type}
@@ -1491,6 +1536,7 @@ const allWeeks = useMemo(() => {
                               <div className="font-bold w-20 shrink-0" style={{ color: theme.textAccent }}>{act.day}</div>
                               <div className="flex-1 text-slate-800 font-semibold">
                                 {formatActivityName(act.activity) || "None"}
+                                {act.is_recurring && <span className="ml-1 text-[9px] text-slate-400" title="Recurring Activity">🔄</span>}
                                 {act.type && (
                                   <span className="ml-1.5 text-[8px] px-1 py-0.5 rounded font-extrabold uppercase bg-slate-100 text-slate-500 border border-slate-200 inline-block">
                                     {act.type}
@@ -1639,7 +1685,7 @@ const allWeeks = useMemo(() => {
                                 <tr key={idx} className="border-b" style={{ borderColor: theme.border }}>
                                   <td className="py-1 w-24 font-bold text-slate-700" style={{ color: theme.textAccent }}>{act.day}</td>
                                   <td className="py-1 font-medium">
-                                    <div>{formatActivityName(act.activity)}</div>
+                                    <div>{formatActivityName(act.activity)} {act.is_recurring && <span className="ml-1 text-[9px] text-slate-400">🔄</span>}</div>
                                     {act.time && <span className="text-[10px] text-slate-400 font-sans">{act.time}</span>}
                                   </td>
                                 </tr>
@@ -1855,6 +1901,7 @@ const allWeeks = useMemo(() => {
                                 <td className="py-0.5 w-16 font-bold" style={{ color: theme.textAccent }}>{act.day}</td>
                                 <td className="py-0.5 font-medium text-slate-800">
                                   {formatActivityName(act.activity)}
+                                  {act.is_recurring && <span className="ml-1 text-[8px] text-slate-400">🔄</span>}
                                   {act.type && (
                                     <span className="ml-1 text-[7px] px-0.5 py-px rounded font-extrabold uppercase bg-slate-100 text-slate-600 border border-slate-200 inline-block">
                                       {act.type}
@@ -1983,6 +2030,7 @@ const allWeeks = useMemo(() => {
                                 <td className="py-1 w-24 font-bold" style={{ color: theme.textAccent }}>{act.day}</td>
                                 <td className="py-1 font-medium">
                                   {formatActivityName(act.activity) || "None scheduled"}
+                                  {act.is_recurring && <span className="ml-1 text-[8px] text-slate-400">🔄</span>}
                                   {act.type && (
                                     <span className="ml-1.5 text-[8px] px-1 py-0.5 rounded font-extrabold uppercase bg-slate-100 text-slate-500 border border-slate-200 inline-block">
                                       {act.type}
