@@ -224,6 +224,90 @@ const allWeeks = useMemo(() => {
   const [activeTab, setActiveTab] = useState<"edit" | "web" | "whatsapp" | "pdf">("edit");
   const [downloadingImage, setDownloadingImage] = useState(false);
   const [birthdaySearch, setBirthdaySearch] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+
+  useEffect(() => {
+    setIsEditing(false);
+  }, [selectedWeekId]);
+
+  const handleOpenEditBulletin = () => {
+    if (currentBulletin) {
+      setFormData(currentBulletin);
+      setIsEditing(true);
+    }
+  };
+
+  const handleDeleteBulletin = () => {
+    if (!window.confirm("Are you sure you want to delete this bulletin? This action cannot be undone.")) return;
+    updateDB((db0) => {
+      const list = (db0.BULLETINS || []).filter(b => b.week_id !== selectedWeekId);
+      return { ...db0, BULLETINS: list };
+    });
+    onChanged();
+    setIsEditing(false);
+  };
+
+  const handleCreateBulletin = () => {
+    if (!activeWeek) return;
+    const defaultBirthdays = getBirthdaysForWeek(members, activeWeek.date);
+    const sundayISO = activeWeek.date;
+    
+    const thirtyDaysLater = new Date(sundayISO);
+    thirtyDaysLater.setDate(thirtyDaysLater.getDate() + 30);
+    const endISO = thirtyDaysLater.toISOString().split("T")[0];
+
+    const upcomingList: { label: string; date: string }[] = [];
+    activities.forEach(a => {
+      if (a.activity && a.activity.trim() && a.date >= sundayISO && a.date <= endISO) {
+        upcomingList.push({ label: `${a.activity} (${a.organisation})`, date: a.date });
+      }
+    });
+    otherPrograms.forEach(p => {
+      if (p.program && p.program.trim() && p.date >= sundayISO && p.date <= endISO) {
+        upcomingList.push({ label: `${p.program} (${p.organisation})`, date: p.date });
+      }
+    });
+    upcomingList.sort((a, b) => a.date.localeCompare(b.date));
+    const upcoming = upcomingList.map(item => `${formatDateShort(item.date)} — ${item.label}`);
+
+    setFormData({
+      theme: "",
+      special_music: "",
+      come_follow_me: "",
+      activities: DEFAULT_ACTIVITIES,
+      birthdays: defaultBirthdays,
+      missionaries: [],
+      scripture_of_the_week: "",
+      missionary_challenge: "",
+      temple_trip_date: "",
+      familysearch_tip: "",
+      ancestor_challenge: "",
+      self_reliance_classes: ["Personal Finance", "Emotional Resilience"],
+      ward_focus: "Ministering: Reaching out to those in need.",
+      welfare_reminders: ["Fast offering donation this Sunday", "Submit service logs to Clerk"],
+      bishopric_message: "Focus this week on developing Christlike charity inside your home and community.",
+      upcoming_events: upcoming,
+      qr_whatsapp: "",
+      qr_familysearch: "https://www.familysearch.org",
+      qr_gospel_library: "https://www.churchofjesuschrist.org/study/gospel-library",
+      qr_website: "",
+      qr_planner_link: window.location.href.split("#")[0],
+      show_sacrament: true,
+      show_activities: true,
+      show_birthdays: true,
+      show_missionary: true,
+      show_temple: true,
+      show_self_reliance: true,
+      show_focus: true,
+      show_welfare: true,
+      show_bishopric: true,
+      show_upcoming: true,
+      show_qr: true,
+      color_theme: "navy",
+      pdf_layout: "standard"
+    });
+    setIsEditing(true);
+  };
 
   useEffect(() => {
     if (selectedPlannerId) {
@@ -566,8 +650,6 @@ const allWeeks = useMemo(() => {
         scale: 2,
         useCORS: true,
         backgroundColor: "#ffffff",
-        width: 1080,
-        height: 1350
       });
       const link = document.createElement("a");
       link.download = `${unit.unit_name || "Ward"}_Bulletin_${activeWeek ? formatDateShort(activeWeek.date) : "week"}.jpg`;
@@ -636,40 +718,82 @@ const allWeeks = useMemo(() => {
               </Select>
             </div>
           </div>
-          <div className="flex gap-2">
-            <Button variant={activeTab === "edit" ? "primary" : "secondary"} onClick={() => setActiveTab("edit")}>
-              Edit Info
-            </Button>
-            <Button variant={activeTab === "web" ? "primary" : "secondary"} onClick={() => setActiveTab("web")}>
-              Web View
-            </Button>
-            <Button variant={activeTab === "whatsapp" ? "primary" : "secondary"} onClick={() => setActiveTab("whatsapp")}>
-              WhatsApp Card
-            </Button>
-            <Button variant={activeTab === "pdf" ? "primary" : "secondary"} onClick={() => setActiveTab("pdf")}>
-              Print / PDF
-            </Button>
-          </div>
+          {isEditing && (
+            <div className="flex gap-2 font-sans text-xs">
+              <Button variant="outline" onClick={() => setIsEditing(false)} className="h-9 font-semibold mr-2" icon="⬅️">
+                Back to Bulletins
+              </Button>
+              <Button variant={activeTab === "edit" ? "primary" : "secondary"} onClick={() => setActiveTab("edit")} className="h-9 font-semibold">
+                Edit Info
+              </Button>
+              <Button variant={activeTab === "web" ? "primary" : "secondary"} onClick={() => setActiveTab("web")} className="h-9 font-semibold">
+                Web View
+              </Button>
+              <Button variant={activeTab === "whatsapp" ? "primary" : "secondary"} onClick={() => setActiveTab("whatsapp")} className="h-9 font-semibold">
+                WhatsApp Card
+              </Button>
+              <Button variant={activeTab === "pdf" ? "primary" : "secondary"} onClick={() => setActiveTab("pdf")} className="h-9 font-semibold">
+                Print / PDF
+              </Button>
+            </div>
+          )}
         </CardBody>
       </Card>
 
-      {activeWeek && (activeWeek.meeting_type === "Stake Conference" || activeWeek.is_canceled || activeWeek.cancel_reason) ? (
-        <Card className="border border-slate-200 shadow-sm p-6 bg-slate-50 mt-6">
-          <div className="text-center max-w-md mx-auto space-y-4 py-8">
-            <span className="text-5xl block">⛪</span>
-            <h3 className="text-xl font-bold text-slate-800">No Sacrament Meeting Scheduled</h3>
-            <p className="text-sm text-slate-500">
-              There is no sacrament meeting scheduled for the week of <strong>{formatDateShort(activeWeek.date)}</strong>. No weekly bulletin is required.
-            </p>
-            <div className="inline-block bg-amber-50 text-amber-800 border border-amber-200 rounded-xl px-4 py-2 text-sm font-semibold">
-              Reason: {activeWeek.cancel_reason || activeWeek.meeting_type || "Stake Conference"}
+      {selectedWeekId && activeWeek ? (
+        activeWeek.meeting_type === "Stake Conference" || activeWeek.is_canceled || activeWeek.cancel_reason ? (
+          <Card className="border border-slate-200 shadow-sm p-6 bg-slate-50 mt-6">
+            <div className="text-center max-w-md mx-auto space-y-4 py-8">
+              <span className="text-5xl block">⛪</span>
+              <h3 className="text-xl font-bold text-slate-800">No Sacrament Meeting Scheduled</h3>
+              <p className="text-sm text-slate-500">
+                There is no sacrament meeting scheduled for the week of <strong>{formatDateShort(activeWeek.date)}</strong>. No weekly bulletin is required.
+              </p>
+              <div className="inline-block bg-amber-50 text-amber-800 border border-amber-200 rounded-xl px-4 py-2 text-sm font-semibold">
+                Reason: {activeWeek.cancel_reason || activeWeek.meeting_type || "Stake Conference"}
+              </div>
             </div>
+          </Card>
+        ) : !isEditing ? (
+          <div className="max-w-xl mx-auto mt-6">
+            {currentBulletin ? (
+              <Card className="border border-slate-200 shadow-sm p-6 bg-white">
+                <CardBody className="space-y-4 text-center">
+                  <div className="text-4xl">📄</div>
+                  <h3 className="font-bold text-slate-800 text-lg">
+                    {getWeekRangeLabel(activeWeek.date)} Bulletin
+                  </h3>
+                  <div className="text-xs text-slate-500">
+                    <p>Created: {formatDateShort(currentBulletin.created_date || activeWeek.date)}</p>
+                    <p>Last Updated: {currentBulletin.updated_date ? formatDateShort(currentBulletin.updated_date) : "N/A"}</p>
+                  </div>
+                  <div className="flex justify-center gap-3 pt-2">
+                    <Button variant="primary" onClick={handleOpenEditBulletin} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold">
+                      Open & Edit
+                    </Button>
+                    <Button variant="danger" onClick={handleDeleteBulletin} className="bg-red-600 hover:bg-red-700 text-white font-semibold">
+                      Delete
+                    </Button>
+                  </div>
+                </CardBody>
+              </Card>
+            ) : (
+              <EmptyState
+                icon="📄"
+                title="No Bulletin Created Yet"
+                description="Click 'Create Bulletin' below to start preparing the weekly bulletin program for this week."
+                action={
+                  <Button onClick={handleCreateBulletin} className="bg-blue-600 text-white font-semibold">
+                    Create Bulletin
+                  </Button>
+                }
+              />
+            )}
           </div>
-        </Card>
-      ) : (
-        <>
-          {/* EDIT TAB */}
-          {activeTab === "edit" && activeWeek && (
+        ) : (
+          <>
+            {/* EDIT TAB */}
+            {activeTab === "edit" && activeWeek && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Form Fields */}
           <div className="lg:col-span-2 space-y-6">
@@ -973,7 +1097,8 @@ const allWeeks = useMemo(() => {
                 <div>
                   <Label className="text-xs font-semibold block mb-1">PDF Page Format</Label>
                   <Select value={formData.pdf_layout || "standard"} onChange={e => handleFieldChange("pdf_layout", e.target.value)} className="w-full text-xs h-8">
-                    <option value="standard">Standard Outline (Landscape, 2-Col)</option>
+                    <option value="standard">Standard Outline (Landscape, 1 Page)</option>
+                    <option value="standard-2page">Standard Outline (Landscape, 2 Pages)</option>
                     <option value="bi-fold">Booklet Bi-fold (Landscape, Booklet Fold)</option>
                   </Select>
                 </div>
@@ -1384,7 +1509,11 @@ const allWeeks = useMemo(() => {
               <div>
                 <h4 className="font-semibold text-slate-800">Printable Layout</h4>
                 <p className="text-xs text-slate-500 mt-1">
-                  Format: <strong>{formData.pdf_layout === "bi-fold" ? "Booklet Bi-fold (2-Col Landscape Booklet)" : "Standard Outline (Landscape)"}</strong>
+                  Format: <strong>{
+                    formData.pdf_layout === "bi-fold" ? "Booklet Bi-fold (Landscape)" :
+                    formData.pdf_layout === "standard-2page" ? "Standard Outline (Landscape, 2 Pages)" :
+                    "Standard Outline (Landscape, 1 Page)"
+                  }</strong>
                 </p>
               </div>
               <Button variant="primary" onClick={() => generatePDF("bulletin-pdf-print-area", `${unit.unit_name || "Ward"}_Bulletin_${formatDateShort(activeWeek.date)}`)}>
@@ -1396,12 +1525,168 @@ const allWeeks = useMemo(() => {
           {/* Landscape Paper Sheet Preview */}
           <div className="bg-white border rounded-xl shadow-sm p-8 overflow-x-auto flex justify-center">
             
-            {formData.pdf_layout === "bi-fold" ? (
+            {formData.pdf_layout === "standard-2page" ? (
+              <div id="bulletin-pdf-print-area" className="space-y-8 bg-slate-100 p-4">
+                {/* PAGE 1 */}
+                <div
+                  className="bg-white text-black p-10 border shadow-lg font-serif relative"
+                  style={{ width: "11in", minWidth: "11in", height: "8.5in", maxHeight: "8.5in", overflow: "hidden", boxSizing: "border-box", backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }}
+                >
+                  {/* PDF Header */}
+                  <div className="text-center border-b-2 pb-4 mb-6" style={{ borderColor: theme.primary }}>
+                    <h1 className="text-3xl font-bold tracking-wide uppercase" style={{ color: theme.primary }}>{unit.unit_name || "Obantoko Ward"}</h1>
+                    <p className="text-sm font-semibold tracking-widest uppercase mt-1" style={{ color: theme.textAccent }}>Weekly Ward Bulletin</p>
+                    <div className="mt-2 text-xs font-medium text-slate-500">
+                      {getWeekRangeLabel(activeWeek.date)} Bulletin — Page 1
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-8 text-[12px] leading-relaxed">
+                    {/* Left Column: Sacrament Outline */}
+                    <div className="space-y-6">
+                      {formData.show_sacrament !== false && (
+                        <div className="space-y-3">
+                          <h3 className="font-bold text-sm border-b pb-1" style={{ color: theme.primary, borderColor: theme.border }}>SACRAMENT MEETING PROGRAM</h3>
+                          {formData.theme && <div className="italic text-slate-650">Theme: "{formData.theme}"</div>}
+                          <table className="w-full">
+                            <tbody className="divide-y divide-slate-100" style={{ borderColor: theme.border }}>
+                              <tr><td className="py-1 text-slate-500">Opening Hymn</td><td className="py-1 text-right font-medium">{openingHymn}</td></tr>
+                              <tr><td className="py-1 text-slate-500">Sacrament Hymn</td><td className="py-1 text-right font-medium">{sacramentHymn}</td></tr>
+                              {formData.special_music && (
+                                <tr><td className="py-1 text-slate-500">Special Music</td><td className="py-1 text-right font-medium">{formData.special_music}</td></tr>
+                              )}
+                              {parsedSpeakers.length > 0 && (
+                                <tr>
+                                  <td colSpan={2} className="py-2">
+                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Speakers</div>
+                                    <div className="space-y-1">
+                                      {parsedSpeakers.map((s, idx) => (
+                                        <div key={idx} className="flex justify-between text-xs py-0.5 border-b border-dashed border-slate-100">
+                                          <span className="font-medium text-slate-700">{s.name}</span>
+                                          {s.topic && <span className="text-slate-500 italic">Topic: {s.topic}</span>}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                              <tr><td className="py-1 text-slate-500">Closing Hymn</td><td className="py-1 text-right font-medium">{closingHymn}</td></tr>
+                              <tr><td className="py-1 text-slate-500">Opening Prayer</td><td className="py-1 text-right font-medium">{openingPrayer}</td></tr>
+                              <tr><td className="py-1 text-slate-500">Closing Prayer</td><td className="py-1 text-right font-medium">{closingPrayer}</td></tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Right Column: Weekly Activities */}
+                    <div className="space-y-6">
+                      {formData.show_activities !== false && (formData.activities || []).length > 0 && (
+                        <div className="space-y-3">
+                          <h3 className="font-bold text-sm border-b pb-1" style={{ color: theme.primary, borderColor: theme.border }}>WEEKLY ACTIVITIES</h3>
+                          <table className="w-full">
+                            <tbody>
+                              {(formData.activities || []).filter(act => act.activity).map((act, idx) => (
+                                <tr key={idx} className="border-b" style={{ borderColor: theme.border }}>
+                                  <td className="py-1 w-24 font-bold text-slate-700" style={{ color: theme.textAccent }}>{act.day}</td>
+                                  <td className="py-1 font-medium">
+                                    <div>{act.activity}</div>
+                                    {act.time && <span className="text-[10px] text-slate-400 font-sans">{act.time}</span>}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* PAGE 2 */}
+                <div
+                  className="bg-white text-black p-10 border shadow-lg font-serif relative"
+                  style={{ width: "11in", height: "8.5in", maxHeight: "8.5in", overflow: "hidden", boxSizing: "border-box", backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }}
+                >
+                  {/* Page 2 Header */}
+                  <div className="text-center border-b pb-2 mb-4" style={{ borderColor: theme.primary }}>
+                    <h2 className="text-xl font-bold tracking-wide uppercase" style={{ color: theme.primary }}>{unit.unit_name || "Obantoko Ward"} Bulletin</h2>
+                    <div className="text-[10px] font-medium text-slate-500 mt-1">
+                      {getWeekRangeLabel(activeWeek.date)} — Page 2
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-8 text-[12px] leading-relaxed">
+                    {/* Left Column: Focus, CFM, Birthdays, Bishopric Message */}
+                    <div className="space-y-4">
+                      {formData.show_focus !== false && formData.come_follow_me && (
+                        <div className="space-y-1.5">
+                          <h3 className="font-bold text-xs uppercase tracking-wider border-b pb-0.5" style={{ color: theme.primary }}>📖 Come, Follow Me Study</h3>
+                          <p className="font-semibold text-slate-800 text-xs font-sans">
+                            {formData.come_follow_me}
+                          </p>
+                        </div>
+                      )}
+                      {formData.show_birthdays !== false && (formData.birthdays || []).length > 0 && (
+                        <div className="space-y-1.5">
+                          <h3 className="font-bold text-xs border-b pb-0.5" style={{ color: theme.primary, borderColor: theme.border }}>🎂 BIRTHDAYS THIS WEEK</h3>
+                          <p className="font-medium font-sans text-xs" style={{ color: theme.textAccent }}>
+                            {(formData.birthdays || []).join(", ")}
+                          </p>
+                        </div>
+                      )}
+                      {formData.show_bishopric !== false && formData.bishopric_message && (
+                        <div className="space-y-1.5 p-3 border rounded bg-slate-50" style={{ backgroundColor: theme.primaryLight, borderColor: theme.border }}>
+                          <h3 className="font-bold text-xs border-b pb-0.5" style={{ color: theme.primary, borderColor: theme.border }}>BISHOPRIC MESSAGE</h3>
+                          <p className="italic text-slate-800 leading-relaxed font-sans text-xs">
+                            "{formData.bishopric_message}"
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Right Column: Missionaries, Temple, Self-Reliance, Upcoming Events */}
+                    <div className="space-y-4">
+                      {formData.show_missionary !== false && (formData.missionaries || []).length > 0 && (
+                        <div className="space-y-1">
+                          <h3 className="font-bold text-xs border-b pb-0.5" style={{ color: theme.primary, borderColor: theme.border }}>🌐 MISSIONARY CORNER</h3>
+                          {(formData.missionaries || []).map((m, idx) => (
+                            <div key={idx} className="text-xs">{m}</div>
+                          ))}
+                        </div>
+                      )}
+                      {formData.show_temple !== false && (formData.temple_trip_date || formData.familysearch_tip) && (
+                        <div className="space-y-1">
+                          <h3 className="font-bold text-xs border-b pb-0.5" style={{ color: theme.primary, borderColor: theme.border }}>🏛️ TEMPLE & FAMILY HISTORY</h3>
+                          {formData.temple_trip_date && <div className="text-xs">Temple Trip: <span className="font-semibold">{formData.temple_trip_date}</span></div>}
+                          {formData.familysearch_tip && <div className="text-xs italic font-sans text-slate-650">FS Tip: {formData.familysearch_tip}</div>}
+                        </div>
+                      )}
+                      {formData.show_upcoming !== false && (formData.upcoming_events || []).length > 0 && (
+                        <div className="space-y-1">
+                          <h3 className="font-bold text-xs border-b pb-0.5" style={{ color: theme.primary, borderColor: theme.border }}>📣 UPCOMING EVENTS</h3>
+                          <ul className="list-disc pl-4 space-y-0.5 text-xs">
+                            {(formData.upcoming_events || []).slice(0, 4).map((evt, i) => (
+                              <li key={i}>{evt}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Page 2 Footer */}
+                  <div className="absolute bottom-4 left-10 right-10 text-center text-[9px] text-slate-400 border-t pt-2 font-sans" style={{ borderColor: theme.border }}>
+                    This is prepared as a weekly informational sheet for local ward members. It is not an official publication of The Church of Jesus Christ of Latter-day Saints.
+                  </div>
+                </div>
+              </div>
+            ) : formData.pdf_layout === "bi-fold" ? (
               /* BOOKLET BI-FOLD RENDER */
               <div
                 id="bulletin-pdf-print-area"
                 className="bg-white text-black p-8 border border-slate-300 shadow-lg font-serif grid grid-cols-2 gap-12"
-                style={{ width: "11in", minWidth: "11in", minHeight: "8.5in", boxSizing: "border-box", fontSize: "11px", borderLeft: "1px dashed #cbd5e1" }}
+                style={{ width: "11in", minWidth: "11in", height: "8.5in", maxHeight: "8.5in", overflow: "hidden", boxSizing: "border-box", fontSize: "11px", borderLeft: "1px dashed #cbd5e1" }}
               >
                 {/* LEFT HALF (BACK PAGE / INSIDE LEFT) */}
                 <div className="space-y-5 flex flex-col justify-between border-r border-dashed border-slate-200 pr-6">
@@ -1562,11 +1847,10 @@ const allWeeks = useMemo(() => {
 
               </div>
             ) : (
-              /* STANDARD LANDSCAPE RENDER */
               <div
                 id="bulletin-pdf-print-area"
                 className="bg-white text-black p-10 border shadow-lg font-serif"
-                style={{ width: "11in", minWidth: "11in", minHeight: "8.5in", boxSizing: "border-box", backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }}
+                style={{ width: "11in", minWidth: "11in", height: "8.5in", maxHeight: "8.5in", overflow: "hidden", boxSizing: "border-box", backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }}
               >
                 {/* PDF Header */}
                 <div className="text-center border-b-2 pb-4 mb-6" style={{ borderColor: theme.primary }}>
@@ -1730,6 +2014,13 @@ const allWeeks = useMemo(() => {
         </div>
       )}
       </>
+        )
+      ) : (
+        <EmptyState
+          icon="📅"
+          title="Select a Week"
+          description="Please select a week to begin preparing the weekly bulletin."
+        />
       )}
     </div>
   );
