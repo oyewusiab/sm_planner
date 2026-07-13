@@ -14,7 +14,7 @@ function getBirthdaysForWeek(members: Member[], sundayDateStr: string): string[]
   
   for (let i = 0; i < 7; i++) {
     const d = new Date(sunday);
-    d.setDate(sunday.getDate() + i);
+    d.setDate(sunday.getDate() - 6 + i);
     weekDates.push({ month: d.getMonth() + 1, day: d.getDate() });
   }
 
@@ -195,6 +195,18 @@ function getWeekRangeLabel(sundayStr: string) {
   }
 }
 
+function formatActivityName(str: string) {
+  if (!str) return "";
+  if (str === str.toUpperCase()) {
+    return str
+      .toLowerCase()
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  }
+  return str;
+}
+
 // Filter submitted planners
 const activePlanners = useMemo(() => {
   return planners.filter(p => p.state === "SUBMITTED");
@@ -251,6 +263,9 @@ const allWeeks = useMemo(() => {
     if (!activeWeek) return;
     const defaultBirthdays = getBirthdaysForWeek(members, activeWeek.date);
     const sundayISO = activeWeek.date;
+    const monday = new Date(sundayISO);
+    monday.setDate(monday.getDate() - 6);
+    const startISO = monday.toISOString().split("T")[0];
     
     const thirtyDaysLater = new Date(sundayISO);
     thirtyDaysLater.setDate(thirtyDaysLater.getDate() + 30);
@@ -258,12 +273,12 @@ const allWeeks = useMemo(() => {
 
     const upcomingList: { label: string; date: string }[] = [];
     activities.forEach(a => {
-      if (a.activity && a.activity.trim() && a.date >= sundayISO && a.date <= endISO) {
+      if (a.activity && a.activity.trim() && a.date >= startISO && a.date <= endISO) {
         upcomingList.push({ label: `${a.activity} (${a.organisation})`, date: a.date });
       }
     });
     otherPrograms.forEach(p => {
-      if (p.program && p.program.trim() && p.date >= sundayISO && p.date <= endISO) {
+      if (p.program && p.program.trim() && p.date >= startISO && p.date <= endISO) {
         upcomingList.push({ label: `${p.program} (${p.organisation})`, date: p.date });
       }
     });
@@ -540,7 +555,7 @@ const allWeeks = useMemo(() => {
 
     for (let idx = 0; idx < 7; idx++) {
       const d = new Date(sunday);
-      d.setDate(sunday.getDate() + 1 + idx);
+      d.setDate(sunday.getDate() - 6 + idx);
       const isoDate = d.toISOString().split("T")[0];
       const dayName = daysOfWeek[idx];
 
@@ -589,10 +604,12 @@ const allWeeks = useMemo(() => {
   const suggestedEvents = useMemo(() => {
     if (!activeWeek) return [];
     const sunday = new Date(activeWeek.date);
+    const monday = new Date(sunday);
+    monday.setDate(monday.getDate() - 6);
     const thirtyDaysLater = new Date(sunday);
     thirtyDaysLater.setDate(sunday.getDate() + 30);
 
-    const startISO = sunday.toISOString().split("T")[0];
+    const startISO = monday.toISOString().split("T")[0];
     const endISO = thirtyDaysLater.toISOString().split("T")[0];
 
     const list: { label: string; date: string }[] = [];
@@ -650,6 +667,19 @@ const allWeeks = useMemo(() => {
         scale: 2,
         useCORS: true,
         backgroundColor: "#ffffff",
+        onclone: (clonedDoc) => {
+          const clonedEl = clonedDoc.getElementById("bulletin-whatsapp-card");
+          if (clonedEl) {
+            clonedEl.style.transform = "none";
+            clonedEl.style.position = "static";
+            clonedEl.style.margin = "0";
+            if (clonedEl.parentElement) {
+              clonedEl.parentElement.style.transform = "none";
+              clonedEl.parentElement.style.width = "1080px";
+              clonedEl.parentElement.style.height = "1350px";
+            }
+          }
+        }
       });
       const link = document.createElement("a");
       link.download = `${unit.unit_name || "Ward"}_Bulletin_${activeWeek ? formatDateShort(activeWeek.date) : "week"}.jpg`;
@@ -828,10 +858,29 @@ const allWeeks = useMemo(() => {
                         <Label>Special Musical Number Detail (Optional)</Label>
                         <Input value={formData.special_music || ""} onChange={e => handleFieldChange("special_music", e.target.value)} placeholder="e.g. Solo by Sister Smith" />
                       </div>
-                      <div className="md:col-span-2">
-                        <Label>Come, Follow Me Study (Weekly Reading)</Label>
-                        <Input value={formData.come_follow_me || ""} onChange={e => handleFieldChange("come_follow_me", e.target.value)} placeholder="e.g. Matthew 1-2, Luke 1" />
-                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Come, Follow Me Study */}
+                <div className="pt-6 space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h3 className="font-semibold text-slate-900 text-base">Come, Follow Me Study</h3>
+                    <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                      <input type="checkbox" checked={formData.show_focus !== false} onChange={e => handleFieldChange("show_focus", e.target.checked)} className="rounded" />
+                      Show Section
+                    </label>
+                  </div>
+                  {formData.show_focus !== false && (
+                    <div className="bg-slate-50 p-4 rounded-lg space-y-2">
+                      <Label>Weekly Scripture Reading & Study Details</Label>
+                      <Textarea
+                        rows={4}
+                        value={formData.come_follow_me || ""}
+                        onChange={e => handleFieldChange("come_follow_me", e.target.value)}
+                        placeholder="Type scriptures, focus questions, or reading assignments for this week. Press enter for paragraphs."
+                        className="w-full"
+                      />
                     </div>
                   )}
                 </div>
@@ -1166,7 +1215,7 @@ const allWeeks = useMemo(() => {
                 <div className="flex items-center gap-2 border-b pb-1.5 font-bold text-sm" style={{ color: theme.primary, borderColor: theme.border }}>
                   <span>📖</span> Come, Follow Me Reading
                 </div>
-                <div className="text-xs font-semibold text-slate-800">
+                <div className="text-xs font-semibold text-slate-800" style={{ whiteSpace: "pre-line" }}>
                   {formData.come_follow_me}
                 </div>
               </div>
@@ -1405,7 +1454,7 @@ const allWeeks = useMemo(() => {
                         <div className="flex items-center gap-2 font-bold text-sm border-b pb-1.5" style={{ color: theme.primary, borderColor: theme.border }}>
                           <span>📖</span> Come, Follow Me Reading
                         </div>
-                        <div className="text-xs font-semibold text-slate-800">{formData.come_follow_me}</div>
+                        <div className="text-xs font-semibold text-slate-800" style={{ whiteSpace: "pre-line" }}>{formData.come_follow_me}</div>
                       </div>
                     )}
 
@@ -1441,7 +1490,7 @@ const allWeeks = useMemo(() => {
                             <div key={idx} className="flex justify-between items-start text-xs border-b border-slate-100/60 pb-1.5 last:border-0 last:pb-0">
                               <div className="font-bold w-20 shrink-0" style={{ color: theme.textAccent }}>{act.day}</div>
                               <div className="flex-1 text-slate-800 font-semibold">
-                                {act.activity || "None"}
+                                {formatActivityName(act.activity) || "None"}
                                 {act.type && (
                                   <span className="ml-1.5 text-[8px] px-1 py-0.5 rounded font-extrabold uppercase bg-slate-100 text-slate-500 border border-slate-200 inline-block">
                                     {act.type}
@@ -1590,7 +1639,7 @@ const allWeeks = useMemo(() => {
                                 <tr key={idx} className="border-b" style={{ borderColor: theme.border }}>
                                   <td className="py-1 w-24 font-bold text-slate-700" style={{ color: theme.textAccent }}>{act.day}</td>
                                   <td className="py-1 font-medium">
-                                    <div>{act.activity}</div>
+                                    <div>{formatActivityName(act.activity)}</div>
                                     {act.time && <span className="text-[10px] text-slate-400 font-sans">{act.time}</span>}
                                   </td>
                                 </tr>
@@ -1622,7 +1671,7 @@ const allWeeks = useMemo(() => {
                       {formData.show_focus !== false && formData.come_follow_me && (
                         <div className="space-y-1.5">
                           <h3 className="font-bold text-xs uppercase tracking-wider border-b pb-0.5" style={{ color: theme.primary }}>📖 Come, Follow Me Study</h3>
-                          <p className="font-semibold text-slate-800 text-xs font-sans">
+                          <p className="font-semibold text-slate-800 text-xs font-sans" style={{ whiteSpace: "pre-line" }}>
                             {formData.come_follow_me}
                           </p>
                         </div>
@@ -1791,7 +1840,7 @@ const allWeeks = useMemo(() => {
                     {formData.come_follow_me && (
                       <div className="mt-3 pt-2 border-t border-dashed border-slate-200" style={{ borderColor: theme.border }}>
                         <div className="text-[10px] uppercase font-bold text-slate-500">📖 Come, Follow Me Reading</div>
-                        <div className="font-semibold text-[11px] text-slate-800 mt-0.5">{formData.come_follow_me}</div>
+                        <div className="font-semibold text-[11px] text-slate-800 mt-0.5" style={{ whiteSpace: "pre-line" }}>{formData.come_follow_me}</div>
                       </div>
                     )}
 
@@ -1805,7 +1854,7 @@ const allWeeks = useMemo(() => {
                               <tr key={idx} className="border-b border-slate-100 last:border-0">
                                 <td className="py-0.5 w-16 font-bold" style={{ color: theme.textAccent }}>{act.day}</td>
                                 <td className="py-0.5 font-medium text-slate-800">
-                                  {act.activity}
+                                  {formatActivityName(act.activity)}
                                   {act.type && (
                                     <span className="ml-1 text-[7px] px-0.5 py-px rounded font-extrabold uppercase bg-slate-100 text-slate-600 border border-slate-200 inline-block">
                                       {act.type}
@@ -1894,7 +1943,7 @@ const allWeeks = useMemo(() => {
                     {formData.come_follow_me && (
                       <div className="space-y-1.5 pt-3 border-t" style={{ borderColor: theme.border }}>
                         <h3 className="font-bold text-xs uppercase tracking-wider font-sans" style={{ color: theme.primary }}>📖 Come, Follow Me Reading</h3>
-                        <p className="font-semibold text-slate-800 text-xs font-sans">
+                        <p className="font-semibold text-slate-800 text-xs font-sans" style={{ whiteSpace: "pre-line" }}>
                           {formData.come_follow_me}
                         </p>
                       </div>
@@ -1933,7 +1982,7 @@ const allWeeks = useMemo(() => {
                               <tr key={idx} className="border-b" style={{ borderColor: theme.border }}>
                                 <td className="py-1 w-24 font-bold" style={{ color: theme.textAccent }}>{act.day}</td>
                                 <td className="py-1 font-medium">
-                                  {act.activity || "None scheduled"}
+                                  {formatActivityName(act.activity) || "None scheduled"}
                                   {act.type && (
                                     <span className="ml-1.5 text-[8px] px-1 py-0.5 rounded font-extrabold uppercase bg-slate-100 text-slate-500 border border-slate-200 inline-block">
                                       {act.type}
