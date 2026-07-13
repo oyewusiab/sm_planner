@@ -829,6 +829,11 @@ export function MembersPage({
     }
     futureMeetings.sort((a, b) => a.date.localeCompare(b.date));
 
+    const activeCount = db.MEMBERS.filter(m => upperText(m.status) === "ACTIVE").length;
+    const lessActiveCount = db.MEMBERS.filter(m => upperText(m.status) === "LESS-ACTIVE").length;
+    const assignedActiveCount = db.MEMBERS.filter(m => upperText(m.status) === "ACTIVE" && memberStats[m.member_id]?.total > 0).length;
+    const assignedLessActiveCount = db.MEMBERS.filter(m => upperText(m.status) === "LESS-ACTIVE" && memberStats[m.member_id]?.total > 0).length;
+
     return {
       members: processedMembersWithDiversity,
       orgMetrics,
@@ -854,7 +859,11 @@ export function MembersPage({
       yearlySegment,
       calendarYearTimeline,
       currentWeekAssignments,
-      futureMeetings
+      futureMeetings,
+      activeCount,
+      lessActiveCount,
+      assignedActiveCount,
+      assignedLessActiveCount,
     };
   }, [db.MEMBERS, db.PLANNERS, db.CHECKLISTS, db.ASSIGNMENTS, tab, filterMode]);
 
@@ -1456,10 +1465,10 @@ export function MembersPage({
               >
                 <div className="text-[9px] font-bold uppercase tracking-widest text-slate-400 group-hover:text-emerald-600 transition-colors">Active members</div>
                 <div className="mt-3 text-2xl font-black text-slate-800">
-                  {(analyticsData.statusStats || {})["ACTIVE"] || 0} <span className="text-xs font-normal text-slate-400">roles</span>
+                  {analyticsData.activeCount} <span className="text-xs font-normal text-slate-400">members</span>
                 </div>
                 <div className="mt-2 text-[10px] font-bold text-emerald-600 bg-emerald-50 w-fit px-1.5 py-0.5 rounded">
-                  Active engagement
+                  Engagement rate: {analyticsData.activeCount > 0 ? Math.round((analyticsData.assignedActiveCount / analyticsData.activeCount) * 100) : 0}%
                 </div>
               </div>
 
@@ -1467,15 +1476,12 @@ export function MembersPage({
                 onClick={() => { setTab("directory"); setFilterMode("LESS_ACTIVE_MEMBER"); }}
                 className="stat-card p-4 animate-scale-in stagger-2 cursor-pointer hover:border-rose-200 group transition-all bg-white border border-slate-100 rounded-2xl flex flex-col justify-between"
               >
-                <div className="text-[9px] font-bold uppercase tracking-widest text-slate-400 group-hover:text-rose-600 transition-colors">Less-Active roles</div>
-                <div className="grow mt-3 flex items-end gap-1.5">
-                  <div className="text-2xl font-black text-slate-800">{(analyticsData.statusStats || {})["LESS-ACTIVE"] || 0}</div>
-                  <div className="mb-0.5 text-[10px] font-extrabold text-rose-500">
-                    {Math.round((((analyticsData.statusStats || {})["LESS-ACTIVE"] || 0) / (analyticsData.totalAssignments || 1)) * 100)}%
-                  </div>
+                <div className="text-[9px] font-bold uppercase tracking-widest text-slate-400 group-hover:text-rose-600 transition-colors">Less-Active members</div>
+                <div className="mt-3 text-2xl font-black text-slate-800">
+                  {analyticsData.lessActiveCount} <span className="text-xs font-normal text-slate-400">members</span>
                 </div>
                 <div className="mt-2 text-[10px] font-bold text-rose-600 bg-rose-50 w-fit px-1.5 py-0.5 rounded">
-                  Inclusion rate
+                  Inclusion rate: {analyticsData.lessActiveCount > 0 ? Math.round((analyticsData.assignedLessActiveCount / analyticsData.lessActiveCount) * 100) : 0}%
                 </div>
               </div>
 
@@ -1910,6 +1916,18 @@ export function MembersPage({
                 if (!editing) return;
                 if (!editing.name.trim()) return;
                 const cleanName = editing.name.trim();
+                
+                let calculatedAge = editing.age ? Number(editing.age) : undefined;
+                if (editing.birth_date) {
+                  const birthDateTrimmed = editing.birth_date.trim();
+                  const yearMatch = birthDateTrimmed.match(/^(\d{4})[-/]\d{2}[-/]\d{2}$/);
+                  if (yearMatch) {
+                    const birthYear = Number(yearMatch[1]);
+                    const currentYear = new Date().getFullYear();
+                    calculatedAge = currentYear - birthYear;
+                  }
+                }
+
                 save({
                   ...editing,
                   member_id: cleanName,
@@ -1919,7 +1937,7 @@ export function MembersPage({
                   status: editing.status?.trim() || undefined,
                   email: editing.email?.trim() || undefined,
                   notes: editing.notes?.trim() || undefined,
-                  age: editing.age ? Number(editing.age) : undefined,
+                  age: calculatedAge,
                 }, editing.member_id || editing.name);
                 setOpen(false);
               }}
@@ -1967,7 +1985,7 @@ export function MembersPage({
               <Input value={editing.email ?? ""} onChange={(e) => setEditing((m) => (m ? { ...m, email: e.target.value } : m))} />
             </div>
             <div className="space-y-1">
-              <Label>Birthday (YYYY-MM-DD or MM-DD)</Label>
+              <Label>Date of Birth (YYYY-MM-DD or MM-DD)</Label>
               <Input value={editing.birth_date ?? ""} onChange={(e) => setEditing((m) => (m ? { ...m, birth_date: e.target.value } : m))} placeholder="e.g. 1990-07-14 or 07-14" />
             </div>
             <div className="space-y-1 md:col-span-2">

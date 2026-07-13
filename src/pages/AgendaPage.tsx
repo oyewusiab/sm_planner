@@ -136,8 +136,12 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
   const { data: activities = [] } = useTable("ACTIVITIES");
   const upsert = useUpsertMutation("AGENDAS");
   
-  const [selectedPlannerId, setSelectedPlannerId] = useState<string>("");
-  const [selectedWeekId, setSelectedWeekId] = useState<string>("");
+  const [selectedPlannerId, setSelectedPlannerId] = useState<string>(() => {
+    return localStorage.getItem("shared_selected_planner_id") || "";
+  });
+  const [selectedWeekId, setSelectedWeekId] = useState<string>(() => {
+    return localStorage.getItem("shared_selected_week_id") || "";
+  });
   const [selectedAgendaId, setSelectedAgendaId] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<"prepare" | "saved" | "preview">("prepare");
@@ -156,7 +160,7 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
 
   const activePlanners = useMemo(() => {
     const safePlanners = Array.isArray(planners) ? planners : [];
-    return safePlanners.filter(p => p.state === "SUBMITTED")
+    return safePlanners.filter(p => p.state === "SUBMITTED" || p.state === "ARCHIVED")
       .sort((a, b) => b.created_date.localeCompare(a.created_date));
   }, [planners]);
 
@@ -199,16 +203,37 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
   }, [savedAgendasList, searchQuery]);
 
   useEffect(() => {
-    if (!selectedPlannerId && activePlanners.length > 0) {
-      setSelectedPlannerId(activePlanners[0].planner_id);
+    if (selectedPlannerId) {
+      localStorage.setItem("shared_selected_planner_id", selectedPlannerId);
     }
-  }, [activePlanners, selectedPlannerId]);
+  }, [selectedPlannerId]);
 
   useEffect(() => {
-    if (activePlanner && !selectedWeekId && activePlanner.weeks.length > 0) {
-      setSelectedWeekId(activePlanner.weeks[0].week_id);
+    if (selectedWeekId) {
+      localStorage.setItem("shared_selected_week_id", selectedWeekId);
     }
-  }, [activePlanner, selectedWeekId]);
+  }, [selectedWeekId]);
+
+  // Load first planner/week by default
+  useEffect(() => {
+    const savedPlannerId = localStorage.getItem("shared_selected_planner_id");
+    if (savedPlannerId && activePlanners.some(p => p.planner_id === savedPlannerId)) {
+      setSelectedPlannerId(savedPlannerId);
+    } else if (activePlanners.length > 0) {
+      setSelectedPlannerId(activePlanners[0].planner_id);
+    }
+  }, [activePlanners]);
+
+  useEffect(() => {
+    const savedWeekId = localStorage.getItem("shared_selected_week_id");
+    if (activePlanner) {
+      if (savedWeekId && activePlanner.weeks.some(w => w.week_id === savedWeekId)) {
+        setSelectedWeekId(savedWeekId);
+      } else if (activePlanner.weeks.length > 0) {
+        setSelectedWeekId(activePlanner.weeks[0].week_id);
+      }
+    }
+  }, [activePlanner]);
 
   // Alert on browser close or reload if unsaved changes
   useEffect(() => {
@@ -231,14 +256,16 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
         setLocalAgenda(selected);
         setIsDirty(false);
       }
-    } else if (allAgendasForWeek.length > 0) {
-      setLocalAgenda(allAgendasForWeek[0]);
-      setIsDirty(false);
     } else {
       setLocalAgenda(null);
       setIsDirty(false);
     }
-  }, [selectedAgendaId, allAgendasForWeek, agendas]);
+  }, [selectedAgendaId, agendas]);
+
+  // Reset selectedAgendaId on week changes to avoid leak
+  useEffect(() => {
+    setSelectedAgendaId(null);
+  }, [selectedWeekId]);
 
   // Helper to check unsaved changes before switching week or planner
   const handleSelectPlannerChange = (plannerId: string) => {
@@ -498,14 +525,63 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
 
   const handleUpdateAgendaFromPlanner = () => {
     if (!localAgenda || !activePlanner || !activeWeek) return;
-    
-    if (!window.confirm("Are you sure you want to update this agenda with the latest details from the planner? This will overwrite the hymn, speaker, prayer, presiding, conducting and other planner-derived fields in the agenda with the planner's current version.")) {
-      return;
-    }
 
     const parsedOpening = parseHymn(activeWeek.hymns?.opening || "");
     const parsedSacrament = parseHymn(activeWeek.hymns?.sacrament || "");
     const parsedClosing = parseHymn(activeWeek.hymns?.closing || "");
+
+    const newOpeningPrayer = gender(activeWeek.prayers?.invocation || "", activeWeek.prayers?.invocation_gender);
+    const newClosingPrayer = gender(activeWeek.prayers?.benediction || "", activeWeek.prayers?.benediction_gender);
+
+    const newSpeakers = activeWeek.speakers.map(s => ({ name: gender(s.name, s.gender), topic: s.topic, reference: s.reference || "" }));
+
+    const sundayISO = activeWeek.date;
+    const upcoming = activities
+      .filter(a => a.activity && a.activity.trim() && a.date >= sundayISO)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(0, 5)
+      .map(a => `${a.activity} (${a.organisation}) — ${formatDateShort(a.date)}`);
+
+    const newAnnouncements = [...upcoming];
+    while (newAnnouncements.length < 6) {
+      newAnnouncements.push("");
+    }
+
+    const changes: string[] = [];
+    if (localAgenda.presiding !== (activeWeek.presiding || "")) {
+      changes.push(`- Presiding: "${localAgenda.presiding || "None"}" -> "${activeWeek.presiding || "None"}"`);
+    }
+    if (localAgenda.conducting !== (activeWeek.conducting_officer || "")) {
+      changes.push(`- Conducting: "${localAgenda.conducting || "None"}" -> "${activeWeek.conducting_officer || "None"}"`);
+    }
+    if (localAgenda.music_director !== (activeWeek.music?.director || "")) {
+      changes.push(`- Music Director: "${localAgenda.music_director || "None"}" -> "${activeWeek.music?.director || "None"}"`);
+    }
+    if (localAgenda.organist !== (activeWeek.music?.accompanist || "")) {
+      changes.push(`- Organist: "${localAgenda.organist || "None"}" -> "${activeWeek.music?.accompanist || "None"}"`);
+    }
+    if (localAgenda.opening_hymn !== parsedOpening.title || localAgenda.opening_hymn_number !== String(parsedOpening.number)) {
+      changes.push(`- Opening Hymn: "${localAgenda.opening_hymn_number || "None"} - ${localAgenda.opening_hymn || "None"}" -> "${parsedOpening.number} - ${parsedOpening.title}"`);
+    }
+    if (localAgenda.sacrament_hymn !== parsedSacrament.title || localAgenda.sacrament_hymn_number !== String(parsedSacrament.number)) {
+      changes.push(`- Sacrament Hymn: "${localAgenda.sacrament_hymn_number || "None"} - ${localAgenda.sacrament_hymn || "None"}" -> "${parsedSacrament.number} - ${parsedSacrament.title}"`);
+    }
+    if (localAgenda.closing_hymn !== parsedClosing.title || localAgenda.closing_hymn_number !== String(parsedClosing.number)) {
+      changes.push(`- Closing Hymn: "${localAgenda.closing_hymn_number || "None"} - ${localAgenda.closing_hymn || "None"}" -> "${parsedClosing.number} - ${parsedClosing.title}"`);
+    }
+    if (localAgenda.opening_prayer !== newOpeningPrayer) {
+      changes.push(`- Opening Prayer: "${localAgenda.opening_prayer || "None"}" -> "${newOpeningPrayer || "None"}"`);
+    }
+    if (localAgenda.closing_prayer !== newClosingPrayer) {
+      changes.push(`- Closing Prayer: "${localAgenda.closing_prayer || "None"}" -> "${newClosingPrayer || "None"}"`);
+    }
+
+    if (changes.length > 0) {
+      const confirmMsg = `The following fields in this agenda are different from the planner/calendar and will be overwritten:\n\n${changes.join("\n")}\n\nDo you want to proceed?`;
+      if (!window.confirm(confirmMsg)) {
+        return;
+      }
+    }
 
     const updated: Agenda = {
       ...localAgenda,
@@ -517,20 +593,21 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
       organist: activeWeek.music?.accompanist || "",
       ward_branch_business: activeWeek.note || "",
       opening_hymn: parsedOpening.title,
-      opening_hymn_number: parsedOpening.number,
-      opening_prayer: gender(activeWeek.prayers?.invocation || "", activeWeek.prayers?.invocation_gender),
+      opening_hymn_number: String(parsedOpening.number),
+      opening_prayer: newOpeningPrayer,
       sacrament_hymn: parsedSacrament.title,
-      sacrament_hymn_number: parsedSacrament.number,
-      speakers: activeWeek.speakers.map(s => ({ name: gender(s.name, s.gender), topic: s.topic, reference: s.reference || "" })),
+      sacrament_hymn_number: String(parsedSacrament.number),
+      speakers: newSpeakers,
       closing_hymn: parsedClosing.title,
-      closing_hymn_number: parsedClosing.number,
-      closing_prayer: gender(activeWeek.prayers?.benediction || "", activeWeek.prayers?.benediction_gender),
+      closing_hymn_number: String(parsedClosing.number),
+      closing_prayer: newClosingPrayer,
+      announcements: newAnnouncements,
       updated_date: time.now(),
     };
 
     setLocalAgenda(updated);
     setIsDirty(true);
-    alert("Agenda updated from planner details. Please review and click 'Save' to persist changes.");
+    alert("Agenda updated from planner and calendar details. Please review and click 'Save' to persist changes.");
   };
 
   const handleMemberPick = (field: keyof Agenda, member: Member) => {
@@ -1459,7 +1536,20 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
           </Card>
 
           {activePlanner && activeWeek ? (
-            localAgenda ? (
+            activeWeek.meeting_type === "Stake Conference" || activeWeek.is_canceled || activeWeek.cancel_reason ? (
+              <Card className="border border-slate-200 shadow-sm p-6 bg-slate-50">
+                <div className="text-center max-w-md mx-auto space-y-4 py-8">
+                  <span className="text-5xl">⛪</span>
+                  <h3 className="text-xl font-bold text-slate-800">No Sacrament Meeting Scheduled</h3>
+                  <p className="text-sm text-slate-500">
+                    There is no sacrament meeting scheduled for the week of <strong>{formatDateShort(activeWeek.date)}</strong>.
+                  </p>
+                  <div className="inline-block bg-amber-50 text-amber-800 border border-amber-200 rounded-xl px-4 py-2 text-sm font-semibold">
+                    Reason: {activeWeek.cancel_reason || activeWeek.meeting_type || "Stake Conference"}
+                  </div>
+                </div>
+              </Card>
+            ) : localAgenda ? (
               <div className="space-y-6">
                 
                 {/* Top Toolbar / Actions */}
@@ -1741,31 +1831,41 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
 
                   {/* Speakers */}
                   <Card className="shadow-sm border border-slate-100 md:col-span-2">
-                    <CardHeader><CardTitle>Sacrament Meeting Speakers (up to 5)</CardTitle></CardHeader>
+                    <CardHeader><CardTitle>Sacrament Meeting Speakers</CardTitle></CardHeader>
                     <CardBody className="space-y-3">
-                      {speakers.map((s, idx) => (
-                        <div key={idx} className="grid grid-cols-12 gap-3 items-end border-b border-slate-50 pb-2.5 last:border-0 last:pb-0">
-                          <div className="col-span-1 text-center font-bold text-slate-500 pb-2">{idx + 1}</div>
-                          <div className="col-span-4">
-                            <Label>Speaker Name</Label>
-                            <MemberAutocomplete
-                              members={members}
-                              value={s.name}
-                              onChange={val => updateAgendaSpeaker(idx, 'name', val)}
-                              onPick={m => handleSpeakerMemberPick(idx, m)}
-                              disabled={!canEdit}
-                            />
-                          </div>
-                          <div className="col-span-4">
-                            <Label>Topic</Label>
-                            <Input value={s.topic} onChange={e => updateAgendaSpeaker(idx, 'topic', e.target.value)} placeholder="Topic" disabled={!canEdit} />
-                          </div>
-                          <div className="col-span-3">
-                            <Label>Reference</Label>
-                            <Input value={s.reference || ""} onChange={e => updateAgendaSpeaker(idx, 'reference', e.target.value)} placeholder="Scripture/Talk" disabled={!canEdit} />
-                          </div>
+                      {localAgenda.type_of_meeting === "Fast & Testimony" ? (
+                        <div className="p-6 text-center bg-slate-50 border border-dashed rounded-xl space-y-2">
+                          <span className="text-3xl">🕊️</span>
+                          <div className="font-bold text-slate-700">Fast & Testimony Sunday</div>
+                          <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                            Pre-scheduled speakers are not needed. The time will be devoted to bearing spontaneous testimonies.
+                          </p>
                         </div>
-                      ))}
+                      ) : (
+                        speakers.map((s, idx) => (
+                          <div key={idx} className="grid grid-cols-12 gap-3 items-end border-b border-slate-50 pb-2.5 last:border-0 last:pb-0">
+                            <div className="col-span-1 text-center font-bold text-slate-500 pb-2">{idx + 1}</div>
+                            <div className="col-span-4">
+                              <Label>Speaker Name</Label>
+                              <MemberAutocomplete
+                                members={members}
+                                value={s.name}
+                                onChange={val => updateAgendaSpeaker(idx, 'name', val)}
+                                onPick={m => handleSpeakerMemberPick(idx, m)}
+                                disabled={!canEdit}
+                              />
+                            </div>
+                            <div className="col-span-4">
+                              <Label>Topic</Label>
+                              <Input value={s.topic} onChange={e => updateAgendaSpeaker(idx, 'topic', e.target.value)} placeholder="Topic" disabled={!canEdit} />
+                            </div>
+                            <div className="col-span-3">
+                              <Label>Reference</Label>
+                              <Input value={s.reference || ""} onChange={e => updateAgendaSpeaker(idx, 'reference', e.target.value)} placeholder="Scripture/Talk" disabled={!canEdit} />
+                            </div>
+                          </div>
+                        ))
+                      )}
                     </CardBody>
                   </Card>
 
@@ -2054,11 +2154,40 @@ export function AgendaPage({ user, unit, onChanged }: { user: User; unit: UnitSe
 
                 </div>
               </div>
+            ) : allAgendasForWeek.length > 0 ? (
+              <div className="space-y-4">
+                <Card className="border border-slate-200 shadow-sm p-6 bg-slate-50/50">
+                  <div className="text-center max-w-md mx-auto space-y-4">
+                    <span className="text-4xl block">📄</span>
+                    <h3 className="text-lg font-bold text-slate-800">Sacrament Agenda Prepared</h3>
+                    <p className="text-sm text-slate-500">
+                      An agenda has already been prepared for this week ({formatDateShort(activeWeek.date)}). Click below to open and edit it.
+                    </p>
+                    <div className="pt-2 flex flex-col gap-2">
+                      {allAgendasForWeek.map(agenda => (
+                        <div key={agenda.agenda_id} className="flex justify-between items-center bg-white p-3 border rounded-xl hover:border-blue-300 transition">
+                          <span className="text-xs font-semibold text-slate-700">
+                            {agenda.conducting ? `Conducting: ${agenda.conducting}` : "Sacrament Agenda"} ({agenda.state})
+                          </span>
+                          <Button 
+                            variant="primary" 
+                            size="sm" 
+                            onClick={() => setSelectedAgendaId(agenda.agenda_id)}
+                            icon="✏️"
+                          >
+                            Open & Edit
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </Card>
+              </div>
             ) : (
               <EmptyState
                 icon="📄"
-                title="No Agenda Loaded"
-                description="Select an existing agenda or click '+ New' to prepare a sacrament agenda for this week."
+                title="No Agenda Prepared Yet"
+                description="Click 'Create Agenda' below to start preparing the sacrament agenda for this week."
                 action={
                   canCreate ? (
                     <Button onClick={handleCreateAgenda} className="bg-blue-600 text-white font-semibold">Create Agenda</Button>

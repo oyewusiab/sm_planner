@@ -22,19 +22,27 @@ function getBirthdaysForWeek(members: Member[], sundayDateStr: string): string[]
   for (const m of members) {
     if (!m.birth_date) continue;
     
-    const parts = m.birth_date.split("-");
+    // Normalize delimiters to dash
+    const cleanBirth = m.birth_date.replace(/\//g, "-").trim();
+    const parts = cleanBirth.split("-");
     let mMonth = 0;
     let mDay = 0;
     
     if (parts.length === 3) {
-      mMonth = parseInt(parts[1], 10);
-      mDay = parseInt(parts[2], 10);
+      // YYYY-MM-DD or DD-MM-YYYY
+      if (parts[0].length === 4) {
+        mMonth = parseInt(parts[1], 10);
+        mDay = parseInt(parts[2], 10);
+      } else if (parts[2].length === 4) {
+        mMonth = parseInt(parts[1], 10);
+        mDay = parseInt(parts[0], 10);
+      }
     } else if (parts.length === 2) {
       mMonth = parseInt(parts[0], 10);
       mDay = parseInt(parts[1], 10);
     }
     
-    if (mMonth && mDay) {
+    if (mMonth && mDay && !isNaN(mMonth) && !isNaN(mDay)) {
       const isBirthdayThisWeek = weekDates.some(wd => wd.month === mMonth && wd.day === mDay);
       if (isBirthdayThisWeek) {
         matches.push(m.name);
@@ -161,28 +169,52 @@ export function BulletinPage({
     return planners.filter(p => p.state === "SUBMITTED" || p.state === "ARCHIVED");
   }, [planners]);
 
-  const [selectedPlannerId, setSelectedPlannerId] = useState("");
-  const [selectedWeekId, setSelectedWeekId] = useState("");
+  const [selectedPlannerId, setSelectedPlannerId] = useState<string>(() => {
+    return localStorage.getItem("shared_selected_planner_id") || "";
+  });
+  const [selectedWeekId, setSelectedWeekId] = useState<string>(() => {
+    return localStorage.getItem("shared_selected_week_id") || "";
+  });
   const [activeTab, setActiveTab] = useState<"edit" | "web" | "whatsapp" | "pdf">("edit");
   const [downloadingImage, setDownloadingImage] = useState(false);
   const [birthdaySearch, setBirthdaySearch] = useState("");
 
-  // Load first planner/week by default
   useEffect(() => {
-    if (!selectedPlannerId && activePlanners.length > 0) {
+    if (selectedPlannerId) {
+      localStorage.setItem("shared_selected_planner_id", selectedPlannerId);
+    }
+  }, [selectedPlannerId]);
+
+  useEffect(() => {
+    if (selectedWeekId) {
+      localStorage.setItem("shared_selected_week_id", selectedWeekId);
+    }
+  }, [selectedWeekId]);
+
+  // Load first planner/week by default matching local storage
+  useEffect(() => {
+    const savedPlannerId = localStorage.getItem("shared_selected_planner_id");
+    if (savedPlannerId && activePlanners.some(p => p.planner_id === savedPlannerId)) {
+      setSelectedPlannerId(savedPlannerId);
+    } else if (activePlanners.length > 0) {
       setSelectedPlannerId(activePlanners[0].planner_id);
     }
-  }, [activePlanners, selectedPlannerId]);
+  }, [activePlanners]);
 
   const activePlanner = useMemo(() => {
     return activePlanners.find(p => p.planner_id === selectedPlannerId);
   }, [activePlanners, selectedPlannerId]);
 
   useEffect(() => {
-    if (activePlanner && !selectedWeekId && activePlanner.weeks.length > 0) {
-      setSelectedWeekId(activePlanner.weeks[0].week_id);
+    const savedWeekId = localStorage.getItem("shared_selected_week_id");
+    if (activePlanner) {
+      if (savedWeekId && activePlanner.weeks.some(w => w.week_id === savedWeekId)) {
+        setSelectedWeekId(savedWeekId);
+      } else if (activePlanner.weeks.length > 0) {
+        setSelectedWeekId(activePlanner.weeks[0].week_id);
+      }
     }
-  }, [activePlanner, selectedWeekId]);
+  }, [activePlanner]);
 
   const activeWeek = useMemo(() => {
     return activePlanner?.weeks.find(w => w.week_id === selectedWeekId);
@@ -528,8 +560,23 @@ export function BulletinPage({
         </CardBody>
       </Card>
 
-      {/* EDIT TAB */}
-      {activeTab === "edit" && activeWeek && (
+      {activeWeek && (activeWeek.meeting_type === "Stake Conference" || activeWeek.is_canceled || activeWeek.cancel_reason) ? (
+        <Card className="border border-slate-200 shadow-sm p-6 bg-slate-50 mt-6">
+          <div className="text-center max-w-md mx-auto space-y-4 py-8">
+            <span className="text-5xl block">⛪</span>
+            <h3 className="text-xl font-bold text-slate-800">No Sacrament Meeting Scheduled</h3>
+            <p className="text-sm text-slate-500">
+              There is no sacrament meeting scheduled for the week of <strong>{formatDateShort(activeWeek.date)}</strong>. No weekly bulletin is required.
+            </p>
+            <div className="inline-block bg-amber-50 text-amber-800 border border-amber-200 rounded-xl px-4 py-2 text-sm font-semibold">
+              Reason: {activeWeek.cancel_reason || activeWeek.meeting_type || "Stake Conference"}
+            </div>
+          </div>
+        </Card>
+      ) : (
+        <>
+          {/* EDIT TAB */}
+          {activeTab === "edit" && activeWeek && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Form Fields */}
           <div className="lg:col-span-2 space-y-6">
@@ -1356,13 +1403,13 @@ export function BulletinPage({
               /* STANDARD LANDSCAPE RENDER */
               <div
                 id="bulletin-pdf-print-area"
-                className="bg-white text-black p-10 border border-slate-350 shadow-lg font-serif"
-                style={{ width: "11in", minWidth: "11in", minHeight: "8.5in", boxSizing: "border-box" }}
+                className="bg-white text-black p-10 border shadow-lg font-serif"
+                style={{ width: "11in", minWidth: "11in", minHeight: "8.5in", boxSizing: "border-box", backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }}
               >
                 {/* PDF Header */}
-                <div className="text-center border-b-2 border-slate-900 pb-4 mb-6">
-                  <h1 className="text-3xl font-bold tracking-wide text-slate-955 uppercase">{unit.unit_name || "Obantoko Ward"}</h1>
-                  <p className="text-sm font-semibold tracking-widest text-slate-700 uppercase mt-1">Weekly Ward Bulletin</p>
+                <div className="text-center border-b-2 pb-4 mb-6" style={{ borderColor: theme.primary }}>
+                  <h1 className="text-3xl font-bold tracking-wide uppercase" style={{ color: theme.primary }}>{unit.unit_name || "Obantoko Ward"}</h1>
+                  <p className="text-sm font-semibold tracking-widest uppercase mt-1" style={{ color: theme.textAccent }}>Weekly Ward Bulletin</p>
                   <div className="mt-2 text-xs font-medium text-slate-500">
                     Sunday, {formatDateShort(activeWeek.date)} — Prepared for Ward Members
                   </div>
@@ -1374,26 +1421,26 @@ export function BulletinPage({
                     {/* Sacrament Details */}
                     {formData.show_sacrament !== false && (
                       <div className="space-y-3">
-                        <h3 className="font-bold text-slate-900 text-sm border-b border-slate-400 pb-1">SACRAMENT MEETING PROGRAM</h3>
-                        {formData.theme && <div className="italic text-slate-600">Theme: "{formData.theme}"</div>}
+                        <h3 className="font-bold text-sm border-b pb-1" style={{ color: theme.primary, borderColor: theme.border }}>SACRAMENT MEETING PROGRAM</h3>
+                        {formData.theme && <div className="italic text-slate-650">Theme: "{formData.theme}"</div>}
                         <table className="w-full">
-                          <tbody className="divide-y divide-slate-100">
-                            <tr><td className="py-1 text-slate-600">Presiding</td><td className="py-1 text-right font-medium">{presiding}</td></tr>
-                            <tr><td className="py-1 text-slate-600">Conducting</td><td className="py-1 text-right font-medium">{conducting}</td></tr>
-                            <tr><td className="py-1 text-slate-600">Opening Hymn</td><td className="py-1 text-right font-medium">{openingHymn}</td></tr>
-                            <tr><td className="py-1 text-slate-600">Sacrament Hymn</td><td className="py-1 text-right font-medium">{sacramentHymn}</td></tr>
+                          <tbody className="divide-y divide-slate-100" style={{ borderColor: theme.border }}>
+                            <tr><td className="py-1 text-slate-500">Presiding</td><td className="py-1 text-right font-medium">{presiding}</td></tr>
+                            <tr><td className="py-1 text-slate-500">Conducting</td><td className="py-1 text-right font-medium">{conducting}</td></tr>
+                            <tr><td className="py-1 text-slate-500">Opening Hymn</td><td className="py-1 text-right font-medium">{openingHymn}</td></tr>
+                            <tr><td className="py-1 text-slate-500">Sacrament Hymn</td><td className="py-1 text-right font-medium">{sacramentHymn}</td></tr>
                             {formData.special_music && (
-                              <tr><td className="py-1 text-slate-600">Special Music</td><td className="py-1 text-right font-medium">{formData.special_music}</td></tr>
+                              <tr><td className="py-1 text-slate-500">Special Music</td><td className="py-1 text-right font-medium">{formData.special_music}</td></tr>
                             )}
                             {parsedSpeakers.map((s, idx) => (
                               <tr key={idx}>
-                                <td className="py-1 text-slate-600">Speaker {idx + 1}</td>
+                                <td className="py-1 text-slate-500">Speaker {idx + 1}</td>
                                 <td className="py-1 text-right font-medium">{s.name} {s.topic ? `(${s.topic})` : ""}</td>
                               </tr>
                             ))}
-                            <tr><td className="py-1 text-slate-600">Closing Hymn</td><td className="py-1 text-right font-medium">{closingHymn}</td></tr>
-                            <tr><td className="py-1 text-slate-600">Opening Prayer</td><td className="py-1 text-right font-medium">{openingPrayer}</td></tr>
-                            <tr><td className="py-1 text-slate-600">Closing Prayer</td><td className="py-1 text-right font-medium">{closingPrayer}</td></tr>
+                            <tr><td className="py-1 text-slate-500">Closing Hymn</td><td className="py-1 text-right font-medium">{closingHymn}</td></tr>
+                            <tr><td className="py-1 text-slate-500">Opening Prayer</td><td className="py-1 text-right font-medium">{openingPrayer}</td></tr>
+                            <tr><td className="py-1 text-slate-500">Closing Prayer</td><td className="py-1 text-right font-medium">{closingPrayer}</td></tr>
                           </tbody>
                         </table>
                       </div>
@@ -1402,8 +1449,8 @@ export function BulletinPage({
                     {/* Birthdays */}
                     {formData.show_birthdays !== false && (formData.birthdays || []).length > 0 && (
                       <div className="space-y-2">
-                        <h3 className="font-bold text-slate-900 text-sm border-b border-slate-400 pb-1">🎂 BIRTHDAYS THIS WEEK</h3>
-                        <p className="text-slate-800 font-medium font-sans">
+                        <h3 className="font-bold text-sm border-b pb-1" style={{ color: theme.primary, borderColor: theme.border }}>🎂 BIRTHDAYS THIS WEEK</h3>
+                        <p className="font-medium font-sans text-xs" style={{ color: theme.textAccent }}>
                           {(formData.birthdays || []).join(", ")}
                         </p>
                       </div>
@@ -1411,9 +1458,9 @@ export function BulletinPage({
 
                     {/* Bishopric Message */}
                     {formData.show_bishopric !== false && formData.bishopric_message && (
-                      <div className="space-y-2 bg-slate-50 p-4 border border-slate-200 rounded">
-                        <h3 className="font-bold text-slate-900 text-xs border-b border-slate-300 pb-1">BISHOPRIC MESSAGE</h3>
-                        <p className="italic text-slate-700 leading-relaxed font-sans text-xs">
+                      <div className="space-y-2 p-4 border rounded" style={{ backgroundColor: theme.primaryLight, borderColor: theme.border }}>
+                        <h3 className="font-bold text-xs border-b pb-1" style={{ color: theme.primary, borderColor: theme.border }}>BISHOPRIC MESSAGE</h3>
+                        <p className="italic text-slate-800 leading-relaxed font-sans text-xs">
                           "{formData.bishopric_message}"
                         </p>
                       </div>
@@ -1425,12 +1472,12 @@ export function BulletinPage({
                     {/* Weekly Activities */}
                     {formData.show_activities !== false && (formData.activities || []).length > 0 && (
                       <div className="space-y-3">
-                        <h3 className="font-bold text-slate-900 text-sm border-b border-slate-400 pb-1">WEEKLY ACTIVITIES</h3>
+                        <h3 className="font-bold text-sm border-b pb-1" style={{ color: theme.primary, borderColor: theme.border }}>WEEKLY ACTIVITIES</h3>
                         <table className="w-full">
                           <tbody>
                             {(formData.activities || []).filter(act => act.activity).map((act) => (
-                              <tr key={act.day} className="border-b border-slate-100">
-                                <td className="py-1 w-24 font-semibold text-slate-800">{act.day}</td>
+                              <tr key={act.day} className="border-b" style={{ borderColor: theme.border }}>
+                                <td className="py-1 w-24 font-bold" style={{ color: theme.textAccent }}>{act.day}</td>
                                 <td className="py-1 font-medium">{act.activity || "None scheduled"}</td>
                                 <td className="py-1 w-28 text-right text-slate-500 text-xs italic">{formatTime12h(act.time)}</td>
                               </tr>
@@ -1443,15 +1490,15 @@ export function BulletinPage({
                     {/* Missionary Corner */}
                     {formData.show_missionary !== false && (
                       <div className="space-y-2">
-                        <h3 className="font-bold text-slate-900 text-sm border-b border-slate-400 pb-1">🌍 MISSIONARY CORNER</h3>
+                        <h3 className="font-bold text-sm border-b pb-1" style={{ color: theme.primary, borderColor: theme.border }}>🌍 MISSIONARY CORNER</h3>
                         {(formData.missionaries || []).length > 0 && (
-                          <div>Full-Time Missionaries: <span className="font-medium">{(formData.missionaries || []).join(", ")}</span></div>
+                          <div>Full-Time Missionaries: <span className="font-medium" style={{ color: theme.text }}>{(formData.missionaries || []).join(", ")}</span></div>
                         )}
                         {formData.scripture_of_the_week && (
                           <div>Scripture of the Week: <span className="italic">"{formData.scripture_of_the_week}"</span></div>
                         )}
                         {formData.missionary_challenge && (
-                          <div>Challenge: <span className="font-medium">{formData.missionary_challenge}</span></div>
+                          <div>Challenge: <span className="font-medium" style={{ color: theme.textAccent }}>{formData.missionary_challenge}</span></div>
                         )}
                       </div>
                     )}
@@ -1459,7 +1506,7 @@ export function BulletinPage({
                     {/* Welfare & Upcoming events */}
                     {formData.show_upcoming !== false && (formData.upcoming_events || []).length > 0 && (
                       <div className="space-y-2">
-                        <h3 className="font-bold text-slate-900 text-sm border-b border-slate-400 pb-1">📣 UPCOMING EVENTS</h3>
+                        <h3 className="font-bold text-sm border-b pb-1" style={{ color: theme.primary, borderColor: theme.border }}>📣 UPCOMING EVENTS</h3>
                         <ul className="list-disc pl-4 space-y-1">
                           {(formData.upcoming_events || []).map((evt, i) => (
                             <li key={i}>{evt}</li>
@@ -1471,7 +1518,7 @@ export function BulletinPage({
                     {/* Welfare */}
                     {formData.show_welfare !== false && (formData.welfare_reminders || []).length > 0 && (
                       <div className="space-y-2">
-                        <h3 className="font-bold text-slate-900 text-sm border-b border-slate-400 pb-1">🤲 WELFARE REMINDERS</h3>
+                        <h3 className="font-bold text-sm border-b pb-1" style={{ color: theme.primary, borderColor: theme.border }}>🤲 WELFARE REMINDERS</h3>
                         <ul className="list-disc pl-4 space-y-1">
                           {(formData.welfare_reminders || []).map((rem, i) => (
                             <li key={i}>{rem}</li>
@@ -1482,9 +1529,9 @@ export function BulletinPage({
 
                     {/* QR Codes Section */}
                     {formData.show_qr !== false && (
-                      <div className="space-y-2 pt-4 border-t border-slate-200">
-                        <h3 className="font-bold text-slate-900 text-xs tracking-wider uppercase">Online Resources & Links</h3>
-                        <div className="flex gap-2 flex-wrap text-[10px] text-slate-600 font-sans">
+                      <div className="space-y-2 pt-4 border-t" style={{ borderColor: theme.border }}>
+                        <h3 className="font-bold text-xs tracking-wider uppercase" style={{ color: theme.primary }}>Online Resources & Links</h3>
+                        <div className="flex gap-2 flex-wrap text-[10px] text-slate-650 font-sans">
                           {formData.qr_whatsapp && <div>• WhatsApp Group: <span className="underline">{formData.qr_whatsapp}</span></div>}
                           {formData.qr_website && <div>• Ward Website: <span className="underline">{formData.qr_website}</span></div>}
                           <div>• FamilySearch: <span className="underline">{formData.qr_familysearch}</span></div>
@@ -1496,15 +1543,16 @@ export function BulletinPage({
                 </div>
 
                 {/* PDF Footer */}
-                <div className="text-center text-[9px] text-slate-400 border-t border-slate-350 pt-4 mt-8 font-sans">
+                <div className="text-center text-[9px] text-slate-400 border-t pt-4 mt-8 font-sans" style={{ borderColor: theme.border }}>
                   This is prepared as a weekly informational sheet for local ward members. It is not an official publication of The Church of Jesus Christ of Latter-day Saints.
                 </div>
-
               </div>
             )}
             
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

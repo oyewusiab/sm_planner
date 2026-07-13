@@ -626,7 +626,7 @@ export function NotificationsPage({
                         {!n.read ? <Badge tone="blue">New</Badge> : <Badge tone="gray">Read</Badge>}
                       </div>
                       <div className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{n.body}</div>
-                      <div className="mt-2 text-xs text-slate-500">{new Date(n.created_date).toLocaleString()}</div>
+                      <div className="mt-2 text-xs text-slate-500">{formatDateShort(n.created_date)} {formatTime12h(n.created_date)}</div>
                     </div>
                     <div className="shrink-0">
                       <div className="flex flex-col gap-2">

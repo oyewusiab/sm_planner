@@ -190,6 +190,18 @@ function asText(value: unknown) {
   return typeof value === "string" ? value : String(value ?? "");
 }
 
+export function cleanDateToYYYYMMDD(val: any): string {
+  if (!val) return "";
+  const s = String(val).trim();
+  if (s.includes("T")) {
+    return s.split("T")[0];
+  }
+  if (s.includes(" ")) {
+    return s.split(" ")[0];
+  }
+  return s;
+}
+
 function sanitizeMemberRecord(raw: any) {
   const name = asText(raw?.name).trim();
   const ageValue = raw?.age;
@@ -205,11 +217,11 @@ function sanitizeMemberRecord(raw: any) {
     age: Number.isFinite(parsedAge) ? parsedAge : undefined,
     phone: asText(raw?.phone).trim(),
     email: asText(raw?.email).trim(),
-    birth_date: asText(raw?.birth_date).trim() || undefined,
+    birth_date: cleanDateToYYYYMMDD(raw?.birth_date) || undefined,
     organisation: asText(raw?.organisation).trim(),
     status: asText(raw?.status).trim(),
     notes: asText(raw?.notes).trim(),
-    created_date: asText(raw?.created_date).trim() || undefined,
+    created_date: cleanDateToYYYYMMDD(raw?.created_date) || undefined,
     total_assignments: raw?.total_assignments !== undefined && raw?.total_assignments !== null && raw?.total_assignments !== "" ? Number(raw.total_assignments) : undefined,
     spoken_count: raw?.spoken_count !== undefined && raw?.spoken_count !== null && raw?.spoken_count !== "" ? Number(raw.spoken_count) : undefined,
     prayers_count: raw?.prayers_count !== undefined && raw?.prayers_count !== null && raw?.prayers_count !== "" ? Number(raw.prayers_count) : undefined,
@@ -427,7 +439,12 @@ function normalizeDB(raw: any): DB {
     REMINDERS: Array.isArray(raw?.REMINDERS) ? raw.REMINDERS : [],
     HYMNS: Array.isArray(raw?.HYMNS) ? raw.HYMNS : [],
     AGENDAS,
-    ACTIVITIES: Array.isArray(raw?.ACTIVITIES) ? raw.ACTIVITIES : [],
+    ACTIVITIES: Array.isArray(raw?.ACTIVITIES)
+      ? raw.ACTIVITIES.map((a: any) => ({
+          ...a,
+          date: cleanDateToYYYYMMDD(a.date),
+        }))
+      : [],
     "OTHER CHURCH PROGRAM": Array.isArray(raw?.["OTHER CHURCH PROGRAM"]) ? raw["OTHER CHURCH PROGRAM"] : [],
     "PUBLIC HOLIDAY": Array.isArray(raw?.["PUBLIC HOLIDAY"]) ? raw["PUBLIC HOLIDAY"] : [],
     CONTACTS: Array.isArray(raw?.CONTACTS) ? raw.CONTACTS : [],
