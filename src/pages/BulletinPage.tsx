@@ -80,12 +80,45 @@ function getBirthdaysForWeek(members: Member[], sundayDateStr: string): string[]
     if (mMonth && mDay && !isNaN(mMonth) && !isNaN(mDay)) {
       const isBirthdayThisWeek = weekDates.some(wd => wd.month === mMonth && wd.day === mDay);
       if (isBirthdayThisWeek) {
-        const mStr = monthNames[mMonth - 1];
-        matches.push(`${m.name} (${mDay} ${mStr})`);
+        const gender = (m.gender || "").trim().toUpperCase();
+        const prefix = gender === "M" ? "Brother " : gender === "F" ? "Sister " : "";
+        matches.push(`${prefix}${m.name} (${mDay})`);
       }
     }
   }
   return matches;
+}
+
+function formatMemberNameWithPrefix(nameStr: string, membersList: Member[]): string {
+  if (!nameStr) return "";
+  const nameTrimmed = nameStr.trim();
+  const upper = nameTrimmed.toUpperCase();
+  if (
+    upper.startsWith("BROTHER") ||
+    upper.startsWith("SISTER") ||
+    upper.startsWith("BRO.") ||
+    upper.startsWith("SIS.") ||
+    upper.startsWith("ELDER") ||
+    upper.startsWith("PRESIDENT") ||
+    upper.startsWith("PRES.") ||
+    upper.startsWith("BISHOP")
+  ) {
+    return nameTrimmed;
+  }
+  const normalizedSearch = nameTrimmed.toLowerCase().replace(/\s+/g, "");
+  const found = membersList.find(m => {
+    const mName = m.name.toLowerCase().replace(/\s+/g, "");
+    return mName === normalizedSearch || mName.includes(normalizedSearch) || normalizedSearch.includes(mName);
+  });
+  if (found) {
+    const gender = (found.gender || "").trim().toUpperCase();
+    if (gender === "M") {
+      return `Brother ${nameTrimmed}`;
+    } else if (gender === "F") {
+      return `Sister ${nameTrimmed}`;
+    }
+  }
+  return nameTrimmed;
 }
 
 const DEFAULT_ACTIVITIES: BulletinActivity[] = [
@@ -1313,15 +1346,15 @@ const allWeeks = useMemo(() => {
                       <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: theme.textMuted }}>Speakers:</div>
                       {parsedSpeakers.map((s, idx) => (
                         <div key={idx} className="p-2.5 rounded border border-slate-100" style={{ backgroundColor: theme.bg }}>
-                          <div className="font-semibold text-slate-800">{s.name}</div>
+                          <div className="font-semibold text-slate-800">{formatMemberNameWithPrefix(s.name, members)}</div>
                           {s.topic && <div className="text-[11px] text-slate-500 mt-0.5">Topic: {s.topic}</div>}
                         </div>
                       ))}
                     </div>
                   )}
                   <div className="flex justify-between pt-2 border-t" style={{ borderColor: theme.border }}><span className="text-slate-500">Closing Hymn:</span><span className="font-semibold" style={{ color: theme.text }}>{closingHymn}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Opening Prayer:</span><span className="font-semibold" style={{ color: theme.text }}>{openingPrayer}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Closing Prayer:</span><span className="font-semibold" style={{ color: theme.text }}>{closingPrayer}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Opening Prayer:</span><span className="font-semibold" style={{ color: theme.text }}>{formatMemberNameWithPrefix(openingPrayer, members)}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Closing Prayer:</span><span className="font-semibold" style={{ color: theme.text }}>{formatMemberNameWithPrefix(closingPrayer, members)}</span></div>
                 </div>
               </div>
             )}
@@ -1537,7 +1570,7 @@ const allWeeks = useMemo(() => {
                     {formData.show_sacrament !== false && (
                       <div className="bg-white border p-5 rounded-2xl space-y-3" style={{ backgroundColor: theme.cardBg, borderColor: theme.border }}>
                         <div className="flex items-center gap-2 font-bold text-base border-b pb-2" style={{ color: theme.primary, borderColor: theme.border }}>
-                          <span>⛪</span> Sacrament Meeting
+                          <span>⛪</span> Next Week Sunday Sacrament Meeting
                         </div>
                         {formData.theme && (
                           <div className="italic text-xs font-semibold" style={{ color: theme.textMuted }}>"{formData.theme}"</div>
@@ -1555,7 +1588,7 @@ const allWeeks = useMemo(() => {
                               <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Speakers</div>
                               {parsedSpeakers.slice(0, 3).map((s, idx) => (
                                 <div key={idx} className="p-2 rounded border border-slate-50" style={{ backgroundColor: theme.bg }}>
-                                  <div className="font-semibold text-slate-800 text-[11px]">{s.name}</div>
+                                  <div className="font-semibold text-slate-800 text-[11px]">{formatMemberNameWithPrefix(s.name, members)}</div>
                                   {s.topic && <div className="text-[10px] text-slate-500">Topic: {s.topic}</div>}
                                 </div>
                               ))}
@@ -1697,11 +1730,11 @@ const allWeeks = useMemo(() => {
               <div id="bulletin-pdf-print-area" className="space-y-8 bg-slate-100 p-4">
                 {/* PAGE 1 */}
                 <div
-                  className="bg-white text-black p-10 border shadow-lg font-serif relative"
+                  className="bg-white text-black p-7 border shadow-lg font-serif relative"
                   style={{ width: "297mm", minWidth: "297mm", height: "210mm", maxHeight: "210mm", overflow: "hidden", boxSizing: "border-box", backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }}
                 >
                   {/* PDF Header */}
-                  <div className="text-center border-b-2 pb-4 mb-6" style={{ borderColor: theme.primary }}>
+                  <div className="text-center border-b-2 pb-2.5 mb-4" style={{ borderColor: theme.primary }}>
                     <h1 className="text-3xl font-bold tracking-wide uppercase" style={{ color: theme.primary }}>{unit.unit_name || "Obantoko Ward"}</h1>
                     <p className="text-sm font-semibold tracking-widest uppercase mt-1" style={{ color: theme.textAccent }}>Weekly Ward Bulletin</p>
                     <div className="mt-2 text-xs font-medium text-slate-500">
@@ -1714,7 +1747,7 @@ const allWeeks = useMemo(() => {
                     <div className="space-y-6">
                       {formData.show_sacrament !== false && (
                         <div className="space-y-3">
-                          <h3 className="font-bold text-sm border-b pb-1" style={{ color: theme.primary, borderColor: theme.border }}>SACRAMENT MEETING PROGRAM</h3>
+                          <h3 className="font-bold text-sm border-b pb-1" style={{ color: theme.primary, borderColor: theme.border }}>NEXT WEEK SUNDAY SACRAMENT MEETING PROGRAM</h3>
                           {formData.theme && <div className="italic text-slate-650">Theme: "{formData.theme}"</div>}
                           <table className="w-full">
                             <tbody className="divide-y divide-slate-100" style={{ borderColor: theme.border }}>
@@ -1730,7 +1763,7 @@ const allWeeks = useMemo(() => {
                                     <div className="space-y-1">
                                       {parsedSpeakers.map((s, idx) => (
                                         <div key={idx} className="flex justify-between text-xs py-0.5 border-b border-dashed border-slate-100">
-                                          <span className="font-medium text-slate-700">{s.name}</span>
+                                          <span className="font-medium text-slate-700">{formatMemberNameWithPrefix(s.name, members)}</span>
                                           {s.topic && <span className="text-slate-500 italic">Topic: {s.topic}</span>}
                                         </div>
                                       ))}
@@ -1739,8 +1772,8 @@ const allWeeks = useMemo(() => {
                                 </tr>
                               )}
                               <tr><td className="py-1 text-slate-500">Closing Hymn</td><td className="py-1 text-right font-medium">{closingHymn}</td></tr>
-                              <tr><td className="py-1 text-slate-500">Opening Prayer</td><td className="py-1 text-right font-medium">{openingPrayer}</td></tr>
-                              <tr><td className="py-1 text-slate-500">Closing Prayer</td><td className="py-1 text-right font-medium">{closingPrayer}</td></tr>
+                              <tr><td className="py-1 text-slate-500">Opening Prayer</td><td className="py-1 text-right font-medium">{formatMemberNameWithPrefix(openingPrayer, members)}</td></tr>
+                              <tr><td className="py-1 text-slate-500">Closing Prayer</td><td className="py-1 text-right font-medium">{formatMemberNameWithPrefix(closingPrayer, members)}</td></tr>
                             </tbody>
                           </table>
                         </div>
@@ -1773,11 +1806,11 @@ const allWeeks = useMemo(() => {
 
                 {/* PAGE 2 */}
                 <div
-                  className="bg-white text-black p-10 border shadow-lg font-serif relative"
+                  className="bg-white text-black p-7 border shadow-lg font-serif relative"
                   style={{ width: "297mm", minWidth: "297mm", height: "210mm", maxHeight: "210mm", overflow: "hidden", boxSizing: "border-box", backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }}
                 >
                   {/* Page 2 Header */}
-                  <div className="text-center border-b pb-2 mb-4" style={{ borderColor: theme.primary }}>
+                  <div className="text-center border-b pb-1 mb-2.5" style={{ borderColor: theme.primary }}>
                     <h2 className="text-xl font-bold tracking-wide uppercase" style={{ color: theme.primary }}>{unit.unit_name || "Obantoko Ward"} Bulletin</h2>
                     <div className="text-[10px] font-medium text-slate-500 mt-1">
                       {getWeekRangeLabel(activeWeek.date)} — Page 2
@@ -1933,7 +1966,7 @@ const allWeeks = useMemo(() => {
                     {/* Sacrament Program */}
                     {formData.show_sacrament !== false && (
                       <div className="space-y-2 text-[11px]">
-                        <h4 className="font-bold border-b pb-0.5 text-center" style={{ color: theme.primary, borderColor: theme.border }}>SACRAMENT MEETING PROGRAM</h4>
+                        <h4 className="font-bold border-b pb-0.5 text-center" style={{ color: theme.primary, borderColor: theme.border }}>NEXT WEEK SUNDAY SACRAMENT MEETING PROGRAM</h4>
                         {formData.theme && <div className="italic text-center text-slate-600">Theme: "{formData.theme}"</div>}
                         <div className="space-y-1 font-sans text-xs">
                           <div className="flex justify-between"><span className="text-slate-500">Opening Hymn:</span><span className="font-semibold">{openingHymn}</span></div>
@@ -1946,7 +1979,7 @@ const allWeeks = useMemo(() => {
                               {parsedSpeakers.map((s, i) => (
                                 <div key={i} className="flex justify-between">
                                   <span className="text-slate-500">Speaker:</span>
-                                  <span className="font-semibold">{s.name} {s.topic ? `(${s.topic})` : ""}</span>
+                                  <span className="font-semibold">{formatMemberNameWithPrefix(s.name, members)} {s.topic ? `(${s.topic})` : ""}</span>
                                 </div>
                               ))}
                             </div>
@@ -2018,11 +2051,11 @@ const allWeeks = useMemo(() => {
             ) : (
               <div
                 id="bulletin-pdf-print-area"
-                className="bg-white text-black p-10 border shadow-lg font-serif"
+                className="bg-white text-black p-7 border shadow-lg font-serif"
                 style={{ width: "297mm", minWidth: "297mm", height: "210mm", maxHeight: "210mm", overflow: "hidden", boxSizing: "border-box", backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }}
               >
                 {/* PDF Header */}
-                <div className="text-center border-b-2 pb-4 mb-6" style={{ borderColor: theme.primary }}>
+                <div className="text-center border-b-2 pb-2.5 mb-4" style={{ borderColor: theme.primary }}>
                   <h1 className="text-3xl font-bold tracking-wide uppercase" style={{ color: theme.primary }}>{unit.unit_name || "Obantoko Ward"}</h1>
                   <p className="text-sm font-semibold tracking-widest uppercase mt-1" style={{ color: theme.textAccent }}>Weekly Ward Bulletin</p>
                   <div className="mt-2 text-xs font-medium text-slate-500">
@@ -2036,7 +2069,7 @@ const allWeeks = useMemo(() => {
                     {/* Sacrament Details */}
                     {formData.show_sacrament !== false && (
                       <div className="space-y-3">
-                        <h3 className="font-bold text-sm border-b pb-1" style={{ color: theme.primary, borderColor: theme.border }}>SACRAMENT MEETING PROGRAM</h3>
+                        <h3 className="font-bold text-sm border-b pb-1" style={{ color: theme.primary, borderColor: theme.border }}>NEXT WEEK SUNDAY SACRAMENT MEETING PROGRAM</h3>
                         {formData.theme && <div className="italic text-slate-650">Theme: "{formData.theme}"</div>}
                         <table className="w-full">
                           <tbody className="divide-y divide-slate-100" style={{ borderColor: theme.border }}>
@@ -2048,12 +2081,12 @@ const allWeeks = useMemo(() => {
                             {parsedSpeakers.map((s, idx) => (
                               <tr key={idx}>
                                 <td className="py-1 text-slate-500">Speaker {idx + 1}</td>
-                                <td className="py-1 text-right font-medium">{s.name} {s.topic ? `(${s.topic})` : ""}</td>
+                                <td className="py-1 text-right font-medium">{formatMemberNameWithPrefix(s.name, members)} {s.topic ? `(${s.topic})` : ""}</td>
                               </tr>
                             ))}
                             <tr><td className="py-1 text-slate-500">Closing Hymn</td><td className="py-1 text-right font-medium">{closingHymn}</td></tr>
-                            <tr><td className="py-1 text-slate-500">Opening Prayer</td><td className="py-1 text-right font-medium">{openingPrayer}</td></tr>
-                            <tr><td className="py-1 text-slate-500">Closing Prayer</td><td className="py-1 text-right font-medium">{closingPrayer}</td></tr>
+                            <tr><td className="py-1 text-slate-500">Opening Prayer</td><td className="py-1 text-right font-medium">{formatMemberNameWithPrefix(openingPrayer, members)}</td></tr>
+                            <tr><td className="py-1 text-slate-500">Closing Prayer</td><td className="py-1 text-right font-medium">{formatMemberNameWithPrefix(closingPrayer, members)}</td></tr>
                           </tbody>
                         </table>
                       </div>

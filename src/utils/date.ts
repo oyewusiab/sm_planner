@@ -31,6 +31,9 @@ export function formatDateShort(isoDate: string) {
 
 export function formatTime12h(isoDate: string) {
   if (!isoDate) return "Not set";
+  if (isoDate.toUpperCase().includes("AM") || isoDate.toUpperCase().includes("PM")) {
+    return isoDate;
+  }
   // Detect Google Sheets zero-date (1899-12-30)
   if (isoDate.startsWith("1899-12-30")) return "Not set";
   try {
