@@ -255,7 +255,7 @@ export function BulletinPage({
         }
       });
       otherPrograms.forEach(p => {
-        if (p.date >= sundayISO && p.date <= endISO) {
+        if (p.program && p.program.trim() && p.date >= sundayISO && p.date <= endISO) {
           upcomingList.push({ label: `${p.program} (${p.organisation})`, date: p.date });
         }
       });
@@ -446,13 +446,15 @@ export function BulletinPage({
         });
 
         dayPrograms.forEach(prog => {
-          const isStake = prog.organisation?.toLowerCase().includes("stake");
-          importedList.push({
-            day: dayName,
-            activity: `${prog.organisation}: ${prog.program}`,
-            time: "12:00 PM",
-            type: isStake ? "Stake" : "Ward"
-          });
+          if (prog.program && prog.program.trim()) {
+            const isStake = prog.organisation?.toLowerCase().includes("stake");
+            importedList.push({
+              day: dayName,
+              activity: `${prog.organisation}: ${prog.program}`,
+              time: "12:00 PM",
+              type: isStake ? "Stake" : "Ward"
+            });
+          }
         });
       }
     }
@@ -482,7 +484,7 @@ export function BulletinPage({
 
     // Filter other church programs
     otherPrograms.forEach(p => {
-      if (p.date >= startISO && p.date <= endISO) {
+      if (p.program && p.program.trim() && p.date >= startISO && p.date <= endISO) {
         list.push({ label: `${p.program} (${p.organisation})`, date: p.date });
       }
     });
