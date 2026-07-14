@@ -314,40 +314,6 @@ const allWeeks = useMemo(() => {
   const [birthdaySearch, setBirthdaySearch] = useState("");
   const [isEditing, setIsEditing] = useState(false);
 
-  const [pdfScale, setPdfScale] = useState(1);
-  const pdfContentRef = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    if (formData.pdf_layout === "standard-2page" || formData.pdf_layout === "bi-fold") {
-      setPdfScale(1);
-      return;
-    }
-    const container = pdfContentRef.current;
-    if (!container) return;
-
-    // Reset styles to measure original scrollHeight
-    container.style.transform = "none";
-    container.style.width = "100%";
-    container.style.height = "100%";
-
-    const runMeasure = () => {
-      const scrollH = container.scrollHeight;
-      const parent = container.parentElement;
-      if (!parent) return;
-      const parentH = parent.clientHeight || 793;
-
-      if (scrollH > parentH) {
-        const newScale = (parentH - 4) / scrollH;
-        setPdfScale(Math.max(0.4, Math.min(1, newScale)));
-      } else {
-        setPdfScale(1);
-      }
-    };
-
-    const timer = setTimeout(runMeasure, 50);
-    return () => clearTimeout(timer);
-  }, [formData]);
-
   useEffect(() => {
     setIsEditing(false);
   }, [selectedWeekId]);
@@ -512,6 +478,40 @@ const allWeeks = useMemo(() => {
   }, [bulletins, selectedWeekId]);
 
   const [formData, setFormData] = useState<Partial<Bulletin>>({});
+
+  const [pdfScale, setPdfScale] = useState(1);
+  const pdfContentRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (formData.pdf_layout === "standard-2page" || formData.pdf_layout === "bi-fold") {
+      setPdfScale(1);
+      return;
+    }
+    const container = pdfContentRef.current;
+    if (!container) return;
+
+    // Reset styles to measure original scrollHeight
+    container.style.transform = "none";
+    container.style.width = "100%";
+    container.style.height = "100%";
+
+    const runMeasure = () => {
+      const scrollH = container.scrollHeight;
+      const parent = container.parentElement;
+      if (!parent) return;
+      const parentH = parent.clientHeight || 793;
+
+      if (scrollH > parentH) {
+        const newScale = (parentH - 4) / scrollH;
+        setPdfScale(Math.max(0.4, Math.min(1, newScale)));
+      } else {
+        setPdfScale(1);
+      }
+    };
+
+    const timer = setTimeout(runMeasure, 50);
+    return () => clearTimeout(timer);
+  }, [formData, activeTab]);
 
   // Initialize form state when selection changes
   useEffect(() => {
