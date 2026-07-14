@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useLayoutEffect } from "react";
 import type { Bulletin, BulletinActivity, Member, Planner, UnitSettings, User, CalendarActivity, OtherChurchProgram } from "../types";
 import { Button, Card, CardBody, CardHeader, CardTitle, Divider, EmptyState, Input, Label, Select, Textarea } from "../components/ui";
 import { ids, updateDB, useTable } from "../utils/storage";
@@ -313,6 +313,40 @@ const allWeeks = useMemo(() => {
   const [downloadingImage, setDownloadingImage] = useState(false);
   const [birthdaySearch, setBirthdaySearch] = useState("");
   const [isEditing, setIsEditing] = useState(false);
+
+  const [pdfScale, setPdfScale] = useState(1);
+  const pdfContentRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (formData.pdf_layout === "standard-2page" || formData.pdf_layout === "bi-fold") {
+      setPdfScale(1);
+      return;
+    }
+    const container = pdfContentRef.current;
+    if (!container) return;
+
+    // Reset styles to measure original scrollHeight
+    container.style.transform = "none";
+    container.style.width = "100%";
+    container.style.height = "100%";
+
+    const runMeasure = () => {
+      const scrollH = container.scrollHeight;
+      const parent = container.parentElement;
+      if (!parent) return;
+      const parentH = parent.clientHeight || 793;
+
+      if (scrollH > parentH) {
+        const newScale = (parentH - 4) / scrollH;
+        setPdfScale(Math.max(0.4, Math.min(1, newScale)));
+      } else {
+        setPdfScale(1);
+      }
+    };
+
+    const timer = setTimeout(runMeasure, 50);
+    return () => clearTimeout(timer);
+  }, [formData]);
 
   useEffect(() => {
     setIsEditing(false);
@@ -2471,9 +2505,24 @@ const allWeeks = useMemo(() => {
             ) : (
               <div
                 id="bulletin-pdf-print-area"
-                className="bg-white text-black p-7 border shadow-lg font-serif"
-                style={{ width: "297mm", minWidth: "297mm", height: "210mm", maxHeight: "210mm", overflow: "hidden", boxSizing: "border-box", backgroundColor: theme.bg, color: theme.text, borderColor: theme.border }}
+                className="bg-white text-black border shadow-lg font-serif"
+                style={{ width: "297mm", minWidth: "297mm", height: "210mm", maxHeight: "210mm", overflow: "hidden", boxSizing: "border-box", backgroundColor: theme.bg, color: theme.text, borderColor: theme.border, padding: 0 }}
               >
+                <div
+                  ref={pdfContentRef}
+                  style={{
+                    transform: pdfScale < 1 ? `scale(${pdfScale})` : "none",
+                    transformOrigin: "top left",
+                    width: pdfScale < 1 ? `${100 / pdfScale}%` : "100%",
+                    height: pdfScale < 1 ? `${100 / pdfScale}%` : "100%",
+                    padding: "28px",
+                    boxSizing: "border-box",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between"
+                  }}
+                >
+                  <div>
                 {/* PDF Header */}
                 <div className="text-center border-b-2 pb-2.5 mb-4" style={{ borderColor: theme.primary }}>
                   <h1 className="text-3xl font-bold tracking-wide uppercase" style={{ color: theme.primary }}>{unit.unit_name || "Obantoko Ward"}</h1>
@@ -2662,12 +2711,14 @@ const allWeeks = useMemo(() => {
                     )}
                   </div>
                 </div>
-
-                {/* PDF Footer */}
-                <div className="text-center text-[9px] text-slate-400 border-t pt-4 mt-8 font-sans" style={{ borderColor: theme.border }}>
-                  This is prepared as a weekly informational sheet for local ward members. It is not an official publication of The Church of Jesus Christ of Latter-day Saints.
-                </div>
               </div>
+
+              {/* PDF Footer */}
+              <div className="text-center text-[9px] text-slate-400 border-t pt-4 mt-8 font-sans" style={{ borderColor: theme.border }}>
+                This is prepared as a weekly informational sheet for local ward members. It is not an official publication of The Church of Jesus Christ of Latter-day Saints.
+              </div>
+            </div>
+          </div>
             )}
             
           </div>
