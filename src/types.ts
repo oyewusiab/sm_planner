@@ -462,6 +462,18 @@ export type Bulletin = {
   theme?: string;
   special_music?: string;
   come_follow_me?: string;
+  cfm_reading?: string;
+  cfm_theme?: string;
+  cfm_discussion_question?: string;
+  cfm_family_challenge?: string;
+  cfm_study_tip?: string;
+
+  // Cleaning Invitation
+  cleaning_group?: string;
+  cleaning_date?: string;
+  cleaning_time?: string;
+  cleaning_instructions?: string;
+  show_cleaning?: boolean;
   
   // Custom week activities
   activities?: BulletinActivity[];

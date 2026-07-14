@@ -388,6 +388,15 @@ const allWeeks = useMemo(() => {
       theme: "",
       special_music: "",
       come_follow_me: "",
+      cfm_reading: "",
+      cfm_theme: "",
+      cfm_discussion_question: "",
+      cfm_family_challenge: "",
+      cfm_study_tip: "",
+      cleaning_group: "",
+      cleaning_date: "",
+      cleaning_time: "",
+      cleaning_instructions: "",
       activities: activitiesList,
       birthdays: defaultBirthdays,
       missionaries: [],
@@ -417,6 +426,7 @@ const allWeeks = useMemo(() => {
       show_bishopric: true,
       show_upcoming: true,
       show_qr: true,
+      show_cleaning: true,
       color_theme: "navy",
       pdf_layout: "standard"
     });
@@ -514,6 +524,16 @@ const allWeeks = useMemo(() => {
       setFormData({
         theme: "",
         special_music: "",
+        come_follow_me: "",
+        cfm_reading: "",
+        cfm_theme: "",
+        cfm_discussion_question: "",
+        cfm_family_challenge: "",
+        cfm_study_tip: "",
+        cleaning_group: "",
+        cleaning_date: "",
+        cleaning_time: "",
+        cleaning_instructions: "",
         activities: DEFAULT_ACTIVITIES,
         birthdays: defaultBirthdays,
         missionaries: [],
@@ -543,6 +563,7 @@ const allWeeks = useMemo(() => {
         show_bishopric: true,
         show_upcoming: true,
         show_qr: true,
+        show_cleaning: true,
         color_theme: "navy",
         pdf_layout: "standard"
       });
@@ -619,6 +640,15 @@ const allWeeks = useMemo(() => {
       theme: formData.theme || "",
       special_music: formData.special_music || "",
       come_follow_me: formData.come_follow_me || "",
+      cfm_reading: formData.cfm_reading || "",
+      cfm_theme: formData.cfm_theme || "",
+      cfm_discussion_question: formData.cfm_discussion_question || "",
+      cfm_family_challenge: formData.cfm_family_challenge || "",
+      cfm_study_tip: formData.cfm_study_tip || "",
+      cleaning_group: formData.cleaning_group || "",
+      cleaning_date: formData.cleaning_date || "",
+      cleaning_time: formData.cleaning_time || "",
+      cleaning_instructions: formData.cleaning_instructions || "",
       activities: formData.activities || [],
       birthdays: formData.birthdays || [],
       missionaries: formData.missionaries || [],
@@ -648,6 +678,7 @@ const allWeeks = useMemo(() => {
       show_bishopric: formData.show_bishopric !== false,
       show_upcoming: formData.show_upcoming !== false,
       show_qr: formData.show_qr !== false,
+      show_cleaning: formData.show_cleaning !== false,
       color_theme: formData.color_theme || "navy",
       pdf_layout: formData.pdf_layout || "standard",
       created_date: currentBulletin?.created_date || now,
@@ -1077,15 +1108,59 @@ const allWeeks = useMemo(() => {
                     </label>
                   </div>
                   {formData.show_focus !== false && (
-                    <div className="bg-slate-50 p-4 rounded-lg space-y-2">
-                      <Label>Weekly Scripture Reading & Study Details</Label>
-                      <Textarea
-                        rows={4}
-                        value={formData.come_follow_me || ""}
-                        onChange={e => handleFieldChange("come_follow_me", e.target.value)}
-                        placeholder="Type scriptures, focus questions, or reading assignments for this week. Press enter for paragraphs."
-                        className="w-full"
-                      />
+                    <div className="bg-slate-50 p-4 rounded-lg space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label>Weekly Reading Block (Optional)</Label>
+                          <Input
+                            value={formData.cfm_reading || ""}
+                            onChange={e => handleFieldChange("cfm_reading", e.target.value)}
+                            placeholder="e.g. Helaman 1-6"
+                          />
+                        </div>
+                        <div>
+                          <Label>Weekly Study Theme (Optional)</Label>
+                          <Input
+                            value={formData.cfm_theme || ""}
+                            onChange={e => handleFieldChange("cfm_theme", e.target.value)}
+                            placeholder="e.g. 'Preserve in Your Remembrance'"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <Label>Family Discussion Question (Optional)</Label>
+                        <Input
+                          value={formData.cfm_discussion_question || ""}
+                          onChange={e => handleFieldChange("cfm_discussion_question", e.target.value)}
+                          placeholder="e.g. How can we build our lives upon the rock of our Redeemer?"
+                        />
+                      </div>
+                      <div>
+                        <Label>Weekly Family Challenge (Optional)</Label>
+                        <Input
+                          value={formData.cfm_family_challenge || ""}
+                          onChange={e => handleFieldChange("cfm_family_challenge", e.target.value)}
+                          placeholder="e.g. Read Helaman 5:12 together and draw a picture of a house on a rock."
+                        />
+                      </div>
+                      <div>
+                        <Label>Weekly Study Tip (Optional)</Label>
+                        <Input
+                          value={formData.cfm_study_tip || ""}
+                          onChange={e => handleFieldChange("cfm_study_tip", e.target.value)}
+                          placeholder="e.g. Mark every reference to 'remember' in this week's reading."
+                        />
+                      </div>
+                      <div>
+                        <Label>Additional Study Details / Scripture Notes (Optional)</Label>
+                        <Textarea
+                          rows={3}
+                          value={formData.come_follow_me || ""}
+                          onChange={e => handleFieldChange("come_follow_me", e.target.value)}
+                          placeholder="Type any additional scriptures, announcements, or custom text. Press enter for paragraphs."
+                          className="w-full"
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1293,6 +1368,57 @@ const allWeeks = useMemo(() => {
                   )}
                 </div>
 
+                {/* 7. Chapel Cleaning Invitation */}
+                <div className="pt-6 space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h3 className="font-semibold text-slate-900 text-base">7. Chapel Cleaning Invitation</h3>
+                    <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                      <input type="checkbox" checked={formData.show_cleaning !== false} onChange={e => handleFieldChange("show_cleaning", e.target.checked)} className="rounded" />
+                      Show Section
+                    </label>
+                  </div>
+                  {formData.show_cleaning !== false && (
+                    <div className="bg-slate-50 p-4 rounded-lg space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label>Assigned Group / Organization / Families</Label>
+                          <Input
+                            value={formData.cleaning_group || ""}
+                            onChange={e => handleFieldChange("cleaning_group", e.target.value)}
+                            placeholder="e.g. Elders Quorum & Relief Society District 1"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label>Cleaning Date</Label>
+                            <Input
+                              value={formData.cleaning_date || ""}
+                              onChange={e => handleFieldChange("cleaning_date", e.target.value)}
+                              placeholder="e.g. Saturday, July 18"
+                            />
+                          </div>
+                          <div>
+                            <Label>Cleaning Time</Label>
+                            <Input
+                              value={formData.cleaning_time || ""}
+                              onChange={e => handleFieldChange("cleaning_time", e.target.value)}
+                              placeholder="e.g. 8:00 AM"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <div>
+                        <Label>Special Instructions / Focus Areas (Optional)</Label>
+                        <Input
+                          value={formData.cleaning_instructions || ""}
+                          onChange={e => handleFieldChange("cleaning_instructions", e.target.value)}
+                          placeholder="e.g. Focus will be sacrament hall. Supplies provided."
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
               </CardBody>
             </Card>
           </div>
@@ -1362,6 +1488,7 @@ const allWeeks = useMemo(() => {
                 <div className="space-y-2">
                   <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={formData.show_temple !== false} onChange={e => handleFieldChange("show_temple", e.target.checked)} className="rounded" />Show Temple Section</label>
                   <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={formData.show_self_reliance !== false} onChange={e => handleFieldChange("show_self_reliance", e.target.checked)} className="rounded" />Show Self-Reliance</label>
+                  <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={formData.show_cleaning !== false} onChange={e => handleFieldChange("show_cleaning", e.target.checked)} className="rounded" />Show Chapel Cleaning</label>
                   <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={formData.show_qr !== false} onChange={e => handleFieldChange("show_qr", e.target.checked)} className="rounded" />Show QR Codes</label>
                 </div>
                 <Divider />
@@ -1432,14 +1559,65 @@ const allWeeks = useMemo(() => {
             )}
 
             {/* Come Follow Me */}
-            {formData.show_focus !== false && formData.come_follow_me && (
-              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs space-y-2" style={{ backgroundColor: theme.cardBg }}>
-                <div className="flex items-center gap-2 border-b pb-1.5 font-bold text-sm" style={{ color: theme.primary, borderColor: theme.border }}>
-                  <span>📖</span> Come, Follow Me Reading
+            {formData.show_focus !== false && (formData.cfm_reading || formData.cfm_theme || formData.cfm_discussion_question || formData.cfm_family_challenge || formData.cfm_study_tip || formData.come_follow_me) && (
+              <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4" style={{ backgroundColor: theme.cardBg }}>
+                <div className="flex items-center gap-2 border-b pb-2 font-bold text-sm" style={{ color: theme.primary, borderColor: theme.border }}>
+                  <span>📖</span> Come, Follow Me Study
                 </div>
-                <div className="text-xs font-semibold text-slate-800" style={{ whiteSpace: "pre-line" }}>
-                  {formData.come_follow_me}
-                </div>
+                
+                {/* Reading Block & Theme */}
+                {(formData.cfm_reading || formData.cfm_theme) && (
+                  <div className="space-y-1 bg-slate-50 p-3 rounded-xl border border-slate-100" style={{ backgroundColor: theme.primaryLight, borderColor: theme.border }}>
+                    {formData.cfm_reading && (
+                      <div className="font-bold text-xs uppercase tracking-wider" style={{ color: theme.textAccent }}>
+                        Reading: {formData.cfm_reading}
+                      </div>
+                    )}
+                    {formData.cfm_theme && (
+                      <div className="text-sm font-extrabold text-slate-800 leading-tight" style={{ color: theme.text }}>
+                        "{formData.cfm_theme}"
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Discussion Question */}
+                {formData.cfm_discussion_question && (
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">💡 Family Discussion</div>
+                    <div className="text-xs font-semibold text-slate-700 leading-relaxed border-l-2 pl-2.5" style={{ borderColor: theme.accent }}>
+                      {formData.cfm_discussion_question}
+                    </div>
+                  </div>
+                )}
+
+                {/* Family Challenge */}
+                {formData.cfm_family_challenge && (
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">🎯 Weekly Challenge</div>
+                    <div className="text-xs font-medium text-slate-700 leading-relaxed p-2.5 rounded-lg border flex gap-2 items-start" style={{ backgroundColor: theme.accentLight, color: theme.textAccent, borderColor: theme.border }}>
+                      <span className="text-amber-600">✨</span>
+                      <span>{formData.cfm_family_challenge}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Study Tip */}
+                {formData.cfm_study_tip && (
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">🔑 Study Tip</div>
+                    <div className="text-xs text-slate-600 italic">
+                      {formData.cfm_study_tip}
+                    </div>
+                  </div>
+                )}
+
+                {/* General Scripture Notes */}
+                {formData.come_follow_me && (
+                  <div className="text-xs font-medium text-slate-605 leading-relaxed pt-2 border-t border-slate-100" style={{ whiteSpace: "pre-line", borderColor: theme.border }}>
+                    {formData.come_follow_me}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1589,6 +1767,44 @@ const allWeeks = useMemo(() => {
               </div>
             )}
 
+            {/* Chapel Cleaning */}
+            {formData.show_cleaning !== false && (formData.cleaning_group || formData.cleaning_date || formData.cleaning_time || formData.cleaning_instructions) && (
+              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs space-y-2.5" style={{ backgroundColor: theme.cardBg }}>
+                <div className="flex items-center gap-2 border-b pb-1.5 font-bold text-sm" style={{ color: theme.primary, borderColor: theme.border }}>
+                  <span>🧹</span> Chapel Cleaning Invitation
+                </div>
+                <div className="text-xs space-y-2 text-slate-700">
+                  {formData.cleaning_group && (
+                    <div>
+                      <span className="text-slate-500">Invited Group:</span>{" "}
+                      <span className="font-bold text-slate-800" style={{ color: theme.textAccent }}>
+                        {formData.cleaning_group}
+                      </span>
+                    </div>
+                  )}
+                  {(formData.cleaning_date || formData.cleaning_time) && (
+                    <div className="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100" style={{ backgroundColor: theme.primaryLight, borderColor: theme.border }}>
+                      <div>
+                        <span className="text-slate-500 font-sans">Date:</span>{" "}
+                        <span className="font-semibold text-slate-855">{formData.cleaning_date || "Saturday"}</span>
+                      </div>
+                      {formData.cleaning_time && (
+                        <div>
+                          <span className="text-slate-500 font-sans">Time:</span>{" "}
+                          <span className="font-semibold text-slate-855">{formData.cleaning_time}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {formData.cleaning_instructions && (
+                    <div className="text-xs italic text-slate-600 font-medium">
+                      Note: {formData.cleaning_instructions}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Disclaimer */}
             <div className="text-[10px] text-slate-400 text-center leading-relaxed px-4 pt-4 border-t border-slate-200">
               Prepared for {unit.unit_name || "Ward"} members. Unofficial bulletin.
@@ -1672,12 +1888,43 @@ const allWeeks = useMemo(() => {
                     )}
 
                     {/* Come Follow Me */}
-                    {formData.show_focus !== false && formData.come_follow_me && (
-                      <div className="bg-white border p-4 rounded-2xl space-y-2" style={{ backgroundColor: theme.cardBg, borderColor: theme.border }}>
+                    {formData.show_focus !== false && (formData.cfm_reading || formData.cfm_theme || formData.cfm_discussion_question || formData.cfm_family_challenge || formData.cfm_study_tip || formData.come_follow_me) && (
+                      <div className="bg-white border p-4 rounded-2xl space-y-2.5" style={{ backgroundColor: theme.cardBg, borderColor: theme.border }}>
                         <div className="flex items-center gap-2 font-bold text-sm border-b pb-1.5" style={{ color: theme.primary, borderColor: theme.border }}>
-                          <span>📖</span> Come, Follow Me Reading
+                          <span>📖</span> Come, Follow Me Study
                         </div>
-                        <div className="text-xs font-semibold text-slate-800" style={{ whiteSpace: "pre-line" }}>{formData.come_follow_me}</div>
+                        <div className="text-xs space-y-2 text-slate-800">
+                          {(formData.cfm_reading || formData.cfm_theme) && (
+                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100/50" style={{ backgroundColor: theme.primaryLight, borderColor: theme.border }}>
+                              {formData.cfm_reading && <div className="font-bold text-[10px] uppercase tracking-wider text-slate-500" style={{ color: theme.textAccent }}>Reading: {formData.cfm_reading}</div>}
+                              {formData.cfm_theme && <div className="font-bold text-slate-800 mt-0.5">"{formData.cfm_theme}"</div>}
+                            </div>
+                          )}
+                          {formData.cfm_discussion_question && (
+                            <div className="space-y-0.5">
+                              <div className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Discussion Question</div>
+                              <div className="font-semibold text-slate-700 leading-relaxed border-l-2 pl-2" style={{ borderColor: theme.accent }}>{formData.cfm_discussion_question}</div>
+                            </div>
+                          )}
+                          {formData.cfm_family_challenge && (
+                            <div className="space-y-0.5">
+                              <div className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Family Challenge</div>
+                              <div className="font-medium text-slate-700 leading-relaxed p-2 rounded-lg border flex gap-1 items-start" style={{ backgroundColor: theme.accentLight, color: theme.textAccent, borderColor: theme.border }}>
+                                <span>✨</span>
+                                <span>{formData.cfm_family_challenge}</span>
+                              </div>
+                            </div>
+                          )}
+                          {formData.cfm_study_tip && (
+                            <div className="space-y-0.5">
+                              <div className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Study Tip</div>
+                              <div className="italic text-slate-650 font-medium">{formData.cfm_study_tip}</div>
+                            </div>
+                          )}
+                          {formData.come_follow_me && (
+                            <div className="text-[11px] font-medium text-slate-600 leading-relaxed pt-1.5 border-t border-slate-100" style={{ whiteSpace: "pre-line", borderColor: theme.border }}>{formData.come_follow_me}</div>
+                          )}
+                        </div>
                       </div>
                     )}
 
@@ -1751,6 +1998,32 @@ const allWeeks = useMemo(() => {
                             <li key={i} className="line-clamp-1">{evt}</li>
                           ))}
                         </ul>
+                      </div>
+                    )}
+
+                    {/* Chapel Cleaning */}
+                    {formData.show_cleaning !== false && (formData.cleaning_group || formData.cleaning_date || formData.cleaning_time || formData.cleaning_instructions) && (
+                      <div className="bg-white border p-5 rounded-2xl space-y-2.5" style={{ backgroundColor: theme.cardBg, borderColor: theme.border }}>
+                        <div className="flex items-center gap-2 font-bold text-sm border-b pb-1.5" style={{ color: theme.primary, borderColor: theme.border }}>
+                          <span>🧹</span> Chapel Cleaning Invitation
+                        </div>
+                        <div className="text-xs space-y-1.5 text-slate-700">
+                          {formData.cleaning_group && (
+                            <div>
+                              <span className="text-slate-500">Invited:</span>{" "}
+                              <span className="font-bold text-slate-800" style={{ color: theme.textAccent }}>{formData.cleaning_group}</span>
+                            </div>
+                          )}
+                          {(formData.cleaning_date || formData.cleaning_time) && (
+                            <div className="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100/50" style={{ backgroundColor: theme.primaryLight, borderColor: theme.border }}>
+                              <div>Date: <span className="font-semibold text-slate-800">{formData.cleaning_date || "Saturday"}</span></div>
+                              {formData.cleaning_time && <div>Time: <span className="font-semibold text-slate-800">{formData.cleaning_time}</span></div>}
+                            </div>
+                          )}
+                          {formData.cleaning_instructions && (
+                            <div className="text-[11px] italic text-slate-650 font-medium">Note: {formData.cleaning_instructions}</div>
+                          )}
+                        </div>
                       </div>
                     )}
 
@@ -1892,12 +2165,38 @@ const allWeeks = useMemo(() => {
                   <div className="grid grid-cols-2 gap-8 text-[12px] leading-relaxed">
                     {/* Left Column: Focus, CFM, Birthdays, Bishopric Message */}
                     <div className="space-y-4">
-                      {formData.show_focus !== false && formData.come_follow_me && (
-                        <div className="space-y-1.5">
+                      {formData.show_focus !== false && (formData.cfm_reading || formData.cfm_theme || formData.cfm_discussion_question || formData.cfm_family_challenge || formData.cfm_study_tip || formData.come_follow_me) && (
+                        <div className="space-y-2">
                           <h3 className="font-bold text-xs uppercase tracking-wider border-b pb-0.5" style={{ color: theme.primary }}>📖 Come, Follow Me Study</h3>
-                          <p className="font-semibold text-slate-800 text-xs font-sans" style={{ whiteSpace: "pre-line" }}>
-                            {formData.come_follow_me}
-                          </p>
+                          <div className="text-xs space-y-1 font-sans">
+                            {(formData.cfm_reading || formData.cfm_theme) && (
+                              <div className="bg-slate-50 p-1.5 rounded border border-slate-100/50" style={{ backgroundColor: theme.primaryLight, borderColor: theme.border }}>
+                                {formData.cfm_reading && <div className="font-bold text-[10px]" style={{ color: theme.textAccent }}>Reading: {formData.cfm_reading}</div>}
+                                {formData.cfm_theme && <div className="font-bold text-slate-800 leading-tight">"{formData.cfm_theme}"</div>}
+                              </div>
+                            )}
+                            {formData.cfm_discussion_question && (
+                              <div>
+                                <span className="font-bold text-[10px] text-slate-400 block uppercase">Discussion:</span>
+                                <div className="font-semibold text-slate-700 leading-normal border-l pl-1.5" style={{ borderColor: theme.accent }}>{formData.cfm_discussion_question}</div>
+                              </div>
+                            )}
+                            {formData.cfm_family_challenge && (
+                              <div className="p-1.5 rounded border text-[11px] leading-normal font-medium" style={{ backgroundColor: theme.accentLight, color: theme.textAccent, borderColor: theme.border }}>
+                                <strong>Challenge:</strong> {formData.cfm_family_challenge}
+                              </div>
+                            )}
+                            {formData.cfm_study_tip && (
+                              <div className="italic text-slate-500 text-[11px]">
+                                <strong>Tip:</strong> {formData.cfm_study_tip}
+                              </div>
+                            )}
+                            {formData.come_follow_me && (
+                              <p className="font-medium text-slate-650 text-xs border-t pt-1" style={{ whiteSpace: "pre-line", borderColor: theme.border }}>
+                                {formData.come_follow_me}
+                              </p>
+                            )}
+                          </div>
                         </div>
                       )}
                       {formData.show_birthdays !== false && (formData.birthdays || []).length > 0 && (
@@ -1943,6 +2242,18 @@ const allWeeks = useMemo(() => {
                               <li key={i}>{evt}</li>
                             ))}
                           </ul>
+                        </div>
+                      )}
+                      {formData.show_cleaning !== false && (formData.cleaning_group || formData.cleaning_date || formData.cleaning_time || formData.cleaning_instructions) && (
+                        <div className="space-y-1">
+                          <h3 className="font-bold text-xs border-b pb-0.5" style={{ color: theme.primary, borderColor: theme.border }}>🧹 CHAPEL CLEANING</h3>
+                          <div className="text-[11px] font-sans space-y-1 text-slate-700">
+                            {formData.cleaning_group && <div>Invited Group: <span className="font-bold">{formData.cleaning_group}</span></div>}
+                            {(formData.cleaning_date || formData.cleaning_time) && (
+                              <div>Date/Time: <span className="font-semibold">{formData.cleaning_date || "Saturday"}{formData.cleaning_time ? ` at ${formData.cleaning_time}` : ""}</span></div>
+                            )}
+                            {formData.cleaning_instructions && <div className="italic text-slate-500 font-medium">Note: {formData.cleaning_instructions}</div>}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -2061,10 +2372,33 @@ const allWeeks = useMemo(() => {
                       </div>
                     )}
 
-                    {formData.show_focus !== false && formData.come_follow_me && (
+                    {formData.show_focus !== false && (formData.cfm_reading || formData.cfm_theme || formData.cfm_discussion_question || formData.cfm_family_challenge || formData.cfm_study_tip || formData.come_follow_me) && (
                       <div className="mt-3 pt-2 border-t border-dashed border-slate-200" style={{ borderColor: theme.border }}>
                         <div className="text-[10px] uppercase font-bold text-slate-500">📖 Come, Follow Me Reading</div>
-                        <div className="font-semibold text-[11px] text-slate-800 mt-0.5" style={{ whiteSpace: "pre-line" }}>{formData.come_follow_me}</div>
+                        <div className="text-xs space-y-1 font-sans mt-1">
+                          {(formData.cfm_reading || formData.cfm_theme) && (
+                            <div className="bg-slate-50 p-1.5 rounded border border-slate-100/50" style={{ backgroundColor: theme.primaryLight, borderColor: theme.border }}>
+                              {formData.cfm_reading && <div className="font-bold text-[9px] text-slate-500" style={{ color: theme.textAccent }}>Reading: {formData.cfm_reading}</div>}
+                              {formData.cfm_theme && <div className="font-bold text-slate-800 leading-tight">"{formData.cfm_theme}"</div>}
+                            </div>
+                          )}
+                          {formData.cfm_discussion_question && (
+                            <div className="text-xs font-semibold text-slate-705 leading-normal border-l pl-1.5" style={{ borderColor: theme.accent }}>{formData.cfm_discussion_question}</div>
+                          )}
+                          {formData.cfm_family_challenge && (
+                            <div className="p-1 rounded border text-[10px] leading-normal font-medium" style={{ backgroundColor: theme.accentLight, color: theme.textAccent, borderColor: theme.border }}>
+                              <strong>Challenge:</strong> {formData.cfm_family_challenge}
+                            </div>
+                          )}
+                          {formData.cfm_study_tip && (
+                            <div className="italic text-slate-500 text-[10px]">
+                              <strong>Tip:</strong> {formData.cfm_study_tip}
+                            </div>
+                          )}
+                          {formData.come_follow_me && (
+                            <div className="font-medium text-slate-655 text-[11px] mt-0.5" style={{ whiteSpace: "pre-line" }}>{formData.come_follow_me}</div>
+                          )}
+                        </div>
                       </div>
                     )}
 
@@ -2117,6 +2451,20 @@ const allWeeks = useMemo(() => {
                       </ul>
                     </div>
                   )}
+
+                  {/* Chapel Cleaning */}
+                  {formData.show_cleaning !== false && (formData.cleaning_group || formData.cleaning_date || formData.cleaning_time || formData.cleaning_instructions) && (
+                    <div className="border-t pt-3 space-y-1" style={{ borderColor: theme.border }}>
+                      <h4 className="font-bold text-[10px] uppercase tracking-wider mb-1" style={{ color: theme.primary }}>🧹 Chapel Cleaning</h4>
+                      <div className="text-[11px] font-sans space-y-1 text-slate-700 leading-normal">
+                        {formData.cleaning_group && <div>Invited: <span className="font-bold text-slate-800">{formData.cleaning_group}</span></div>}
+                        {(formData.cleaning_date || formData.cleaning_time) && (
+                          <div>Date/Time: <span className="font-semibold">{formData.cleaning_date || "Saturday"}{formData.cleaning_time ? ` at ${formData.cleaning_time}` : ""}</span></div>
+                        )}
+                        {formData.cleaning_instructions && <div className="italic text-slate-500 font-medium">Note: {formData.cleaning_instructions}</div>}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
               </div>
@@ -2165,12 +2513,35 @@ const allWeeks = useMemo(() => {
                     )}
 
                     {/* Come Follow Me Section */}
-                    {formData.show_focus !== false && formData.come_follow_me && (
+                    {formData.show_focus !== false && (formData.cfm_reading || formData.cfm_theme || formData.cfm_discussion_question || formData.cfm_family_challenge || formData.cfm_study_tip || formData.come_follow_me) && (
                       <div className="space-y-1.5 pt-3 border-t" style={{ borderColor: theme.border }}>
-                        <h3 className="font-bold text-xs uppercase tracking-wider font-sans" style={{ color: theme.primary }}>📖 Come, Follow Me Reading</h3>
-                        <p className="font-semibold text-slate-800 text-xs font-sans" style={{ whiteSpace: "pre-line" }}>
-                          {formData.come_follow_me}
-                        </p>
+                        <h3 className="font-bold text-xs uppercase tracking-wider font-sans" style={{ color: theme.primary }}>📖 Come, Follow Me Study</h3>
+                        <div className="text-xs space-y-1 font-sans mt-1">
+                          {(formData.cfm_reading || formData.cfm_theme) && (
+                            <div className="bg-slate-50 p-1.5 rounded border border-slate-100/50" style={{ backgroundColor: theme.primaryLight, borderColor: theme.border }}>
+                              {formData.cfm_reading && <div className="font-bold text-[9px]" style={{ color: theme.textAccent }}>Reading: {formData.cfm_reading}</div>}
+                              {formData.cfm_theme && <div className="font-bold text-slate-805 leading-tight">"{formData.cfm_theme}"</div>}
+                            </div>
+                          )}
+                          {formData.cfm_discussion_question && (
+                            <div className="text-xs font-semibold text-slate-755 leading-normal border-l pl-1.5" style={{ borderColor: theme.accent }}>{formData.cfm_discussion_question}</div>
+                          )}
+                          {formData.cfm_family_challenge && (
+                            <div className="p-1 rounded border text-[10px] leading-normal font-medium" style={{ backgroundColor: theme.accentLight, color: theme.textAccent, borderColor: theme.border }}>
+                              <strong>Challenge:</strong> {formData.cfm_family_challenge}
+                            </div>
+                          )}
+                          {formData.cfm_study_tip && (
+                            <div className="italic text-slate-500 text-[10px]">
+                              <strong>Tip:</strong> {formData.cfm_study_tip}
+                            </div>
+                          )}
+                          {formData.come_follow_me && (
+                            <p className="font-medium text-slate-655 text-xs border-t pt-1" style={{ whiteSpace: "pre-line", borderColor: theme.border }}>
+                              {formData.come_follow_me}
+                            </p>
+                          )}
+                        </div>
                       </div>
                     )}
 
@@ -2248,6 +2619,20 @@ const allWeeks = useMemo(() => {
                             <li key={i}>{evt}</li>
                           ))}
                         </ul>
+                      </div>
+                    )}
+
+                    {/* Chapel Cleaning */}
+                    {formData.show_cleaning !== false && (formData.cleaning_group || formData.cleaning_date || formData.cleaning_time || formData.cleaning_instructions) && (
+                      <div className="space-y-2">
+                        <h3 className="font-bold text-sm border-b pb-1" style={{ color: theme.primary, borderColor: theme.border }}>🧹 CHAPEL CLEANING</h3>
+                        <div className="text-[11px] font-sans space-y-1 text-slate-700 leading-normal">
+                          {formData.cleaning_group && <div>Invited Group: <span className="font-bold">{formData.cleaning_group}</span></div>}
+                          {(formData.cleaning_date || formData.cleaning_time) && (
+                            <div>Date/Time: <span className="font-semibold">{formData.cleaning_date || "Saturday"}{formData.cleaning_time ? ` at ${formData.cleaning_time}` : ""}</span></div>
+                          )}
+                          {formData.cleaning_instructions && <div className="italic text-slate-500 font-medium">Note: {formData.cleaning_instructions}</div>}
+                        </div>
                       </div>
                     )}
 
