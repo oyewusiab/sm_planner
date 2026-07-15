@@ -306,26 +306,6 @@ export function AppShell({
               <div className="mt-0.5 truncate text-xs text-white/50">
                 {unit.unit_type} · {formatTime12h(unit.meeting_time)}
               </div>
-
-              {/* Connection Status */}
-              <div className="mt-2 pt-2 border-t border-white/5 flex items-center gap-1.5 text-[10px] font-sans">
-                {!backendEnabled() ? (
-                  <span className="inline-flex items-center gap-1 text-amber-300 font-medium" title="Firebase configuration is missing in environment variables. Data is saved locally in this browser.">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse"></span>
-                    Local Mode (Offline)
-                  </span>
-                ) : !currentUserLoggedIn ? (
-                  <span className="inline-flex items-center gap-1 text-rose-300 font-medium" title="Not authenticated with Firebase Auth. Please log out and log in again to sync.">
-                    <span className="h-1.5 w-1.5 rounded-full bg-rose-400"></span>
-                    Sync Suspended
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 text-emerald-300 font-medium" title="Connected to Firebase Cloud Firestore. All changes are synced.">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                    Cloud Synced
-                  </span>
-                )}
-              </div>
             </div>
           </div>
 

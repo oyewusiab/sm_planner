@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import type { CalendarActivity, UnitSettings, User } from "../types";
 import { Button, Card, CardBody, CardHeader, CardTitle, Divider, Input, Label, Select } from "../components/ui";
-import { ids, updateDB, useTable, cleanDateToYYYYMMDD } from "../utils/storage";
+import { ids, updateDB, useTable, cleanDateToYYYYMMDD, forcePushChanges, syncNow } from "../utils/storage";
 import { formatDateShort, formatTime12h } from "../utils/date";
 import { generatePDF } from "../utils/pdf";
 import { extractTextFromPDF } from "../utils/pdfParser";
@@ -32,6 +32,22 @@ export function CalendarPage({
 }) {
   void unit;
   const { data: activities = [] } = useTable("ACTIVITIES") as { data: CalendarActivity[] };
+
+  const [isSyncing, setIsSyncing] = useState(false);
+  const handleSync = async () => {
+    setIsSyncing(true);
+    try {
+      await forcePushChanges();
+      await syncNow();
+      alert("Changes saved and database synchronized successfully!");
+      onChanged();
+    } catch (err: any) {
+      console.error("Sync error:", err);
+      alert("Failed to sync database: " + (err.message || err));
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const [query, setQuery] = useState("");
   const [org, setOrg] = useState("ALL");
@@ -185,6 +201,13 @@ export function CalendarPage({
         <div className="flex flex-wrap items-center gap-2">
           {canEditOrDelete && (
             <>
+              <Button
+                variant="primary"
+                onClick={handleSync}
+                disabled={isSyncing}
+              >
+                {isSyncing ? "Saving..." : "Save Changes"}
+              </Button>
               {selectedIds.length > 0 && (
                 <Button
                   variant="danger"

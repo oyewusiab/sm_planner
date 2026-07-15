@@ -5,7 +5,7 @@ import { extractTextFromPDF } from "../utils/pdfParser";
 import { Button, Card, CardBody, CardHeader, CardTitle, EmptyState, Input, Label, SectionTitle, Select, Textarea } from "../components/ui";
 import { Modal } from "../components/Modal";
 import { can } from "../utils/permissions";
-import { getDB, ids, updateDB, cleanDateToYYYYMMDD } from "../utils/storage";
+import { getDB, ids, updateDB, cleanDateToYYYYMMDD, forcePushChanges, syncNow } from "../utils/storage";
 import { downloadTextFile, toCSV } from "../utils/csv";
 import { normalizeMemberName, getSurname } from "../utils/format";
 import { cn } from "../utils/cn";
@@ -275,6 +275,22 @@ export function MembersPage({
   const canEditOrDelete = user.role === "ADMIN" || user.role === "CLERK";
   const db = getDB();
   const [tab, setTab] = useState<"directory" | "analytics">("directory");
+
+  const [isSyncing, setIsSyncing] = useState(false);
+  const handleSync = async () => {
+    setIsSyncing(true);
+    try {
+      await forcePushChanges();
+      await syncNow();
+      alert("Changes saved and database synchronized successfully!");
+      onChanged();
+    } catch (err: any) {
+      console.error("Sync error:", err);
+      alert("Failed to sync database: " + (err.message || err));
+    } finally {
+      setIsSyncing(false);
+    }
+  };
   const [q, setQ] = useState("");
   const [org, setOrg] = useState("ALL");
   const [filterMode, setFilterMode] = useState<string | null>(null);
@@ -1102,6 +1118,13 @@ export function MembersPage({
           </Button>
           {canEditOrDelete && (
             <>
+              <Button
+                variant="primary"
+                onClick={handleSync}
+                disabled={isSyncing}
+              >
+                {isSyncing ? "Saving..." : "Save Changes"}
+              </Button>
               <Button
                 variant="secondary"
                 onClick={() => {
