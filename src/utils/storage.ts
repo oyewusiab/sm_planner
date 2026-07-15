@@ -451,7 +451,24 @@ function normalizeDB(raw: any): DB {
     "REPORT LOG": Array.isArray(raw?.["REPORT LOG"]) ? raw["REPORT LOG"] : [],
     BULLETINS: Array.isArray(raw?.BULLETINS) ? raw.BULLETINS : [],
   };
-  return base;
+
+  const deduplicated: DB = { ...base };
+  for (const t of SYNC_TABLES) {
+    const list = base[t.name];
+    if (Array.isArray(list)) {
+      const seen = new Set<string>();
+      const cleanList: any[] = [];
+      for (const item of list) {
+        const id = String((item as any)?.[t.idCol] || "").trim().toLowerCase();
+        if (id && !seen.has(id)) {
+          seen.add(id);
+          cleanList.push(item);
+        }
+      }
+      deduplicated[t.name] = cleanList as any;
+    }
+  }
+  return deduplicated;
 }
 
 export function isEmptyDB(db: DB): boolean {
