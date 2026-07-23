@@ -817,7 +817,7 @@ export function initializeFirebaseSync() {
         return;
       }
 
-      if (remoteSyncInFlight || hasPendingPush) return;
+      if (remoteSyncInFlight) return;
 
       if (remoteMeta.last_updated && remoteMeta.last_updated > (localMeta.last_updated || "")) {
         console.log("[Sync] Metadata change detected. Triggering pull...");
@@ -827,11 +827,28 @@ export function initializeFirebaseSync() {
   });
 
   onSnapshot(doc(db, "unit_settings", "global"), (docSnap) => {
-    if (remoteSyncInFlight || hasPendingPush) return;
+    if (remoteSyncInFlight) return;
     if (docSnap.exists()) {
       updateLocalSettingsFromFirebase(docSnap.data() as UnitSettings);
     }
   });
+
+  // Safety-net: poll every 5 minutes in case a snapshot event was missed
+  // (e.g. brief network interruption). Each poll only reads the 1-doc metadata
+  // first; it skips the full pull if nothing has changed remotely.
+  const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+  const pollTimer = window.setInterval(() => {
+    if (remoteSyncInFlight || remotePullInFlight || hasPendingPush) return;
+    console.log("[Sync] Periodic safety-net poll...");
+    void syncFromBackend({ force: false });
+  }, POLL_INTERVAL_MS);
+
+  // Expose cleanup so the unsubscribe path can also clear the timer
+  const originalUnsubscribe = metadataListenerUnsubscribe;
+  metadataListenerUnsubscribe = () => {
+    if (originalUnsubscribe) originalUnsubscribe();
+    window.clearInterval(pollTimer);
+  };
 }
 
 export function updateLocalTableFromFirebase(tableName: keyof DB, remoteRows: any[]) {
@@ -940,7 +957,10 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
       const localVer = localMetadata.versions?.[t.name] || 0;
 
       const localVal = local[t.name];
-      if (!force && remoteVer > 0 && remoteVer === localVer && localVal && Array.isArray(localVal) && (localVal as any[]).length > 0) {
+      // Skip the Firestore fetch only when local version is AT LEAST as new as remote,
+      // meaning we already have the latest data. If remoteVer > localVer the table
+      // has been updated by another user and we must fetch it.
+      if (!force && remoteVer > 0 && localVer >= remoteVer && localVal && Array.isArray(localVal) && (localVal as any[]).length > 0) {
         remoteSnap[t.name] = local[t.name] as any;
         continue;
       }
