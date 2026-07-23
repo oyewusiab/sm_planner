@@ -311,6 +311,26 @@ export function App() {
     void syncFromBackend().then((ok) => {
       if (ok) refresh();
     });
+
+    const handleFocusSync = () => {
+      console.log("[Sync] Window focused or became visible. Checking for updates...");
+      void syncFromBackend({ force: true }).then((ok) => {
+        if (ok) refresh();
+      });
+    };
+
+    window.addEventListener("focus", handleFocusSync);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        handleFocusSync();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", handleFocusSync);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [user, authReady]);
 
   useEffect(() => {

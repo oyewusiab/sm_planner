@@ -594,18 +594,6 @@ async function pushAllToBackend() {
             changedTables.add(t.name);
           }
         }
-
-        // Find deletes
-        if (REMOTE_DELETABLE_TABLES.has(t.name)) {
-          for (const r of lastRows) {
-            const id = String(r[t.idCol] || "");
-            if (!id) continue;
-            if (!currentMap.has(id)) {
-              deletes.push({ table: t.name, id });
-              changedTables.add(t.name);
-            }
-          }
-        }
       }
 
       // Sync writes in Firestore
@@ -622,11 +610,6 @@ async function pushAllToBackend() {
           }
         }
         await setDoc(doc(db, colName, docId), update.row);
-      }
-
-      for (const del of deletes) {
-        const colName = COLLECTION_MAPPING[del.table as keyof DB];
-        await deleteDoc(doc(db, colName, del.id));
       }
 
       if (JSON.stringify(dbData.UNIT_SETTINGS) !== JSON.stringify(lastSyncedDB.UNIT_SETTINGS)) {
@@ -681,6 +664,19 @@ async function pushAllToBackend() {
     if (hasPendingPush) {
       scheduleRemoteSync();
     }
+  }
+}
+
+export async function deleteDocFromFirebase(tableName: keyof DB, id: string) {
+  if (!backendEnabled()) return;
+  try {
+    const colName = COLLECTION_MAPPING[tableName];
+    if (colName && id) {
+      await deleteDoc(doc(db, colName, id));
+      console.log(`[Sync] Explicitly deleted ${colName}/${id} from Firestore`);
+    }
+  } catch (err) {
+    console.warn(`[Sync] Failed to delete ${tableName}/${id} from Firestore:`, err);
   }
 }
 
@@ -742,39 +738,21 @@ function mergeDatabases(local: DB, remote: DB): { merged: DB; needsPush: boolean
             mergedRows.push(r);
           }
         } else {
+          // If local has edits that differ, prefer local and flag for push
           if (isLocalModified(t.name, id, l)) {
-            const isRemoteMod = isRemoteModified(t.name, id, r);
-            if (isRemoteMod) {
-              mergedRows.push({ ...r, ...l });
-              needsPush = true;
-            } else {
-              mergedRows.push(l);
-              needsPush = true;
-            }
+            mergedRows.push(l);
+            needsPush = true;
           } else {
             mergedRows.push(r);
           }
         }
       } else if (l) {
-        // Exists locally but not on remote. Check if it was previously synced.
-        const wasSynced = lastSyncedDB && (lastSyncedDB[t.name] as any[] || []).some(x => String(x[t.idCol] || "") === id);
-        if (wasSynced && REMOTE_DELETABLE_TABLES.has(t.name)) {
-          // It was deleted on remote. Keep it deleted (do not add to mergedRows).
-        } else {
-          // It's a new local row. Keep it and mark for push.
-          mergedRows.push(l);
-          needsPush = true;
-        }
+        // Exists locally but not on remote (new item created locally)
+        mergedRows.push(l);
+        needsPush = true;
       } else if (r) {
-        // Exists on remote but not locally. Check if it was previously synced.
-        const wasSynced = lastSyncedDB && (lastSyncedDB[t.name] as any[] || []).some(x => String(x[t.idCol] || "") === id);
-        if (wasSynced && REMOTE_DELETABLE_TABLES.has(t.name)) {
-          // It was deleted locally. Keep it deleted and mark for push so remote is updated.
-          needsPush = true;
-        } else {
-          // It's a new remote row. Keep it.
-          mergedRows.push(r);
-        }
+        // Exists on remote but not locally (item created on remote or by another user)
+        mergedRows.push(r);
       }
     }
 
