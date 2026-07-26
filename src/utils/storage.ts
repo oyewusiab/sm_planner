@@ -95,6 +95,7 @@ function setLastSyncedDB(db: DB | null) {
 }
 
 let syncListeners: ((syncing: boolean) => void)[] = [];
+const realtimeCollectionUnsubscribers: Array<() => void> = [];
 
 export const SYNC_TABLES: { name: keyof DB; idCol: string }[] = [
   { name: "USERS", idCol: "user_id" },
@@ -777,9 +778,11 @@ export function initializeFirebaseSync() {
   if (!backendEnabled()) return;
   
   if (metadataListenerUnsubscribe) return;
-  console.log("[Sync] Subscribing to global metadata changes...");
+  console.log("[Sync] Subscribing to live sync listeners...");
 
-  metadataListenerUnsubscribe = onSnapshot(doc(db, "metadata", "global"), (docSnap) => {
+  const cleanupFns: Array<() => void> = [];
+
+  const metadataUnsubscribe = onSnapshot(doc(db, "metadata", "global"), (docSnap) => {
     if (docSnap.exists()) {
       const remoteMeta = docSnap.data() as DBMetadata;
       const localMetadataRaw = localStorage.getItem(METADATA_KEY);
@@ -806,12 +809,26 @@ export function initializeFirebaseSync() {
     }
   });
 
-  onSnapshot(doc(db, "unit_settings", "global"), (docSnap) => {
+  cleanupFns.push(metadataUnsubscribe);
+
+  const settingsUnsubscribe = onSnapshot(doc(db, "unit_settings", "global"), (docSnap) => {
     if (remoteSyncInFlight) return;
     if (docSnap.exists()) {
       updateLocalSettingsFromFirebase(docSnap.data() as UnitSettings);
     }
   });
+  cleanupFns.push(settingsUnsubscribe);
+
+  for (const t of SYNC_TABLES) {
+    if (t.name === "HYMNS") continue;
+    const colName = COLLECTION_MAPPING[t.name];
+    const unsubscribe = onSnapshot(collection(db, colName), (snapshot) => {
+      if (remoteSyncInFlight || remotePullInFlight) return;
+      const rows = snapshot.docs.map((docSnap) => docSnap.data());
+      updateLocalTableFromFirebase(t.name, rows);
+    });
+    cleanupFns.push(unsubscribe);
+  }
 
   // Safety-net: poll frequently in case a snapshot event was missed.
   // This keeps planner updates visible across browsers without waiting for a full refresh.
@@ -825,7 +842,9 @@ export function initializeFirebaseSync() {
   const originalUnsubscribe = metadataListenerUnsubscribe;
   metadataListenerUnsubscribe = () => {
     if (originalUnsubscribe) originalUnsubscribe();
+    cleanupFns.forEach((fn) => fn());
     window.clearInterval(pollTimer);
+    realtimeCollectionUnsubscribers.splice(0, realtimeCollectionUnsubscribers.length, ...[]);
   };
 }
 
