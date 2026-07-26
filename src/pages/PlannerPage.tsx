@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { doc, setDoc } from "firebase/firestore";
 import type { Planner, PlannerState, UnitSettings, User, WeekPlan } from "../types";
 import { Badge, Button, Card, CardBody, CardHeader, CardTitle, Divider, EmptyState, Input, Label, SectionTitle, Select, Textarea } from "../components/ui";
 import { Modal } from "../components/Modal";
@@ -8,10 +9,12 @@ import { MemberAutocomplete, normalizeGender } from "../components/MemberAutocom
 import { can } from "../utils/permissions";
 import { formatUserDisplayName } from "../utils/format";
 import { formatDateShort, monthName, nextSundaysInMonth, yyyyMmToLabel } from "../utils/date";
-import { ids, time, useTable, useUpsertMutation, updateDB } from "../utils/storage";
+import { ids, time, useTable, useUpsertMutation, updateDB, syncFromBackend } from "../utils/storage";
 import * as auth from "../auth/authService";
 import { notifyUser } from "../utils/notifications";
 import { generatePDF } from "../utils/pdf";
+import { db } from "../utils/firebase";
+import { backendEnabled } from "../utils/backend";
 
 type Gender = "M" | "F";
 
@@ -125,6 +128,15 @@ function normalizePlanner(planner: Planner, defaultSpeakers: number): Planner {
   };
 }
 
+async function persistPlannerToFirebase(planner: Planner) {
+  if (!backendEnabled() || !planner?.planner_id) return;
+  try {
+    await setDoc(doc(db, "planners", planner.planner_id), planner);
+  } catch (err) {
+    console.error("[Planner] Failed to persist planner to Firestore:", err);
+    throw err;
+  }
+}
 
 function checkNameConflicts(
   name: string,
@@ -364,14 +376,21 @@ export function PlannerPage({
     plannerMutation.mutate(next);
     onChanged();
     setDraft(next);
-    // Remove local persistence if no longer a local-only draft (submitted or explicitly archived)
+
     if (state !== "DRAFT") {
       localStorage.removeItem("sac_meeting_planner_draft_v1");
+      void persistPlannerToFirebase(next)
+        .then(() => {
+          void syncFromBackend({ force: true, replaceLocal: false });
+        })
+        .catch((err) => {
+          console.error("[Planner] Remote write failed:", err);
+        });
     }
     return next;
   }
 
-  function submit() {
+  async function submit() {
     if (!draft) return;
     if (draft.weeks.length === 0) return;
     const p = save("SUBMITTED");
