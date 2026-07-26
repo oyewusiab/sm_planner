@@ -792,61 +792,61 @@ export function initializeFirebaseSync() {
 
   const cleanupFns: Array<() => void> = [];
 
-  const metadataUnsubscribe = onSnapshot(doc(db, "metadata", "global"), (docSnap) => {
-    if (docSnap.exists()) {
-      const remoteMeta = docSnap.data() as DBMetadata;
-      const localMetadataRaw = localStorage.getItem(METADATA_KEY);
-      const localMeta: DBMetadata = localMetadataRaw 
-        ? JSON.parse(localMetadataRaw) 
-        : { versions: {}, last_updated: "" };
+  const metadataUnsubscribe = onSnapshot(
+    doc(db, "metadata", "global"),
+    (docSnap) => {
+      if (docSnap.exists()) {
+        const remoteMeta = docSnap.data() as DBMetadata;
+        const localMetadataRaw = localStorage.getItem(METADATA_KEY);
+        const localMeta: DBMetadata = localMetadataRaw 
+          ? JSON.parse(localMetadataRaw) 
+          : { versions: {}, last_updated: "" };
 
-      // Force a hard pull if a database reset version is incremented
-      const remoteReset = remoteMeta.db_reset_version || 0;
-      const localReset = localMeta.db_reset_version || 0;
-      if (remoteReset > localReset) {
-        console.log("[Sync] Hard reset version increment detected. Wiping local cache and pulling remote...");
-        hasPendingPush = false; // Discard pending changes
-        void syncFromBackend({ force: true, replaceLocal: true });
-        return;
+        // Force a hard pull if a database reset version is incremented
+        const remoteReset = remoteMeta.db_reset_version || 0;
+        const localReset = localMeta.db_reset_version || 0;
+        if (remoteReset > localReset) {
+          console.log("[Sync] Hard reset version increment detected. Wiping local cache and pulling remote...");
+          hasPendingPush = false; // Discard pending changes
+          void syncFromBackend({ force: true, replaceLocal: true });
+          return;
+        }
+
+        if (remoteSyncInFlight) return;
+
+        if (remoteMeta.last_updated && remoteMeta.last_updated > (localMeta.last_updated || "")) {
+          console.log("[Sync] Metadata change detected. Triggering pull...");
+          void syncFromBackend({ force: false });
+        }
       }
-
-      if (remoteSyncInFlight) return;
-
-      if (remoteMeta.last_updated && remoteMeta.last_updated > (localMeta.last_updated || "")) {
-        console.log("[Sync] Metadata change detected. Triggering pull...");
-        void syncFromBackend({ force: false });
-      }
+    },
+    (err) => {
+      console.warn("[Sync] Metadata snapshot listener notice:", err?.message || err);
     }
-  });
+  );
 
   cleanupFns.push(metadataUnsubscribe);
 
-  const settingsUnsubscribe = onSnapshot(doc(db, "unit_settings", "global"), (docSnap) => {
-    if (remoteSyncInFlight) return;
-    if (docSnap.exists()) {
-      updateLocalSettingsFromFirebase(docSnap.data() as UnitSettings);
+  const settingsUnsubscribe = onSnapshot(
+    doc(db, "unit_settings", "global"),
+    (docSnap) => {
+      if (remoteSyncInFlight) return;
+      if (docSnap.exists()) {
+        updateLocalSettingsFromFirebase(docSnap.data() as UnitSettings);
+      }
+    },
+    (err) => {
+      console.warn("[Sync] Unit settings snapshot listener notice:", err?.message || err);
     }
-  });
+  );
   cleanupFns.push(settingsUnsubscribe);
 
-  for (const t of SYNC_TABLES) {
-    if (t.name === "HYMNS") continue;
-    const colName = COLLECTION_MAPPING[t.name];
-    const unsubscribe = onSnapshot(collection(db, colName), (snapshot) => {
-      if (remoteSyncInFlight || remotePullInFlight) return;
-      const rows = snapshot.docs.map((docSnap) => docSnap.data());
-      updateLocalTableFromFirebase(t.name, rows);
-    });
-    cleanupFns.push(unsubscribe);
-  }
-
-  // Safety-net: poll frequently in case a snapshot event was missed.
-  // This keeps planner updates visible across browsers without waiting for a full refresh.
+  // Safety-net: poll periodically in case a snapshot event was missed.
   const pollTimer = window.setInterval(() => {
     if (remoteSyncInFlight || remotePullInFlight) return;
     console.log("[Sync] Periodic safety-net poll...");
     void syncFromBackend({ force: false });
-  }, SYNC_POLL_INTERVAL_MS);
+  }, 5 * 60 * 1000);
 
   // Expose cleanup so the unsubscribe path can also clear the timer
   const originalUnsubscribe = metadataListenerUnsubscribe;
@@ -854,7 +854,7 @@ export function initializeFirebaseSync() {
     if (originalUnsubscribe) originalUnsubscribe();
     cleanupFns.forEach((fn) => fn());
     window.clearInterval(pollTimer);
-    realtimeCollectionUnsubscribers.splice(0, realtimeCollectionUnsubscribers.length, ...[]);
+    metadataListenerUnsubscribe = null;
   };
 }
 

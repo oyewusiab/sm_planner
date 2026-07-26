@@ -36,9 +36,10 @@ service cloud.firestore {
       allow write: if isAuthenticated();
     }
 
-    // METADATA: read and write by authenticated users
+    // METADATA: read by anyone, write only by authenticated users
     match /metadata/{document} {
-      allow read, write: if isAuthenticated();
+      allow read: if true;
+      allow write: if isAuthenticated();
     }
   }
 }
