@@ -66,6 +66,8 @@ const ldsHymnsList: Omit<Hymn, "hymn_id">[] = [
   { number: 196, title: "Jesus, Once of Humble Birth", theme: "Sacrament" },
 ];
 
+import { removeUndefined } from "./storage";
+
 export async function syncMusic(): Promise<any> {
   if (!backendEnabled()) return null;
   try {
@@ -76,7 +78,7 @@ export async function syncMusic(): Promise<any> {
       console.log("Bootstrapping hymns collection in Firestore...");
       for (const hymn of ldsHymnsList) {
         // Use the hymn number as the document ID
-        await setDoc(doc(db, "hymns", String(hymn.number)), hymn);
+        await setDoc(doc(db, "hymns", String(hymn.number)), removeUndefined(hymn));
       }
     }
     return { ok: true, data: "Hymns synced successfully" };

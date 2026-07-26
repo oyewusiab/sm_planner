@@ -131,7 +131,7 @@ function normalizePlanner(planner: Planner, defaultSpeakers: number): Planner {
 async function persistPlannerToFirebase(planner: Planner) {
   if (!backendEnabled() || !planner?.planner_id) return;
   try {
-    await setDoc(doc(db, "planners", planner.planner_id), planner);
+    await setDoc(doc(db, "planners", planner.planner_id), removeUndefined(planner));
   } catch (err) {
     console.error("[Planner] Failed to persist planner to Firestore:", err);
     throw err;

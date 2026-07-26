@@ -311,18 +311,28 @@ function serializeMemberForRemote(raw: any) {
   };
 }
 
+export function removeUndefined<T>(obj: T): T {
+  if (obj === null || obj === undefined) return obj;
+  try {
+    return JSON.parse(JSON.stringify(obj));
+  } catch (e) {
+    return obj;
+  }
+}
+
 function serializeDBForRemote(db: DB): DB {
-  return {
+  return removeUndefined({
     ...db,
     USERS: db.USERS.map((user) => serializeUserForRemote(user) as any),
     MEMBERS: db.MEMBERS.map((member) => serializeMemberForRemote(member) as any),
-  };
+  });
 }
 
 function serializeRowForRemote(tableName: keyof DB | "UNIT_SETTINGS", row: any) {
-  if (tableName === "USERS") return serializeUserForRemote(row);
-  if (tableName === "MEMBERS") return serializeMemberForRemote(row);
-  return row;
+  let res = row;
+  if (tableName === "USERS") res = serializeUserForRemote(row);
+  else if (tableName === "MEMBERS") res = serializeMemberForRemote(row);
+  return removeUndefined(res);
 }
 
 function getComparableRow(tableName: keyof DB, row: any) {
@@ -564,12 +574,12 @@ async function pushAllToBackend() {
           if (t.name === "USERS" && r.signature_data_url?.startsWith("data:")) {
             try { r.signature_data_url = await uploadSignature(id, r.signature_data_url); } catch {}
           }
-          await setDoc(doc(db, colName, id), r);
+          await setDoc(doc(db, colName, id), removeUndefined(r));
         }
         changedTables.add(t.name);
       }
       if (dbData.UNIT_SETTINGS) {
-        await setDoc(doc(db, "unit_settings", "global"), dbData.UNIT_SETTINGS);
+        await setDoc(doc(db, "unit_settings", "global"), removeUndefined(dbData.UNIT_SETTINGS));
         changedTables.add("UNIT_SETTINGS");
       }
     } else {
@@ -612,11 +622,11 @@ async function pushAllToBackend() {
             console.warn("Signature upload failed during sync:", err);
           }
         }
-        await setDoc(doc(db, colName, docId), update.row);
+        await setDoc(doc(db, colName, docId), removeUndefined(update.row));
       }
 
       if (JSON.stringify(dbData.UNIT_SETTINGS) !== JSON.stringify(lastSyncedDB.UNIT_SETTINGS)) {
-        await setDoc(doc(db, "unit_settings", "global"), dbData.UNIT_SETTINGS || {});
+        await setDoc(doc(db, "unit_settings", "global"), removeUndefined(dbData.UNIT_SETTINGS || {}));
         changedTables.add("UNIT_SETTINGS");
       }
     }
