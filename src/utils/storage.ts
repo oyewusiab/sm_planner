@@ -154,6 +154,8 @@ const REMOTE_DELETABLE_TABLES = new Set<keyof DB>([
   "CHECKLISTS"
 ]);
 
+const SYNC_POLL_INTERVAL_MS = 15 * 1000;
+
 const dbListeners = new Set<() => void>();
 function notifyDBListeners() {
   dbListeners.forEach((l) => l());
@@ -811,15 +813,13 @@ export function initializeFirebaseSync() {
     }
   });
 
-  // Safety-net: poll every 5 minutes in case a snapshot event was missed
-  // (e.g. brief network interruption). Each poll only reads the 1-doc metadata
-  // first; it skips the full pull if nothing has changed remotely.
-  const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+  // Safety-net: poll frequently in case a snapshot event was missed.
+  // This keeps planner updates visible across browsers without waiting for a full refresh.
   const pollTimer = window.setInterval(() => {
-    if (remoteSyncInFlight || remotePullInFlight || hasPendingPush) return;
+    if (remoteSyncInFlight || remotePullInFlight) return;
     console.log("[Sync] Periodic safety-net poll...");
     void syncFromBackend({ force: false });
-  }, POLL_INTERVAL_MS);
+  }, SYNC_POLL_INTERVAL_MS);
 
   // Expose cleanup so the unsubscribe path can also clear the timer
   const originalUnsubscribe = metadataListenerUnsubscribe;
@@ -884,7 +884,6 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
     if (!force && hasPendingPush) {
       console.log("[Sync] Local changes pending. Attempting push before pull.");
       await pushAllToBackend();
-      if (hasPendingPush) return false;
     }
 
     const local = getDB();
