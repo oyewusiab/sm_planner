@@ -570,6 +570,10 @@ let currentPushPromise: Promise<void> | null = null;
 
 async function pushAllToBackend(): Promise<void> {
   if (!backendEnabled() || suppressRemoteSync > 0) return;
+  if (typeof navigator !== "undefined" && !navigator.onLine) {
+    hasPendingPush = true;
+    return;
+  }
   if (currentPushPromise) {
     await currentPushPromise;
     if (hasPendingPush) {
@@ -811,8 +815,10 @@ function mergeDatabases(local: DB, remote: DB): { merged: DB; needsPush: boolean
             mergedRows.push(r);
           }
         } else {
-          // If local has edits that differ, prefer local and flag for push
-          if (isLocalModified(t.name, id, l)) {
+          // If local has edits that differ from remote, ALWAYS prefer local and flag for push
+          const lComp = getComparableRow(t.name, l);
+          const rComp = getComparableRow(t.name, r);
+          if (JSON.stringify(lComp) !== JSON.stringify(rComp)) {
             mergedRows.push(l);
             needsPush = true;
           } else {
@@ -998,6 +1004,7 @@ function updateLocalSettingsFromFirebase(settings: UnitSettings) {
 
 export async function syncFromBackend(options?: { force?: boolean; replaceLocal?: boolean }): Promise<boolean> {
   if (!backendEnabled()) return false;
+  if (typeof navigator !== "undefined" && !navigator.onLine) return false;
   const force = options?.force === true;
   const replaceLocal = options?.replaceLocal === true;
 
@@ -1367,4 +1374,13 @@ export async function triggerDatabaseReset() {
     console.error("[Reset] Database reset failed:", err);
     throw err;
   }
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("online", () => {
+    console.log("[Sync] Network connectivity restored. Pushing pending local changes...");
+    if (hasPendingPush) {
+      void pushAllToBackend();
+    }
+  });
 }
