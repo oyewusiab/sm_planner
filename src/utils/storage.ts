@@ -576,9 +576,6 @@ async function pushAllToBackend(): Promise<void> {
   }
   if (currentPushPromise) {
     await currentPushPromise;
-    if (hasPendingPush) {
-      return pushAllToBackend();
-    }
     return;
   }
 
