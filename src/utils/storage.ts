@@ -644,29 +644,6 @@ async function pushAllToBackend(): Promise<void> {
               changedTables.add(t.name);
             }
           }
-
-          // Find deletions (items present in lastSyncedDB but missing in local DB)
-          for (const lastR of lastRows) {
-            const id = String(lastR[t.idCol] || "");
-            if (!id) continue;
-            if (!currentMap.has(id)) {
-              deletes.push({ table: t.name, id });
-              changedTables.add(t.name);
-            }
-          }
-        }
-
-        // Sync deletes in Firestore
-        for (const del of deletes) {
-          const colName = COLLECTION_MAPPING[del.table as keyof DB];
-          if (colName && del.id) {
-            try {
-              await deleteDoc(doc(db, colName, del.id));
-              console.log(`[Sync] Deleted remote doc during push: ${colName}/${del.id}`);
-            } catch (err) {
-              console.warn(`[Sync] Failed to delete remote doc ${colName}/${del.id}:`, err);
-            }
-          }
         }
 
         // Sync writes in Firestore
@@ -765,7 +742,7 @@ function setDBInternal(next: DB, suppressRemote?: boolean) {
 }
 
 function isLocalModified(tableName: keyof DB, id: string, localRow: any): boolean {
-  if (!lastSyncedDB) return false;
+  if (!lastSyncedDB) return true;
   const lastRows = (lastSyncedDB[tableName] || []) as any[];
   const idCol = SYNC_TABLES.find((t) => t.name === tableName)?.idCol || "id";
   const old = lastRows.find((r) => String(r[idCol] || "") === id);
@@ -971,17 +948,21 @@ export function updateLocalTableFromFirebase(tableName: keyof DB, remoteRows: an
     const mergedRows = remoteRows.map((remoteRow) => {
       const id = String(remoteRow[idCol] || "");
       const localRow = localMap.get(id);
-      if (localRow && isLocalModified(tableName, id, localRow)) {
-        return localRow;
+      if (localRow) {
+        const lComp = getComparableRow(tableName, localRow);
+        const rComp = getComparableRow(tableName, remoteRow);
+        if (JSON.stringify(lComp) !== JSON.stringify(rComp)) {
+          return localRow;
+        }
       }
       return remoteRow;
     });
     
-    // Maintain local rows that are not in remote yet (newly created and not pushed yet)
+    // Maintain local rows that are not in remote yet (newly created or preserved locally)
     const remoteIds = new Set(remoteRows.map(r => String(r[idCol] || "")));
     for (const localRow of localRows) {
       const id = String(localRow[idCol] || "");
-      if (!remoteIds.has(id) && isLocalModified(tableName, id, localRow)) {
+      if (!remoteIds.has(id)) {
         mergedRows.push(localRow);
       }
     }

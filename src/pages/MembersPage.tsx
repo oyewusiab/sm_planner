@@ -1026,20 +1026,24 @@ export function MembersPage({
 
   function save(member: Member, originalKey?: string) {
     updateDB((db0) => {
-      const previousKey = asText(originalKey || member.member_id || member.name).trim();
       const cleanName = asText(member.name).trim();
+      const memberId = member.member_id || originalKey || ids.uid("member");
+      const previousKey = asText(originalKey || member.member_id || member.name).trim();
       const nextMember: Member = {
         ...member,
-        member_id: cleanName,
+        member_id: memberId,
         name: cleanName,
         created_date: member.created_date || new Date().toISOString().split("T")[0],
+        updated_date: new Date().toISOString()
       };
       const MEMBERS = [
         nextMember,
         ...db0.MEMBERS.filter((m) => {
+          const existingId = asText(m.member_id).trim();
           const existingKey = asText(m.member_id || m.name).trim();
           const existingName = asText(m.name).trim();
           return (
+            existingId !== memberId &&
             existingKey !== previousKey &&
             existingName !== previousKey &&
             existingName !== cleanName
@@ -1053,8 +1057,8 @@ export function MembersPage({
 
   function deleteMember(member: Member) {
     if (!window.confirm(`Are you sure you want to delete ${member.name}?`)) return;
+    const targetId = asText(member.member_id || member.name).trim();
     updateDB((db0) => {
-      const targetId = asText(member.member_id || member.name).trim();
       const MEMBERS = db0.MEMBERS.filter((m) => {
         const existingId = asText(m.member_id || m.name).trim();
         return existingId !== targetId;
