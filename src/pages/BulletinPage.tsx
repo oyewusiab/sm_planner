@@ -282,29 +282,7 @@ function BirthdayCelebrationFrame({
           </span>
         </div>
 
-        {/* Bishopric Greeting Message Frame */}
-        <div
-          className="p-2.5 rounded-xl border italic text-xs leading-normal font-sans relative"
-          style={{
-            backgroundColor: theme.primaryLight || "#f0f9ff",
-            borderColor: theme.border || "#bae6fd",
-            color: theme.text || "#0f172a"
-          }}
-        >
-          <div className="flex items-start gap-2">
-            <span className="text-sm shrink-0">👑</span>
-            <div className="flex-1">
-              <p className="text-[11px] font-medium leading-relaxed">
-                "{wish}"
-              </p>
-              <div className="text-[10px] font-bold not-italic mt-1 text-right" style={{ color: theme.primary }}>
-                — Warmest wishes, The Bishopric 💐
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Celebrant Names Badges */}
+        {/* 1. Celebrant Names Badges (FIRST) */}
         <div className="pt-0.5">
           <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5 text-slate-500 font-sans flex items-center gap-1">
             <span>🎁</span>
@@ -325,6 +303,28 @@ function BirthdayCelebrationFrame({
                 <span>{name}</span>
               </span>
             ))}
+          </div>
+        </div>
+
+        {/* 2. Bishopric Greeting Message Frame (AFTER CELEBRANT NAMES) */}
+        <div
+          className="p-2.5 rounded-xl border italic text-xs leading-normal font-sans relative"
+          style={{
+            backgroundColor: theme.primaryLight || "#f0f9ff",
+            borderColor: theme.border || "#bae6fd",
+            color: theme.text || "#0f172a"
+          }}
+        >
+          <div className="flex items-start gap-2">
+            <span className="text-sm shrink-0">👑</span>
+            <div className="flex-1">
+              <p className="text-[11px] font-medium leading-relaxed">
+                "{wish}"
+              </p>
+              <div className="text-[10px] font-bold not-italic mt-1 text-right" style={{ color: theme.primary }}>
+                — Warmest wishes, The Bishopric 💐
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -616,150 +616,103 @@ const allWeeks = useMemo(() => {
     return () => clearTimeout(timer);
   }, [formData, activeTab]);
 
-  // Initialize form state when selection changes
+  const loadedWeekIdRef = useRef<string | null>(null);
+
+  // Initialize form state ONLY when week selection changes
   useEffect(() => {
     if (!selectedWeekId || !activeWeek) return;
 
-    if (currentBulletin) {
-      const liveBirthdays = getBirthdaysForWeek(members, activeWeek.date);
-      setFormData({
-        ...currentBulletin,
-        birthdays: liveBirthdays
-      });
-    } else {
-      const defaultBirthdays = getBirthdaysForWeek(members, activeWeek.date);
-      const sundayISO = activeWeek.date;
-      const parts = sundayISO.split("-");
-      const y = parseInt(parts[0], 10);
-      const mVal = parseInt(parts[1], 10) - 1;
-      const dVal = parseInt(parts[2], 10);
-      const sunday = new Date(Date.UTC(y, mVal, dVal));
+    if (loadedWeekIdRef.current !== selectedWeekId) {
+      loadedWeekIdRef.current = selectedWeekId;
 
-      const monday = new Date(sunday);
-      monday.setUTCDate(sunday.getUTCDate() - 6);
-      const startISO = monday.toISOString().split("T")[0];
-      
-      const thirtyDaysLater = new Date(sunday);
-      thirtyDaysLater.setUTCDate(sunday.getUTCDate() + 30);
-      const endISO = thirtyDaysLater.toISOString().split("T")[0];
+      if (currentBulletin) {
+        const liveBirthdays = getBirthdaysForWeek(members, activeWeek.date);
+        setFormData({
+          ...currentBulletin,
+          birthdays: liveBirthdays
+        });
+      } else {
+        const defaultBirthdays = getBirthdaysForWeek(members, activeWeek.date);
+        const sundayISO = activeWeek.date;
+        const parts = sundayISO.split("-");
+        const y = parseInt(parts[0], 10);
+        const mVal = parseInt(parts[1], 10) - 1;
+        const dVal = parseInt(parts[2], 10);
+        const sunday = new Date(Date.UTC(y, mVal, dVal));
 
-      const upcomingList: { label: string; date: string }[] = [];
-      activities.forEach(a => {
-        if (a.activity && a.activity.trim() && a.date >= startISO && a.date <= endISO) {
-          upcomingList.push({ label: `${a.activity} (${a.organisation})`, date: a.date });
-        }
-      });
-      otherPrograms.forEach(p => {
-        if (p.program && p.program.trim() && p.date >= startISO && p.date <= endISO) {
-          upcomingList.push({ label: `${p.program} (${p.organisation})`, date: p.date });
-        }
-      });
-      upcomingList.sort((a, b) => a.date.localeCompare(b.date));
+        const monday = new Date(sunday);
+        monday.setUTCDate(sunday.getUTCDate() - 6);
+        const startISO = monday.toISOString().split("T")[0];
+        
+        const thirtyDaysLater = new Date(sunday);
+        thirtyDaysLater.setUTCDate(sunday.getUTCDate() + 30);
+        const endISO = thirtyDaysLater.toISOString().split("T")[0];
 
-      const upcoming = upcomingList.map(item => `${formatDateShort(item.date)} — ${item.label}`);
+        const upcomingList: { label: string; date: string }[] = [];
+        activities.forEach(a => {
+          if (a.activity && a.activity.trim() && a.date >= startISO && a.date <= endISO) {
+            upcomingList.push({ label: `${a.activity} (${a.organisation})`, date: a.date });
+          }
+        });
+        otherPrograms.forEach(p => {
+          if (p.program && p.program.trim() && p.date >= startISO && p.date <= endISO) {
+            upcomingList.push({ label: `${p.program} (${p.organisation})`, date: p.date });
+          }
+        });
+        upcomingList.sort((a, b) => a.date.localeCompare(b.date));
 
-      setFormData({
-        theme: "",
-        special_music: "",
-        come_follow_me: "",
-        cfm_reading: "",
-        cfm_theme: "",
-        cfm_discussion_question: "",
-        cfm_family_challenge: "",
-        cfm_study_tip: "",
-        cleaning_group: "",
-        cleaning_date: "",
-        cleaning_time: "",
-        cleaning_instructions: "",
-        activities: DEFAULT_ACTIVITIES,
-        birthdays: defaultBirthdays,
-        missionaries: [],
-        scripture_of_the_week: "",
-        missionary_challenge: "",
-        temple_trip_date: "",
-        familysearch_tip: "",
-        ancestor_challenge: "",
-        self_reliance_classes: ["Personal Finance", "Emotional Resilience"],
-        ward_focus: "Ministering: Reaching out to those in need.",
-        welfare_reminders: ["Fast offering donation this Sunday", "Submit service logs to Clerk"],
-        bishopric_message: "Focus this week on developing Christlike charity inside your home and community.",
-        upcoming_events: upcoming,
-        qr_whatsapp: "",
-        qr_familysearch: "https://www.familysearch.org",
-        qr_gospel_library: "https://www.churchofjesuschrist.org/study/gospel-library",
-        qr_website: "",
-        qr_planner_link: window.location.href.split("#")[0],
-        show_sacrament: true,
-        show_activities: true,
-        show_birthdays: true,
-        show_missionary: true,
-        show_temple: true,
-        show_self_reliance: true,
-        show_focus: true,
-        show_welfare: true,
-        show_bishopric: true,
-        show_upcoming: true,
-        show_qr: true,
-        show_cleaning: true,
-        color_theme: "navy",
-        pdf_layout: "standard"
-      });
+        const upcoming = upcomingList.map(item => `${formatDateShort(item.date)} — ${item.label}`);
+
+        setFormData({
+          theme: "",
+          special_music: "",
+          come_follow_me: "",
+          cfm_reading: "",
+          cfm_theme: "",
+          cfm_discussion_question: "",
+          cfm_family_challenge: "",
+          cfm_study_tip: "",
+          cleaning_group: "",
+          cleaning_date: "",
+          cleaning_time: "",
+          cleaning_instructions: "",
+          activities: DEFAULT_ACTIVITIES,
+          birthdays: defaultBirthdays,
+          birthday_message: "The Bishopric wishes all our celebrants this week a very Happy Birthday! May your new year be filled with joy, health, peace, and heavenly blessings.",
+          missionaries: [],
+          scripture_of_the_week: "",
+          missionary_challenge: "",
+          temple_trip_date: "",
+          familysearch_tip: "",
+          ancestor_challenge: "",
+          self_reliance_classes: ["Personal Finance", "Emotional Resilience"],
+          ward_focus: "Ministering: Reaching out to those in need.",
+          welfare_reminders: ["Fast offering donation this Sunday", "Submit service logs to Clerk"],
+          bishopric_message: "Focus this week on developing Christlike charity inside your home and community.",
+          upcoming_events: upcoming,
+          qr_whatsapp: "",
+          qr_familysearch: "https://www.familysearch.org",
+          qr_gospel_library: "https://www.churchofjesuschrist.org/study/gospel-library",
+          qr_website: "",
+          qr_planner_link: window.location.href.split("#")[0],
+          show_sacrament: true,
+          show_activities: true,
+          show_birthdays: true,
+          show_missionary: true,
+          show_temple: true,
+          show_self_reliance: true,
+          show_focus: true,
+          show_welfare: true,
+          show_bishopric: true,
+          show_upcoming: true,
+          show_qr: true,
+          show_cleaning: true,
+          color_theme: "navy",
+          pdf_layout: "standard"
+        });
+      }
     }
-  }, [currentBulletin, selectedWeekId, activeWeek, members]);
-
-  // Keep birthdays list in sync with directory changes dynamically
-  useEffect(() => {
-    if (!activeWeek) return;
-    const liveBirthdays = getBirthdaysForWeek(members, activeWeek.date);
-    setFormData(prev => {
-      const current = prev.birthdays || [];
-      if (JSON.stringify(current) !== JSON.stringify(liveBirthdays)) {
-        return { ...prev, birthdays: liveBirthdays };
-      }
-      return prev;
-    });
-  }, [members, activeWeek]);
-
-  // Keep upcoming events list in sync with calendar changes dynamically
-  useEffect(() => {
-    if (!activeWeek) return;
-    const sundayISO = activeWeek.date;
-    const parts = sundayISO.split("-");
-    const y = parseInt(parts[0], 10);
-    const mVal = parseInt(parts[1], 10) - 1;
-    const dVal = parseInt(parts[2], 10);
-    const sunday = new Date(Date.UTC(y, mVal, dVal));
-
-    const monday = new Date(sunday);
-    monday.setUTCDate(sunday.getUTCDate() - 6);
-    const startISO = monday.toISOString().split("T")[0];
-    
-    const thirtyDaysLater = new Date(sunday);
-    thirtyDaysLater.setUTCDate(sunday.getUTCDate() + 30);
-    const endISO = thirtyDaysLater.toISOString().split("T")[0];
-
-    const upcomingList: { label: string; date: string }[] = [];
-    activities.forEach(a => {
-      if (a.activity && a.activity.trim() && a.date >= startISO && a.date <= endISO) {
-        upcomingList.push({ label: `${a.activity} (${a.organisation})`, date: a.date });
-      }
-    });
-    otherPrograms.forEach(p => {
-      if (p.program && p.program.trim() && p.date >= startISO && p.date <= endISO) {
-        upcomingList.push({ label: `${p.program} (${p.organisation})`, date: p.date });
-      }
-    });
-    upcomingList.sort((a, b) => a.date.localeCompare(b.date));
-    const liveUpcoming = upcomingList.map(item => `${formatDateShort(item.date)} — ${item.label}`);
-
-    setFormData(prev => {
-      const current = prev.upcoming_events || [];
-      if (JSON.stringify(current) !== JSON.stringify(liveUpcoming)) {
-        return { ...prev, upcoming_events: liveUpcoming };
-      }
-      return prev;
-    });
-  }, [activities, otherPrograms, activeWeek]);
+  }, [selectedWeekId, activeWeek]);
 
   // Save/Update helper
   const handleSave = () => {
