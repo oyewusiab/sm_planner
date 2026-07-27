@@ -230,6 +230,108 @@ function toMmmYyyy(month: number, year: number) {
   return `${months[mIdx]}-${year}`;
 }
 
+function BirthdayCelebrationFrame({
+  birthdays,
+  birthdayMessage,
+  theme,
+  compact = false
+}: {
+  birthdays: string[];
+  birthdayMessage?: string;
+  theme: any;
+  compact?: boolean;
+}) {
+  if (!birthdays || birthdays.length === 0) return null;
+
+  const wish = birthdayMessage?.trim() || "The Bishopric wishes all our celebrants this week a very Happy Birthday! May your new year be filled with joy, health, peace, and heavenly blessings.";
+
+  return (
+    <div
+      className={`relative overflow-hidden rounded-2xl transition-all ${compact ? 'p-3 border-2' : 'p-4 border-2 shadow-xs'}`}
+      style={{
+        backgroundColor: theme.cardBg || "#ffffff",
+        borderColor: theme.accent || theme.primary || "#d97706",
+        backgroundImage: `radial-gradient(ellipse at top right, ${theme.accentLight || theme.primaryLight || "#fef3c7"} 0%, ${theme.cardBg || "#ffffff"} 75%)`
+      }}
+    >
+      {/* Decorative Inner Dashed Frame Border */}
+      <div
+        className="absolute inset-1 rounded-xl pointer-events-none border-2 border-dashed opacity-50"
+        style={{ borderColor: theme.accent || theme.primary || "#d97706" }}
+      />
+
+      <div className="relative z-10 space-y-2.5">
+        {/* Header Ribbon / Title */}
+        <div className="flex items-center justify-between border-b pb-1.5" style={{ borderColor: theme.border || "#e2e8f0" }}>
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm">🎉 🎂</span>
+            <span className="font-black text-xs uppercase tracking-wider font-sans" style={{ color: theme.primary }}>
+              HAPPY BIRTHDAY CELEBRANTS!
+            </span>
+            <span className="text-sm">🎈 ✨</span>
+          </div>
+          <span
+            className="text-[9px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded-full border"
+            style={{
+              backgroundColor: theme.accentLight || "#fef3c7",
+              color: theme.textAccent || "#92400e",
+              borderColor: theme.border || "#fcd34d"
+            }}
+          >
+            Celebration
+          </span>
+        </div>
+
+        {/* Bishopric Greeting Message Frame */}
+        <div
+          className="p-2.5 rounded-xl border italic text-xs leading-normal font-sans relative"
+          style={{
+            backgroundColor: theme.primaryLight || "#f0f9ff",
+            borderColor: theme.border || "#bae6fd",
+            color: theme.text || "#0f172a"
+          }}
+        >
+          <div className="flex items-start gap-2">
+            <span className="text-sm shrink-0">👑</span>
+            <div className="flex-1">
+              <p className="text-[11px] font-medium leading-relaxed">
+                "{wish}"
+              </p>
+              <div className="text-[10px] font-bold not-italic mt-1 text-right" style={{ color: theme.primary }}>
+                — Warmest wishes, The Bishopric 💐
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Celebrant Names Badges */}
+        <div className="pt-0.5">
+          <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5 text-slate-500 font-sans flex items-center gap-1">
+            <span>🎁</span>
+            <span>Honoring Celebrants This Week:</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {birthdays.map((name, idx) => (
+              <span
+                key={idx}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold shadow-2xs border"
+                style={{
+                  backgroundColor: theme.accentLight || "#fef3c7",
+                  color: theme.textAccent || "#92400e",
+                  borderColor: theme.border || "#fcd34d"
+                }}
+              >
+                <span>🎂</span>
+                <span>{name}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function BulletinPage({
   user,
   unit,
@@ -399,6 +501,7 @@ const allWeeks = useMemo(() => {
       cleaning_instructions: "",
       activities: activitiesList,
       birthdays: defaultBirthdays,
+      birthday_message: "The Bishopric wishes all our celebrants this week a very Happy Birthday! May your new year be filled with joy, health, peace, and heavenly blessings.",
       missionaries: [],
       scripture_of_the_week: "",
       missionary_challenge: "",
@@ -685,6 +788,7 @@ const allWeeks = useMemo(() => {
       cleaning_instructions: formData.cleaning_instructions || "",
       activities: formData.activities || [],
       birthdays: formData.birthdays || [],
+      birthday_message: formData.birthday_message || "The Bishopric wishes all our celebrants this week a very Happy Birthday! May your new year be filled with joy, health, peace, and heavenly blessings.",
       missionaries: formData.missionaries || [],
       scripture_of_the_week: formData.scripture_of_the_week || "",
       missionary_challenge: formData.missionary_challenge || "",
@@ -1460,28 +1564,49 @@ const allWeeks = useMemo(() => {
           {/* Quick-import Sidebar */}
           <div className="space-y-6">
             
-            {/* Automatically Generated Birthdays Card */}
+            {/* Automatically Generated Birthdays & Bishopric Wish Card */}
             <Card>
-              <CardHeader className="border-b pb-2">
-                <CardTitle className="text-sm">🎂 Birthdays This Week</CardTitle>
+              <CardHeader className="border-b pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-sm flex items-center gap-1.5">
+                  <span>🎂</span> Birthdays & Bishopric Wish
+                </CardTitle>
+                <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.show_birthdays !== false}
+                    onChange={e => handleFieldChange("show_birthdays", e.target.checked)}
+                    className="rounded"
+                  />
+                  Show
+                </label>
               </CardHeader>
               <CardBody className="space-y-3">
-                <div className="text-xs text-slate-500 font-sans">
-                  Birthdays are automatically generated from the Member Directory for the week's Monday-to-Sunday range:
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">Bishopric Birthday Wish / Greeting</Label>
+                  <Textarea
+                    rows={2}
+                    value={formData.birthday_message || "The Bishopric wishes all our celebrants this week a very Happy Birthday! May your new year be filled with joy, health, peace, and heavenly blessings."}
+                    onChange={e => handleFieldChange("birthday_message", e.target.value)}
+                    placeholder="Enter Bishopric birthday wish..."
+                    className="text-xs mt-1"
+                  />
                 </div>
                 {(formData.birthdays || []).length === 0 ? (
-                  <div className="text-center text-slate-400 text-xs italic py-4">No member birthdays this week.</div>
+                  <div className="text-center text-slate-400 text-xs italic py-2">No member birthdays recorded for this week.</div>
                 ) : (
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    {(formData.birthdays || []).map((name, idx) => (
-                      <span key={idx} className="bg-pink-50 border border-pink-200 text-pink-900 text-xs px-2.5 py-0.5 rounded-full font-medium inline-block">
-                        {name}
-                      </span>
-                    ))}
+                  <div>
+                    <div className="text-[11px] font-bold text-slate-600 mb-1">Celebrants this week:</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(formData.birthdays || []).map((name, idx) => (
+                        <span key={idx} className="bg-amber-50 border border-amber-200 text-amber-900 text-xs px-2.5 py-0.5 rounded-full font-bold inline-flex items-center gap-1 shadow-2xs">
+                          <span>🎂</span> {name}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 )}
                 <div className="text-[10px] text-slate-400 font-sans italic border-t pt-2">
-                  Tip: To show or hide this list on the printed bulletin, use the checkmark toggle in the editor sections.
+                  Tip: Toggle 'Show' to display or hide the celebratory frame on the printed bulletin and exports.
                 </div>
               </CardBody>
             </Card>
@@ -1683,18 +1808,11 @@ const allWeeks = useMemo(() => {
 
             {/* Birthdays */}
             {formData.show_birthdays !== false && (formData.birthdays || []).length > 0 && (
-              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs space-y-2" style={{ backgroundColor: theme.cardBg }}>
-                <div className="flex items-center gap-2 border-b pb-1.5 font-bold text-sm" style={{ color: theme.primary, borderColor: theme.border }}>
-                  <span>🎂</span> Birthdays This Week
-                </div>
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {(formData.birthdays || []).map((name, i) => (
-                    <span key={i} className="inline-block border rounded-full px-2.5 py-0.5 text-xs font-semibold shadow-2xs" style={{ backgroundColor: theme.accentLight, color: theme.textAccent, borderColor: theme.border }}>
-                      {name}
-                    </span>
-                  ))}
-                </div>
-              </div>
+              <BirthdayCelebrationFrame
+                birthdays={formData.birthdays || []}
+                birthdayMessage={formData.birthday_message}
+                theme={theme}
+              />
             )}
 
             {/* Message */}
@@ -1964,18 +2082,11 @@ const allWeeks = useMemo(() => {
 
                     {/* Birthdays */}
                     {formData.show_birthdays !== false && (formData.birthdays || []).length > 0 && (
-                      <div className="border p-4 rounded-2xl space-y-2" style={{ backgroundColor: theme.accentLight, borderColor: theme.border }}>
-                        <div className="flex items-center gap-2 font-bold text-sm border-b pb-1.5" style={{ color: theme.textAccent, borderColor: theme.border }}>
-                          <span>🎂</span> Birthdays This Week
-                        </div>
-                        <div className="flex flex-wrap gap-1">
-                          {(formData.birthdays || []).map((name, i) => (
-                            <span key={i} className="inline-block bg-white border rounded-full px-2.5 py-0.5 text-xs font-semibold shadow-2xs" style={{ color: theme.textAccent, borderColor: theme.border }}>
-                              {name}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
+                      <BirthdayCelebrationFrame
+                        birthdays={formData.birthdays || []}
+                        birthdayMessage={formData.birthday_message}
+                        theme={theme}
+                      />
                     )}
 
                   </div>
@@ -2234,12 +2345,12 @@ const allWeeks = useMemo(() => {
                         </div>
                       )}
                       {formData.show_birthdays !== false && (formData.birthdays || []).length > 0 && (
-                        <div className="space-y-1.5">
-                          <h3 className="font-bold text-xs border-b pb-0.5" style={{ color: theme.primary, borderColor: theme.border }}>🎂 BIRTHDAYS THIS WEEK</h3>
-                          <p className="font-medium font-sans text-xs" style={{ color: theme.textAccent }}>
-                            {(formData.birthdays || []).join(", ")}
-                          </p>
-                        </div>
+                        <BirthdayCelebrationFrame
+                          birthdays={formData.birthdays || []}
+                          birthdayMessage={formData.birthday_message}
+                          theme={theme}
+                          compact={true}
+                        />
                       )}
                       {formData.show_bishopric !== false && formData.bishopric_message && (
                         <div className="space-y-1.5 p-3 border rounded bg-slate-50" style={{ backgroundColor: theme.primaryLight, borderColor: theme.border }}>
@@ -2464,12 +2575,12 @@ const allWeeks = useMemo(() => {
 
                     {/* Birthdays */}
                     {formData.show_birthdays !== false && (formData.birthdays || []).length > 0 && (
-                      <div className="space-y-1">
-                        <h4 className="font-bold border-b pb-0.5" style={{ color: theme.primary, borderColor: theme.border }}>🎂 Birthdays This Week</h4>
-                        <div className="text-xs font-semibold" style={{ color: theme.textAccent }}>
-                          {(formData.birthdays || []).join(", ")}
-                        </div>
-                      </div>
+                      <BirthdayCelebrationFrame
+                        birthdays={formData.birthdays || []}
+                        birthdayMessage={formData.birthday_message}
+                        theme={theme}
+                        compact={true}
+                      />
                     )}
 
                   </div>
@@ -2596,12 +2707,12 @@ const allWeeks = useMemo(() => {
 
                     {/* Birthdays */}
                     {formData.show_birthdays !== false && (formData.birthdays || []).length > 0 && (
-                      <div className="space-y-2">
-                        <h3 className="font-bold text-sm border-b pb-1" style={{ color: theme.primary, borderColor: theme.border }}>🎂 BIRTHDAYS THIS WEEK</h3>
-                        <p className="font-medium font-sans text-xs" style={{ color: theme.textAccent }}>
-                          {(formData.birthdays || []).join(", ")}
-                        </p>
-                      </div>
+                      <BirthdayCelebrationFrame
+                        birthdays={formData.birthdays || []}
+                        birthdayMessage={formData.birthday_message}
+                        theme={theme}
+                        compact={true}
+                      />
                     )}
 
                     {/* Bishopric Message */}

@@ -480,6 +480,7 @@ export type Bulletin = {
   
   // Custom list of birthdays
   birthdays?: string[];
+  birthday_message?: string;
   
   // Missionary Corner
   missionaries?: string[];
