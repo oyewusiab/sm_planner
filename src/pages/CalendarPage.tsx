@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import type { CalendarActivity, UnitSettings, User } from "../types";
 import { Button, Card, CardBody, CardHeader, CardTitle, Divider, Input, Label, Select } from "../components/ui";
-import { ids, updateDB, useTable, cleanDateToYYYYMMDD, forcePushChanges, syncNow } from "../utils/storage";
+import { ids, updateDB, useTable, cleanDateToYYYYMMDD, forcePushChanges, syncNow, isCorruptActivityName } from "../utils/storage";
 import { formatDateShort, formatTime12h } from "../utils/date";
 import { generatePDF } from "../utils/pdf";
 import { extractTextFromPDF } from "../utils/pdfParser";
@@ -96,14 +96,17 @@ export function CalendarPage({
 
       let nextList: CalendarActivity[] = [];
       if (importMode === "overwrite") {
-        nextList = newItems;
+        nextList = newItems.filter(item => !isCorruptActivityName(item.activity));
       } else {
         nextList = [...existing];
         newItems.forEach(newItem => {
+          if (isCorruptActivityName(newItem.activity)) return;
+          const cleanNewDate = cleanDateToYYYYMMDD(newItem.date);
+          const cleanNewAct = (newItem.activity || "").trim().toLowerCase();
           const isDuplicate = existing.some(ext => 
-            ext.date === newItem.date && 
-            ext.activity.toLowerCase() === newItem.activity.toLowerCase() &&
-            ext.organisation === newItem.organisation
+            cleanDateToYYYYMMDD(ext.date) === cleanNewDate && 
+            (ext.activity || "").trim().toLowerCase() === cleanNewAct &&
+            (ext.organisation || "WARD") === newItem.organisation
           );
           if (!isDuplicate) {
             nextList.push(newItem);
@@ -577,5 +580,5 @@ const parseActivitiesFromPDFText = (text: string): Partial<CalendarActivity>[] =
   });
 
   if (current) parsed.push(current);
-  return parsed.filter(a => a.activity);
+  return parsed.filter(a => a.activity && !isCorruptActivityName(a.activity));
 };

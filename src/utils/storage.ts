@@ -205,8 +205,18 @@ export function cleanDateToYYYYMMDD(val: any): string {
   return s;
 }
 
+export function isCorruptActivityName(name: string | undefined | null): boolean {
+  if (!name) return true;
+  const s = String(name).trim().toLowerCase();
+  if (!s) return true;
+  if (s === "---" || s === "-" || s === "--" || s === "not set" || s === "tbd" || s === "bd" || s === "null" || s === "undefined") {
+    return true;
+  }
+  return false;
+}
+
 function sanitizeMemberRecord(raw: any) {
-  const name = asText(raw?.name).trim();
+  const name = asText(raw?.name).replace(/\s+/g, " ").trim();
   const ageValue = raw?.age;
   const parsedAge =
     ageValue === undefined || ageValue === null || String(ageValue).trim() === ""
@@ -214,7 +224,7 @@ function sanitizeMemberRecord(raw: any) {
       : Number(ageValue);
 
   return {
-    member_id: name || asText(raw?.member_id).trim(),
+    member_id: name || asText(raw?.member_id).replace(/\s+/g, " ").trim(),
     name,
     gender: asText(raw?.gender).trim(),
     age: Number.isFinite(parsedAge) ? parsedAge : undefined,
@@ -472,7 +482,20 @@ function normalizeDB(raw: any): DB {
       const seen = new Set<string>();
       const cleanList: any[] = [];
       for (const item of list) {
-        const id = String((item as any)?.[t.idCol] || "").trim().toLowerCase();
+        let id = String((item as any)?.[t.idCol] || "").trim().toLowerCase();
+        if (t.name === "ACTIVITIES") {
+          const act = item as CalendarActivity;
+          if (isCorruptActivityName(act.activity)) continue;
+          const cleanDate = cleanDateToYYYYMMDD(act.date);
+          const cleanTitle = (act.activity || "").trim().toLowerCase();
+          const cleanOrg = (act.organisation || "WARD").trim().toLowerCase();
+          id = `${cleanDate}_${cleanTitle}_${cleanOrg}`;
+        } else if (t.name === "MEMBERS") {
+          const mem = item as Member;
+          const cleanName = (mem.name || "").replace(/\s+/g, " ").trim();
+          if (!cleanName) continue;
+          id = cleanName.toLowerCase();
+        }
         if (id && !seen.has(id)) {
           seen.add(id);
           cleanList.push(item);
@@ -605,6 +628,29 @@ async function pushAllToBackend() {
           if (!oldComparable || JSON.stringify(oldComparable) !== JSON.stringify(nextComparable)) {
             updates.push({ table: t.name, row: nextComparable });
             changedTables.add(t.name);
+          }
+        }
+
+        // Find deletions (items present in lastSyncedDB but missing in local DB)
+        for (const lastR of lastRows) {
+          const id = String(lastR[t.idCol] || "");
+          if (!id) continue;
+          if (!currentMap.has(id)) {
+            deletes.push({ table: t.name, id });
+            changedTables.add(t.name);
+          }
+        }
+      }
+
+      // Sync deletes in Firestore
+      for (const del of deletes) {
+        const colName = COLLECTION_MAPPING[del.table as keyof DB];
+        if (colName && del.id) {
+          try {
+            await deleteDoc(doc(db, colName, del.id));
+            console.log(`[Sync] Deleted remote doc during push: ${colName}/${del.id}`);
+          } catch (err) {
+            console.warn(`[Sync] Failed to delete remote doc ${colName}/${del.id}:`, err);
           }
         }
       }
@@ -764,12 +810,50 @@ function mergeDatabases(local: DB, remote: DB): { merged: DB; needsPush: boolean
         mergedRows.push(l);
         needsPush = true;
       } else if (r) {
-        // Exists on remote but not locally (item created on remote or by another user)
-        mergedRows.push(r);
+        // Exists on remote but not locally
+        // Check if item was present in lastSyncedDB (meaning it was deleted locally)
+        const wasInLastSync = lastSyncedDB && (lastSyncedDB[t.name] || []).some((lastR: any) => String(lastR[t.idCol] || "") === id);
+        if (wasInLastSync) {
+          // Local user deleted this item; do not resurrect it from remote, push deletion to remote
+          needsPush = true;
+        } else {
+          mergedRows.push(r);
+        }
       }
     }
 
-    (merged as any)[t.name] = mergedRows;
+    // Business key deduplication for ACTIVITIES and MEMBERS to prevent duplicate IDs from coexisting
+    if (t.name === "ACTIVITIES") {
+      const seenKey = new Set<string>();
+      const cleanList: any[] = [];
+      for (const item of mergedRows) {
+        if (isCorruptActivityName((item as CalendarActivity).activity)) continue;
+        const cleanDate = cleanDateToYYYYMMDD((item as CalendarActivity).date);
+        const cleanTitle = ((item as CalendarActivity).activity || "").trim().toLowerCase();
+        const cleanOrg = ((item as CalendarActivity).organisation || "WARD").trim().toLowerCase();
+        const bKey = `${cleanDate}_${cleanTitle}_${cleanOrg}`;
+        if (bKey && !seenKey.has(bKey)) {
+          seenKey.add(bKey);
+          cleanList.push(item);
+        }
+      }
+      (merged as any).ACTIVITIES = cleanList;
+    } else if (t.name === "MEMBERS") {
+      const seenKey = new Set<string>();
+      const cleanList: any[] = [];
+      for (const item of mergedRows) {
+        const cleanName = ((item as Member).name || "").replace(/\s+/g, " ").trim();
+        if (!cleanName) continue;
+        const bKey = cleanName.toLowerCase();
+        if (bKey && !seenKey.has(bKey)) {
+          seenKey.add(bKey);
+          cleanList.push(item);
+        }
+      }
+      (merged as any).MEMBERS = cleanList;
+    } else {
+      (merged as any)[t.name] = mergedRows;
+    }
   }
 
   merged.UNIT_SETTINGS = {

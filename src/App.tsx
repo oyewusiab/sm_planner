@@ -20,7 +20,7 @@ import { CalendarPage } from "./pages/CalendarPage";
 import { WARD_2026_CALENDAR } from "./utils/calendarDefaults";
 import * as auth from "./auth/authService";
 import { clearSession, getSession, newSessionForUser, setSession } from "./auth/session";
-import { syncNow, syncFromBackend, getDB, onSyncStatusChange, updateDB, ids, onDBChange } from "./utils/storage";
+import { syncNow, syncFromBackend, getDB, onSyncStatusChange, updateDB, ids, onDBChange, cleanDateToYYYYMMDD } from "./utils/storage";
 import { backendEnabled, pingBackend, syncMusic } from "./utils/backend";
 import { Button } from "./components/ui";
 
@@ -112,24 +112,36 @@ export function App() {
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, [route, user]);
 
-  // Pre-populate Obantoko Ward 2026 Calendar if empty
+  // Pre-populate Obantoko Ward 2026 Calendar if empty or missing default items
   useEffect(() => {
     if (booting) return;
     const db = getDB();
     if (db.ACTIVITIES && db.ACTIVITIES.length === 0) {
       updateDB((db0) => {
-        const newItems = WARD_2026_CALENDAR.map(item => ({
-          activity_id: ids.uid("act"),
-          date: item.date,
-          activity: item.activity,
-          organisation: item.organisation,
-          status: false,
-          email_sent: false,
-          those_involved: "",
-          report_submitted: "N/A" as const,
-          time: "12:00 PM"
-        }));
-        return { ...db0, ACTIVITIES: newItems };
+        const existing = db0.ACTIVITIES || [];
+        const existingKeys = new Set(
+          existing.map(a => `${cleanDateToYYYYMMDD(a.date)}_${(a.activity || "").trim().toLowerCase()}_${(a.organisation || "WARD").trim().toLowerCase()}`)
+        );
+        const newItems: any[] = [];
+        WARD_2026_CALENDAR.forEach(item => {
+          const key = `${cleanDateToYYYYMMDD(item.date)}_${(item.activity || "").trim().toLowerCase()}_${(item.organisation || "WARD").trim().toLowerCase()}`;
+          if (!existingKeys.has(key)) {
+            existingKeys.add(key);
+            newItems.push({
+              activity_id: ids.uid("act"),
+              date: item.date,
+              activity: item.activity,
+              organisation: item.organisation,
+              status: false,
+              email_sent: false,
+              those_involved: "",
+              report_submitted: "N/A" as const,
+              time: "12:00 PM"
+            });
+          }
+        });
+        if (newItems.length === 0) return db0;
+        return { ...db0, ACTIVITIES: [...existing, ...newItems] };
       });
       refresh();
     }

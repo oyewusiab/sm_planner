@@ -16,7 +16,7 @@ import {
   Textarea,
 } from "../components/ui";
 import { can } from "../utils/permissions";
-import { getDB, ids, time, updateDB, triggerDatabaseReset } from "../utils/storage";
+import { getDB, ids, time, updateDB, triggerDatabaseReset, cleanDateToYYYYMMDD, isCorruptActivityName } from "../utils/storage";
 import { sha256 } from "../utils/crypto";
 import { notifyRoles, notifyUser } from "../utils/notifications";
 import * as auth from "../auth/authService";
@@ -413,30 +413,40 @@ export function SettingsPage({
       let duplicateActivitiesMerged = 0;
 
       activitiesList.forEach(act => {
-        if (!act.activity || !act.activity.trim()) {
+        const cleanTitle = (act.activity || "").replace(/\s+/g, " ").trim();
+        if (isCorruptActivityName(cleanTitle)) {
           emptyActivitiesRemoved++;
           return;
         }
 
+        const cleanDate = cleanDateToYYYYMMDD(act.date);
         let timeVal = act.time || "12:00 PM";
         if (timeVal.startsWith("1899-12-30")) {
           timeVal = formatTime12h(timeVal);
         }
 
+        const cleanOrg = (act.organisation || "WARD").replace(/\s+/g, " ").trim().toUpperCase();
+
         const normalizedAct: CalendarActivity = {
           ...act,
-          activity: act.activity.trim(),
+          date: cleanDate,
+          activity: cleanTitle,
           time: timeVal,
-          organisation: act.organisation || "WARD",
+          organisation: cleanOrg,
         };
 
-        const key = `${normalizedAct.date.trim()}_${normalizedAct.activity.toLowerCase()}_${normalizedAct.organisation.toLowerCase()}_${normalizedAct.time.toLowerCase()}`;
+        const key = `${cleanDate}_${cleanTitle.toLowerCase()}_${cleanOrg.toLowerCase()}`;
         
         if (activityMap.has(key)) {
           duplicateActivitiesMerged++;
           const existing = activityMap.get(key)!;
+          let mergedTime = existing.time;
+          if ((mergedTime === "12:00 PM" || mergedTime === "Not set" || !mergedTime) && timeVal && timeVal !== "Not set") {
+            mergedTime = timeVal;
+          }
           activityMap.set(key, {
             ...existing,
+            time: mergedTime,
             status: existing.status || normalizedAct.status,
             email_sent: existing.email_sent || normalizedAct.email_sent,
             those_involved: existing.those_involved || normalizedAct.those_involved,
@@ -455,13 +465,15 @@ export function SettingsPage({
       let invalidMembersRemoved = 0;
 
       membersList.forEach(mem => {
-        const cleanName = (mem.name || "").trim();
-        if (!cleanName) return;
+        const cleanName = (mem.name || "").replace(/\s+/g, " ").trim();
+        if (!cleanName) {
+          invalidMembersRemoved++;
+          return;
+        }
         
-        // Remove names containing numbers (figures) or characters other than letters, space, comma, and hyphen
+        // Remove names containing numbers (figures)
         const hasDigit = /\d/.test(cleanName);
-        const hasInvalidChars = !/^[\p{L}\s,\-]+$/u.test(cleanName);
-        if (hasDigit || hasInvalidChars) {
+        if (hasDigit) {
           invalidMembersRemoved++;
           return;
         }
@@ -472,7 +484,7 @@ export function SettingsPage({
           ...mem,
           name: cleanName,
           member_id: cleanName,
-          created_date: mem.created_date || new Date().toISOString().split("T")[0],
+          created_date: cleanDateToYYYYMMDD(mem.created_date) || new Date().toISOString().split("T")[0],
         };
 
         if (memberMap.has(normKey)) {
