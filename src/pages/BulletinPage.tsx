@@ -782,11 +782,16 @@ const allWeeks = useMemo(() => {
         list.push(nextBulletin);
       } else {
         const idx = list.findIndex(b => b.bulletin_id === targetBulletinId);
-        if (idx !== -1) list[idx] = nextBulletin;
+        if (idx !== -1) {
+          list[idx] = nextBulletin;
+        } else {
+          list.push(nextBulletin);
+        }
       }
       return { ...db0, BULLETINS: list };
     });
 
+    void forcePushChanges();
     onChanged();
     alert("Bulletin saved successfully!");
   };

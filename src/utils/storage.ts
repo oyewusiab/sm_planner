@@ -566,164 +566,178 @@ const METADATA_KEY = "sac_meeting_planner_db_metadata_v2";
 const LAST_SYNC_TIME_KEY = "sac_meeting_planner_last_sync_time_v2";
 let metadataListenerUnsubscribe: (() => void) | null = null;
 
-async function pushAllToBackend() {
+let currentPushPromise: Promise<void> | null = null;
+
+async function pushAllToBackend(): Promise<void> {
   if (!backendEnabled() || suppressRemoteSync > 0) return;
-  if (remoteSyncInFlight) return;
-  remoteSyncInFlight = true;
-  hasPendingPush = false; // Reset immediately to detect any changes made while sync is in progress
-  notifySyncListeners(true);
-  try {
-    const dbData = serializeDBForRemote(getDB());
-    
-    // Load local metadata
-    const localMetadataRaw = localStorage.getItem(METADATA_KEY);
-    const localMetadata: DBMetadata = localMetadataRaw 
-      ? JSON.parse(localMetadataRaw) 
-      : { versions: {}, last_updated: "" };
-
-    const changedTables = new Set<string>();
-
-    // We compute differences and write them directly to Firestore
-    if (!lastSyncedDB) {
-      console.log(`[Sync] Baseline missing. Pushing full database...`);
-      for (const t of SYNC_TABLES) {
-        if (t.name === "HYMNS") continue;
-        const colName = COLLECTION_MAPPING[t.name];
-        const rows = (dbData[t.name] || []) as any[];
-        for (const r of rows) {
-          const id = String(r[t.idCol] || "");
-          if (!id) continue;
-          
-          if (t.name === "USERS" && r.signature_data_url?.startsWith("data:")) {
-            try { r.signature_data_url = await uploadSignature(id, r.signature_data_url); } catch {}
-          }
-          await setDoc(doc(db, colName, id), removeUndefined(r));
-        }
-        changedTables.add(t.name);
-      }
-      if (dbData.UNIT_SETTINGS) {
-        await setDoc(doc(db, "unit_settings", "global"), removeUndefined(dbData.UNIT_SETTINGS));
-        changedTables.add("UNIT_SETTINGS");
-      }
-    } else {
-      console.log(`[Sync] Calculating row differences for Firestore push...`);
-      const updates: any[] = [];
-      const deletes: any[] = [];
-      
-      for (const t of SYNC_TABLES) {
-        if (t.name === "HYMNS") continue;
-        const currentRows = (dbData[t.name] || []) as any[];
-        const lastRows = (lastSyncedDB[t.name] || []) as any[];
-        
-        const currentMap = new Map(currentRows.map(r => [String(r[t.idCol] || ""), r]));
-        const lastMap = new Map(lastRows.map(r => [String(r[t.idCol] || ""), r]));
-
-        // Find updates
-        for (const r of currentRows) {
-          const id = String(r[t.idCol] || "");
-          if (!id) continue;
-          const old = lastMap.get(id);
-          const nextComparable = getComparableRow(t.name, r);
-          const oldComparable = old ? getComparableRow(t.name, old) : null;
-          if (!oldComparable || JSON.stringify(oldComparable) !== JSON.stringify(nextComparable)) {
-            updates.push({ table: t.name, row: nextComparable });
-            changedTables.add(t.name);
-          }
-        }
-
-        // Find deletions (items present in lastSyncedDB but missing in local DB)
-        for (const lastR of lastRows) {
-          const id = String(lastR[t.idCol] || "");
-          if (!id) continue;
-          if (!currentMap.has(id)) {
-            deletes.push({ table: t.name, id });
-            changedTables.add(t.name);
-          }
-        }
-      }
-
-      // Sync deletes in Firestore
-      for (const del of deletes) {
-        const colName = COLLECTION_MAPPING[del.table as keyof DB];
-        if (colName && del.id) {
-          try {
-            await deleteDoc(doc(db, colName, del.id));
-            console.log(`[Sync] Deleted remote doc during push: ${colName}/${del.id}`);
-          } catch (err) {
-            console.warn(`[Sync] Failed to delete remote doc ${colName}/${del.id}:`, err);
-          }
-        }
-      }
-
-      // Sync writes in Firestore
-      for (const update of updates) {
-        const colName = COLLECTION_MAPPING[update.table as keyof DB];
-        const idCol = SYNC_TABLES.find(t => t.name === update.table)?.idCol || "id";
-        const docId = String(update.row[idCol]);
-        
-        if (update.table === "USERS" && update.row.signature_data_url?.startsWith("data:")) {
-          try {
-            update.row.signature_data_url = await uploadSignature(docId, update.row.signature_data_url);
-          } catch (err) {
-            console.warn("Signature upload failed during sync:", err);
-          }
-        }
-        await setDoc(doc(db, colName, docId), removeUndefined(update.row));
-      }
-
-      if (JSON.stringify(dbData.UNIT_SETTINGS) !== JSON.stringify(lastSyncedDB.UNIT_SETTINGS)) {
-        await setDoc(doc(db, "unit_settings", "global"), removeUndefined(dbData.UNIT_SETTINGS || {}));
-        changedTables.add("UNIT_SETTINGS");
-      }
-    }
-
-    // Load remote metadata to get the latest remote versions and prevent regression
-    let remoteMeta: DBMetadata | null = null;
-    try {
-      const metaSnap = await getDoc(doc(db, "metadata", "global"));
-      if (metaSnap.exists()) {
-        remoteMeta = metaSnap.data() as DBMetadata;
-      }
-    } catch (e) {
-      console.warn("[Sync] Failed to fetch remote metadata before push:", e);
-    }
-
-    const mergedVersions = { ...(localMetadata.versions || {}) };
-    if (remoteMeta && remoteMeta.versions) {
-      for (const key of Object.keys(remoteMeta.versions)) {
-        mergedVersions[key] = Math.max(mergedVersions[key] || 0, remoteMeta.versions[key] || 0);
-      }
-    }
-
-    // Update metadata versions
-    if (changedTables.size > 0) {
-      const nextSyncTime = new Date().toISOString();
-      changedTables.forEach(tableName => {
-        mergedVersions[tableName] = (mergedVersions[tableName] || 0) + 1;
-      });
-
-      const nextMetadata: DBMetadata = {
-        versions: mergedVersions,
-        last_updated: nextSyncTime
-      };
-
-      await setDoc(doc(db, "metadata", "global"), nextMetadata);
-      localStorage.setItem(METADATA_KEY, JSON.stringify(nextMetadata));
-      localStorage.setItem(LAST_SYNC_TIME_KEY, nextSyncTime);
-    }
-    
-    setLastSyncedDB(serializeDBForRemote(getDB()));
-    console.log("[Sync] Firestore sync successful.");
-  } catch (err) {
-    console.warn("[Sync] Firestore push failed:", err);
-    hasPendingPush = true; // Mark as pending again to retry
-  } finally {
-    remoteSyncInFlight = false;
-    notifySyncListeners(false);
+  if (currentPushPromise) {
+    await currentPushPromise;
     if (hasPendingPush) {
-      scheduleRemoteSync();
+      return pushAllToBackend();
     }
+    return;
   }
+
+  currentPushPromise = (async () => {
+    remoteSyncInFlight = true;
+    hasPendingPush = false; // Reset immediately to detect any changes made while sync is in progress
+    notifySyncListeners(true);
+    try {
+      const dbData = serializeDBForRemote(getDB());
+      
+      // Load local metadata
+      const localMetadataRaw = localStorage.getItem(METADATA_KEY);
+      const localMetadata: DBMetadata = localMetadataRaw 
+        ? JSON.parse(localMetadataRaw) 
+        : { versions: {}, last_updated: "" };
+
+      const changedTables = new Set<string>();
+
+      // We compute differences and write them directly to Firestore
+      if (!lastSyncedDB) {
+        console.log(`[Sync] Baseline missing. Pushing full database...`);
+        for (const t of SYNC_TABLES) {
+          if (t.name === "HYMNS") continue;
+          const colName = COLLECTION_MAPPING[t.name];
+          const rows = (dbData[t.name] || []) as any[];
+          for (const r of rows) {
+            const id = String(r[t.idCol] || "");
+            if (!id) continue;
+            
+            if (t.name === "USERS" && r.signature_data_url?.startsWith("data:")) {
+              try { r.signature_data_url = await uploadSignature(id, r.signature_data_url); } catch {}
+            }
+            await setDoc(doc(db, colName, id), removeUndefined(r));
+          }
+          changedTables.add(t.name);
+        }
+        if (dbData.UNIT_SETTINGS) {
+          await setDoc(doc(db, "unit_settings", "global"), removeUndefined(dbData.UNIT_SETTINGS));
+          changedTables.add("UNIT_SETTINGS");
+        }
+      } else {
+        console.log(`[Sync] Calculating row differences for Firestore push...`);
+        const updates: any[] = [];
+        const deletes: any[] = [];
+        
+        for (const t of SYNC_TABLES) {
+          if (t.name === "HYMNS") continue;
+          const currentRows = (dbData[t.name] || []) as any[];
+          const lastRows = (lastSyncedDB[t.name] || []) as any[];
+          
+          const currentMap = new Map(currentRows.map(r => [String(r[t.idCol] || ""), r]));
+          const lastMap = new Map(lastRows.map(r => [String(r[t.idCol] || ""), r]));
+
+          // Find updates
+          for (const r of currentRows) {
+            const id = String(r[t.idCol] || "");
+            if (!id) continue;
+            const old = lastMap.get(id);
+            const nextComparable = getComparableRow(t.name, r);
+            const oldComparable = old ? getComparableRow(t.name, old) : null;
+            if (!oldComparable || JSON.stringify(oldComparable) !== JSON.stringify(nextComparable)) {
+              updates.push({ table: t.name, row: nextComparable });
+              changedTables.add(t.name);
+            }
+          }
+
+          // Find deletions (items present in lastSyncedDB but missing in local DB)
+          for (const lastR of lastRows) {
+            const id = String(lastR[t.idCol] || "");
+            if (!id) continue;
+            if (!currentMap.has(id)) {
+              deletes.push({ table: t.name, id });
+              changedTables.add(t.name);
+            }
+          }
+        }
+
+        // Sync deletes in Firestore
+        for (const del of deletes) {
+          const colName = COLLECTION_MAPPING[del.table as keyof DB];
+          if (colName && del.id) {
+            try {
+              await deleteDoc(doc(db, colName, del.id));
+              console.log(`[Sync] Deleted remote doc during push: ${colName}/${del.id}`);
+            } catch (err) {
+              console.warn(`[Sync] Failed to delete remote doc ${colName}/${del.id}:`, err);
+            }
+          }
+        }
+
+        // Sync writes in Firestore
+        for (const update of updates) {
+          const colName = COLLECTION_MAPPING[update.table as keyof DB];
+          const idCol = SYNC_TABLES.find(t => t.name === update.table)?.idCol || "id";
+          const docId = String(update.row[idCol]);
+          
+          if (update.table === "USERS" && update.row.signature_data_url?.startsWith("data:")) {
+            try {
+              update.row.signature_data_url = await uploadSignature(docId, update.row.signature_data_url);
+            } catch (err) {
+              console.warn("Signature upload failed during sync:", err);
+            }
+          }
+          await setDoc(doc(db, colName, docId), removeUndefined(update.row));
+        }
+
+        if (JSON.stringify(dbData.UNIT_SETTINGS) !== JSON.stringify(lastSyncedDB.UNIT_SETTINGS)) {
+          await setDoc(doc(db, "unit_settings", "global"), removeUndefined(dbData.UNIT_SETTINGS || {}));
+          changedTables.add("UNIT_SETTINGS");
+        }
+      }
+
+      // Load remote metadata to get the latest remote versions and prevent regression
+      let remoteMeta: DBMetadata | null = null;
+      try {
+        const metaSnap = await getDoc(doc(db, "metadata", "global"));
+        if (metaSnap.exists()) {
+          remoteMeta = metaSnap.data() as DBMetadata;
+        }
+      } catch (e) {
+        console.warn("[Sync] Failed to fetch remote metadata before push:", e);
+      }
+
+      const mergedVersions = { ...(localMetadata.versions || {}) };
+      if (remoteMeta && remoteMeta.versions) {
+        for (const key of Object.keys(remoteMeta.versions)) {
+          mergedVersions[key] = Math.max(mergedVersions[key] || 0, remoteMeta.versions[key] || 0);
+        }
+      }
+
+      // Update metadata versions
+      if (changedTables.size > 0) {
+        const nextSyncTime = new Date().toISOString();
+        changedTables.forEach(tableName => {
+          mergedVersions[tableName] = (mergedVersions[tableName] || 0) + 1;
+        });
+
+        const nextMetadata: DBMetadata = {
+          versions: mergedVersions,
+          last_updated: nextSyncTime
+        };
+
+        await setDoc(doc(db, "metadata", "global"), nextMetadata);
+        localStorage.setItem(METADATA_KEY, JSON.stringify(nextMetadata));
+        localStorage.setItem(LAST_SYNC_TIME_KEY, nextSyncTime);
+      }
+      
+      setLastSyncedDB(serializeDBForRemote(getDB()));
+      console.log("[Sync] Firestore sync successful.");
+    } catch (err) {
+      console.warn("[Sync] Firestore push failed:", err);
+      hasPendingPush = true; // Mark as pending again to retry
+    } finally {
+      remoteSyncInFlight = false;
+      notifySyncListeners(false);
+      currentPushPromise = null;
+      if (hasPendingPush) {
+        scheduleRemoteSync();
+      }
+    }
+  })();
+
+  return currentPushPromise;
 }
 
 export async function deleteDocFromFirebase(tableName: keyof DB, id: string) {
@@ -1131,7 +1145,8 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
 export async function syncNow(): Promise<boolean> {
   if (!backendEnabled()) return false;
   try {
-    return await syncFromBackend({ force: true, replaceLocal: true });
+    await forcePushChanges();
+    return await syncFromBackend({ force: true, replaceLocal: false });
   } catch (err) {
     console.warn("Manual sync failed", err);
     return false;
