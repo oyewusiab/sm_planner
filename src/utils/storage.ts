@@ -566,6 +566,37 @@ const METADATA_KEY = "sac_meeting_planner_db_metadata_v2";
 const LAST_SYNC_TIME_KEY = "sac_meeting_planner_last_sync_time_v2";
 let metadataListenerUnsubscribe: (() => void) | null = null;
 
+export async function touchRemoteMetadata(changedTable?: keyof DB) {
+  if (!backendEnabled()) return;
+  try {
+    const nextSyncTime = new Date().toISOString();
+    let remoteMeta: DBMetadata = { versions: {}, last_updated: nextSyncTime };
+    const metaSnap = await getDoc(doc(db, "metadata", "global"));
+    if (metaSnap.exists()) {
+      remoteMeta = metaSnap.data() as DBMetadata;
+    }
+    const versions = { ...(remoteMeta.versions || {}) };
+    if (changedTable) {
+      versions[changedTable] = (versions[changedTable] || 0) + 1;
+    } else {
+      for (const t of SYNC_TABLES) {
+        versions[t.name] = (versions[t.name] || 0) + 1;
+      }
+    }
+    const nextMetadata: DBMetadata = {
+      versions,
+      last_updated: nextSyncTime,
+      db_reset_version: remoteMeta.db_reset_version || 0,
+    };
+    await setDoc(doc(db, "metadata", "global"), removeUndefined(nextMetadata));
+    localStorage.setItem(METADATA_KEY, JSON.stringify(nextMetadata));
+    localStorage.setItem(LAST_SYNC_TIME_KEY, nextSyncTime);
+    console.log(`[Sync] Updated metadata/global (last_updated: ${nextSyncTime})`);
+  } catch (err) {
+    console.warn("[Sync] Touch metadata failed:", err);
+  }
+}
+
 let currentPushPromise: Promise<void> | null = null;
 
 async function pushAllToBackend(): Promise<void> {
@@ -1019,7 +1050,8 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
       ? JSON.parse(localMetadataRaw) 
       : { versions: {}, last_updated: "" };
 
-    if (isAuthenticated && !force && remoteMetadata && localLastSyncTime && remoteMetadata.last_updated <= localLastSyncTime) {
+    const hasLocalData = Array.isArray(local.PLANNERS) && local.PLANNERS.length > 0;
+    if (isAuthenticated && !force && remoteMetadata && localLastSyncTime && remoteMetadata.last_updated <= localLastSyncTime && hasLocalData) {
       console.log("[Sync] No remote changes detected (up to date). Skipping pull.");
       lastPullTime = Date.now();
       initializeFirebaseSync();
