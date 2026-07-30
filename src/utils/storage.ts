@@ -323,11 +323,29 @@ function serializeMemberForRemote(raw: any) {
 
 export function removeUndefined<T>(obj: T): T {
   if (obj === null || obj === undefined) return obj;
+  if (typeof obj !== "object") return obj;
   try {
-    return JSON.parse(JSON.stringify(obj));
+    const jsonClean = JSON.parse(JSON.stringify(obj));
+    return sanitizeDeep(jsonClean) as T;
   } catch (e) {
-    return obj;
+    return sanitizeDeep(obj) as T;
   }
+}
+
+function sanitizeDeep(val: any): any {
+  if (val === undefined) return null;
+  if (val === null || typeof val !== "object") return val;
+  if (Array.isArray(val)) {
+    return val.map((item) => sanitizeDeep(item)).filter((item) => item !== undefined);
+  }
+  const res: Record<string, any> = {};
+  for (const key of Object.keys(val)) {
+    const v = val[key];
+    if (v !== undefined) {
+      res[key] = sanitizeDeep(v);
+    }
+  }
+  return res;
 }
 
 function serializeDBForRemote(db: DB): DB {
@@ -1179,7 +1197,7 @@ export function getDB(): DB {
 
   const existing = safeParse<any>(localStorage.getItem(APP_KEY));
   if (existing) {
-    const normalized = normalizeDB(existing);
+    const normalized = removeUndefined(normalizeDB(existing));
 
     const needsPersist =
       !Array.isArray((existing as any).NOTIFICATIONS) ||
