@@ -733,8 +733,12 @@ async function pushAllToBackend(): Promise<void> {
       
       setLastSyncedDB(serializeDBForRemote(getDB()));
       console.log("[Sync] Firestore sync successful.");
-    } catch (err) {
+    } catch (err: any) {
       console.warn("[Sync] Firestore push failed:", err);
+      if (err?.message?.includes("undefined") || err?.message?.includes("Unsupported field value")) {
+        console.warn("[Sync] Detected undefined fields in local database. Self-healing local cache...");
+        updateDB((db0) => removeUndefined(db0), true);
+      }
       hasPendingPush = true; // Mark as pending again to retry
     } finally {
       remoteSyncInFlight = false;
