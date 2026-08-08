@@ -834,18 +834,13 @@ function mergeDatabases(local: DB, remote: DB): { merged: DB; needsPush: boolean
       if (l && r) {
         const lDate = l.updated_date || l.created_date || "";
         const rDate = r.updated_date || r.created_date || "";
-        if (lDate && rDate && lDate !== rDate) {
-          if (lDate > rDate) {
-            mergedRows.push(l);
-            needsPush = true;
-          } else {
-            mergedRows.push(r);
-          }
+        if (lDate && rDate && lDate > rDate && isLocalModified(t.name, id, l)) {
+          mergedRows.push(l);
+          needsPush = true;
+        } else if (lDate && rDate && rDate > lDate) {
+          mergedRows.push(r);
         } else {
-          // If local has edits that differ from remote, ALWAYS prefer local and flag for push
-          const lComp = getComparableRow(t.name, l);
-          const rComp = getComparableRow(t.name, r);
-          if (JSON.stringify(lComp) !== JSON.stringify(rComp)) {
+          if (isLocalModified(t.name, id, l)) {
             mergedRows.push(l);
             needsPush = true;
           } else {
@@ -999,21 +994,24 @@ export function updateLocalTableFromFirebase(tableName: keyof DB, remoteRows: an
       const id = String(remoteRow[idCol] || "");
       const localRow = localMap.get(id);
       if (localRow) {
-        const lComp = getComparableRow(tableName, localRow);
-        const rComp = getComparableRow(tableName, remoteRow);
-        if (JSON.stringify(lComp) !== JSON.stringify(rComp)) {
+        const lDate = localRow.updated_date || localRow.created_date || "";
+        const rDate = remoteRow.updated_date || remoteRow.created_date || "";
+        if (lDate && rDate && lDate > rDate && isLocalModified(tableName, id, localRow)) {
           return localRow;
         }
       }
       return remoteRow;
     });
     
-    // Maintain local rows that are not in remote yet (newly created or preserved locally)
+    // Maintain local rows that are not in remote yet (newly created locally before first sync)
     const remoteIds = new Set(remoteRows.map(r => String(r[idCol] || "")));
     for (const localRow of localRows) {
       const id = String(localRow[idCol] || "");
       if (!remoteIds.has(id)) {
-        mergedRows.push(localRow);
+        const wasInLastSync = lastSyncedDB && (lastSyncedDB[tableName] || []).some((lastR: any) => String(lastR[idCol] || "") === id);
+        if (!wasInLastSync || isLocalModified(tableName, id, localRow)) {
+          mergedRows.push(localRow);
+        }
       }
     }
     

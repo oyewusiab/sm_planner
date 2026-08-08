@@ -274,12 +274,9 @@ export function App() {
       setAuthReady(true);
       if (firebaseUser) {
         console.log("[Auth] Firebase Auth session initialized for:", firebaseUser.email);
-      } else if (user && backendEnabled()) {
-        console.log("[Auth] Firebase Auth session expired or missing. Clearing local session...");
-        logout();
       }
     });
-  }, [user]);
+  }, []);
 
   // Inactivity & Auto-logout
   useEffect(() => {
