@@ -99,7 +99,9 @@ export function DashboardPage({
   unit: UnitSettings;
   onNavigate: (route: string) => void;
 }) {
-  const db = getDB();
+  const { data: planners = [] } = useTable("PLANNERS");
+  const { data: checklists = [] } = useTable("CHECKLISTS");
+  const { data: hymns = [] } = useTable("HYMNS");
   const now = new Date();
   const hour = now.getHours();
   const month = now.getMonth() + 1;
@@ -139,7 +141,7 @@ export function DashboardPage({
   };
 
   const currentMonthSundays = nextSundaysInMonth(month, year);
-  const submittedPlanners = [...db.PLANNERS]
+  const submittedPlanners = [...planners]
     .filter((p) => p.state === "SUBMITTED")
     .sort((a, b) => b.updated_date.localeCompare(a.updated_date));
   const latestSubmitted = submittedPlanners[0];
@@ -154,12 +156,12 @@ export function DashboardPage({
 
   const aggregateChecklistStats = useMemo(() => {
     if (!latestSubmitted) return { done: 0, total: 0, pct: 0 };
-    const forPlanner = db.CHECKLISTS.filter((c) => c.planner_id === latestSubmitted.planner_id);
+    const forPlanner = checklists.filter((c) => c.planner_id === latestSubmitted.planner_id);
     const total = forPlanner.length;
     const done = forPlanner.filter((c) => c.status).length;
     const pct = total ? Math.round((done / total) * 100) : 0;
     return { done, total, pct };
-  }, [db.CHECKLISTS, latestSubmitted]);
+  }, [checklists, latestSubmitted]);
 
   const nextSundayInfo = useMemo(() => {
     const todayISO = new Date().toISOString().slice(0, 10);
@@ -172,23 +174,23 @@ export function DashboardPage({
 
   const nextSundayChecklistStats = useMemo(() => {
     if (!nextSundayInfo) return { done: 0, total: 0, pct: 0 };
-    const rows = db.CHECKLISTS.filter(
+    const rows = checklists.filter(
       (c) => c.planner_id === nextSundayInfo.planner_id && c.week_id === nextSundayInfo.week_id
     );
     const total = rows.length;
     const done = rows.filter((r) => r.status).length;
     const pct = total ? Math.round((done / total) * 100) : 0;
     return { done, total, pct };
-  }, [db.CHECKLISTS, nextSundayInfo]);
+  }, [checklists, nextSundayInfo]);
 
   const readinessStats = nextSundayInfo ? nextSundayChecklistStats : aggregateChecklistStats;
 
   const nextSundayDetails = useMemo(() => {
     if (!nextSundayInfo) return null;
-    const planner = db.PLANNERS.find((p) => p.planner_id === nextSundayInfo.planner_id);
+    const planner = planners.find((p) => p.planner_id === nextSundayInfo.planner_id);
     if (!planner) return null;
     return planner.weeks.find((w) => w.week_id === nextSundayInfo.week_id) || null;
-  }, [db.PLANNERS, nextSundayInfo]);
+  }, [planners, nextSundayInfo]);
 
   const upcoming = useMemo(() => {
     const todayISO = new Date().toISOString().slice(0, 10);

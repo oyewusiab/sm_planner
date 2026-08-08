@@ -557,7 +557,7 @@ export function App() {
               </div>
             </div>
           )}
-          <DashboardPage user={user} unit={effectiveUnit} onNavigate={(r) => setRoute(r as RouteKey)} />
+          <DashboardPage key={dbTick} user={user} unit={effectiveUnit} onNavigate={(r) => setRoute(r as RouteKey)} />
         </>
       );
     }
