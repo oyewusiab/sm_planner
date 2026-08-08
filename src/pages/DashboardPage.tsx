@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { UnitSettings, User } from "../types";
 import { Button, EmptyState } from "../components/ui";
 import { formatDateShort, nextSundaysInMonth, yyyyMmToLabel } from "../utils/date";
-import { getDB } from "../utils/storage";
+import { getDB, useTable } from "../utils/storage";
 import { cn } from "../utils/cn";
 import { formatUserDisplayName } from "../utils/format";
 
