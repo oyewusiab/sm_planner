@@ -33,6 +33,7 @@ export type DB = {
   PLANNERS: Planner[];
   ASSIGNMENTS: Assignment[];
   MEMBERS: Member[];
+  MEMBERS_LIST: Member[];
   CHECKLISTS: ChecklistTask[];
   NOTIFICATIONS: Notification[];
   SETTINGS_REQUESTS: SettingsChangeRequest[];
@@ -104,6 +105,7 @@ export const SYNC_TABLES: { name: keyof DB; idCol: string }[] = [
   { name: "PLANNERS", idCol: "planner_id" },
   { name: "ASSIGNMENTS", idCol: "assignment_id" },
   { name: "MEMBERS", idCol: "name" },
+  { name: "MEMBERS_LIST", idCol: "name" },
   { name: "CHECKLISTS", idCol: "checklist_id" },
   { name: "NOTIFICATIONS", idCol: "notification_id" },
   { name: "SETTINGS_REQUESTS", idCol: "request_id" },
@@ -125,6 +127,7 @@ export const COLLECTION_MAPPING: Record<keyof DB, string> = {
   PLANNERS: "planners",
   ASSIGNMENTS: "assignments",
   MEMBERS: "members",
+  MEMBERS_LIST: "members_list",
   CHECKLISTS: "checklists",
   NOTIFICATIONS: "notifications",
   SETTINGS_REQUESTS: "settings_requests",
@@ -143,6 +146,7 @@ export const COLLECTION_MAPPING: Record<keyof DB, string> = {
 
 const REMOTE_DELETABLE_TABLES = new Set<keyof DB>([
   "MEMBERS",
+  "MEMBERS_LIST",
   "NOTIFICATIONS",
   "TODOS",
   "ACTIVITIES",
@@ -355,18 +359,22 @@ function sanitizeDeep(val: any): any {
 
 function serializeDBForRemote(db: DB): DB {
   const customHymns = (db.HYMNS || []).filter((h) => h.hymn_id && !h.hymn_id.startsWith("h_"));
+  const serializedMembers = ((db.MEMBERS_LIST && db.MEMBERS_LIST.length > 0 ? db.MEMBERS_LIST : db.MEMBERS) || []).map(
+    (member) => serializeMemberForRemote(member) as any
+  );
   return removeUndefined({
     ...db,
     HYMNS: customHymns,
     USERS: db.USERS.map((user) => serializeUserForRemote(user) as any),
-    MEMBERS: db.MEMBERS.map((member) => serializeMemberForRemote(member) as any),
+    MEMBERS: serializedMembers,
+    MEMBERS_LIST: serializedMembers,
   });
 }
 
 function serializeRowForRemote(tableName: keyof DB | "UNIT_SETTINGS", row: any) {
   let res = row;
   if (tableName === "USERS") res = serializeUserForRemote(row);
-  else if (tableName === "MEMBERS") res = serializeMemberForRemote(row);
+  else if (tableName === "MEMBERS" || tableName === "MEMBERS_LIST") res = serializeMemberForRemote(row);
   return removeUndefined(res);
 }
 
@@ -506,12 +514,18 @@ function normalizeDB(raw: any): DB {
   const customHymns = rawHymns.filter((h: any) => h.hymn_id && !h.hymn_id.startsWith("h_"));
   const HYMNS = [...BUNDLED_HYMNS, ...customHymns];
 
+  const rawMembers = Array.isArray(raw?.MEMBERS_LIST) && raw.MEMBERS_LIST.length > 0
+    ? raw.MEMBERS_LIST
+    : Array.isArray(raw?.MEMBERS) ? raw.MEMBERS : [];
+  const MEMBERS = rawMembers.map((m: any) => sanitizeMemberRecord(m) as Member);
+
   const base: DB = {
     UNIT_SETTINGS: raw?.UNIT_SETTINGS ?? null,
     USERS,
     PLANNERS,
     ASSIGNMENTS: Array.isArray(raw?.ASSIGNMENTS) ? raw.ASSIGNMENTS : [],
-    MEMBERS: Array.isArray(raw?.MEMBERS) ? raw.MEMBERS.map((m: any) => sanitizeMemberRecord(m) as Member) : [],
+    MEMBERS,
+    MEMBERS_LIST: MEMBERS,
     CHECKLISTS: Array.isArray(raw?.CHECKLISTS) ? raw.CHECKLISTS : [],
     NOTIFICATIONS: Array.isArray(raw?.NOTIFICATIONS) ? raw.NOTIFICATIONS : [],
     SETTINGS_REQUESTS: Array.isArray(raw?.SETTINGS_REQUESTS) ? raw.SETTINGS_REQUESTS : [],
@@ -548,7 +562,7 @@ function normalizeDB(raw: any): DB {
           const cleanTitle = (act.activity || "").trim().toLowerCase();
           const cleanOrg = (act.organisation || "WARD").trim().toLowerCase();
           id = `${cleanDate}_${cleanTitle}_${cleanOrg}`;
-        } else if (t.name === "MEMBERS") {
+        } else if (t.name === "MEMBERS" || t.name === "MEMBERS_LIST") {
           const mem = item as Member;
           const cleanName = (mem.name || "").replace(/\s+/g, " ").trim();
           if (!cleanName) continue;
@@ -819,7 +833,7 @@ function mergeDatabases(local: DB, remote: DB): { merged: DB; needsPush: boolean
         }
       }
       (merged as any).ACTIVITIES = cleanList;
-    } else if (t.name === "MEMBERS") {
+    } else if (t.name === "MEMBERS" || t.name === "MEMBERS_LIST") {
       const seenKey = new Set<string>();
       const cleanList: any[] = [];
       for (const item of mergedRows) {
@@ -831,7 +845,7 @@ function mergeDatabases(local: DB, remote: DB): { merged: DB; needsPush: boolean
           cleanList.push(item);
         }
       }
-      (merged as any).MEMBERS = cleanList;
+      (merged as any)[t.name] = cleanList;
     } else {
       (merged as any)[t.name] = mergedRows;
     }

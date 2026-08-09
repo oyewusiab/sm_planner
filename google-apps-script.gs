@@ -188,6 +188,21 @@ const SCHEMA = {
     "last_assigned_date",
     "readiness_score",
   ],
+  MEMBERS_LIST: [
+    "name",
+    "gender",
+    "age",
+    "phone",
+    "email",
+    "organisation",
+    "status",
+    "notes",
+    "total_assignments",
+    "spoken_count",
+    "prayers_count",
+    "last_assigned_date",
+    "readiness_score",
+  ],
   ASSIGNMENTS: [
     "assignment_id",
     "planner_id",
@@ -389,6 +404,7 @@ const PRIMARY_KEYS = {
   PLANNERS: "planner_id",
   USERS: "user_id",
   MEMBERS: "name",
+  MEMBERS_LIST: "name",
   ASSIGNMENTS: "assignment_id",
   CHECKLISTS: "checklist_id",
   NOTIFICATIONS: "notification_id",
@@ -437,6 +453,7 @@ const JSON_FIELDS = {
 const NUMBER_FIELDS = {
   PLANNERS: ["month", "year"],
   MEMBERS: ["age"],
+  MEMBERS_LIST: ["age"],
   ASSIGNMENTS: ["minutes"],
 };
 
@@ -694,12 +711,16 @@ function handleDelete_(payload) {
 
 function handleExport_() {
   ensureSchema_();
+  const membersListRows = getAllRows_("MEMBERS_LIST");
+  const membersRows = membersListRows.length > 0 ? membersListRows : getAllRows_("MEMBERS");
+
   const db = {
     UNIT_SETTINGS: getUnitSettings_(),
     USERS: getAllRows_("USERS"),
     PLANNERS: getAllRows_("PLANNERS"),
     ASSIGNMENTS: getAllRows_("ASSIGNMENTS"),
-    MEMBERS: getAllRows_("MEMBERS"),
+    MEMBERS: membersRows,
+    MEMBERS_LIST: membersListRows,
     CHECKLISTS: getAllRows_("CHECKLISTS"),
     NOTIFICATIONS: getAllRows_("NOTIFICATIONS"),
     SETTINGS_REQUESTS: getAllRows_("SETTINGS_REQUESTS"),
@@ -739,6 +760,7 @@ function handleImport_(payload) {
     "PLANNERS",
     "ASSIGNMENTS",
     "MEMBERS",
+    "MEMBERS_LIST",
     "CHECKLISTS",
     "NOTIFICATIONS",
     "SETTINGS_REQUESTS",
