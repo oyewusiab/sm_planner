@@ -87,15 +87,13 @@ try {
 
 function setLastSyncedDB(db: DB | null) {
   lastSyncedDB = db;
-  try {
-    if (db) {
-      localStorage.setItem(LAST_SYNCED_KEY, JSON.stringify(db));
-    } else {
+  if (!db) {
+    try {
       localStorage.removeItem(LAST_SYNCED_KEY);
-    }
-  } catch (e) {
-    console.warn("Failed to save lastSyncedDB to localStorage:", e);
+    } catch (e) {}
+    return;
   }
+  safeSaveToLocalStorage(LAST_SYNCED_KEY, db);
 }
 
 let syncListeners: ((syncing: boolean) => void)[] = [];
@@ -356,8 +354,10 @@ function sanitizeDeep(val: any): any {
 }
 
 function serializeDBForRemote(db: DB): DB {
+  const customHymns = (db.HYMNS || []).filter((h) => h.hymn_id && !h.hymn_id.startsWith("h_"));
   return removeUndefined({
     ...db,
+    HYMNS: customHymns,
     USERS: db.USERS.map((user) => serializeUserForRemote(user) as any),
     MEMBERS: db.MEMBERS.map((member) => serializeMemberForRemote(member) as any),
   });
@@ -502,6 +502,10 @@ function normalizeDB(raw: any): DB {
       })
     : [];
 
+  const rawHymns = Array.isArray(raw?.HYMNS) ? raw.HYMNS : [];
+  const customHymns = rawHymns.filter((h: any) => h.hymn_id && !h.hymn_id.startsWith("h_"));
+  const HYMNS = [...BUNDLED_HYMNS, ...customHymns];
+
   const base: DB = {
     UNIT_SETTINGS: raw?.UNIT_SETTINGS ?? null,
     USERS,
@@ -514,7 +518,7 @@ function normalizeDB(raw: any): DB {
     PLANNER_APPROVAL_REQUESTS: Array.isArray(raw?.PLANNER_APPROVAL_REQUESTS) ? raw.PLANNER_APPROVAL_REQUESTS : [],
     TODOS: Array.isArray(raw?.TODOS) ? raw.TODOS : [],
     REMINDERS: Array.isArray(raw?.REMINDERS) ? raw.REMINDERS : [],
-    HYMNS: Array.isArray(raw?.HYMNS) ? raw.HYMNS : [],
+    HYMNS,
     AGENDAS,
     ACTIVITIES: Array.isArray(raw?.ACTIVITIES)
       ? raw.ACTIVITIES.map((a: any) => ({
@@ -673,39 +677,48 @@ async function pushAllToBackend(): Promise<void> {
   return currentPushPromise;
 }
 
+function trimDBForStorage(db: DB): DB {
+  const customHymns = (db.HYMNS || []).filter((h) => h.hymn_id && !h.hymn_id.startsWith("h_"));
+  return {
+    ...db,
+    HYMNS: customHymns,
+  };
+}
+
 function safeSaveToLocalStorage(key: string, db: DB) {
+  const trimmed = trimDBForStorage(db);
   try {
-    localStorage.setItem(key, JSON.stringify(db));
+    localStorage.setItem(key, JSON.stringify(trimmed));
   } catch (err: any) {
     if (err?.name === "QuotaExceededError" || err?.code === 22 || String(err).includes("quota")) {
-      console.warn("[Storage] LocalStorage quota exceeded. Pruning old logs, notifications & reminders to free space...");
+      console.warn(`[Storage] LocalStorage quota exceeded for ${key}. Pruning old logs, notifications & reminders...`);
       const prunedDB: DB = {
-        ...db,
-        NOTIFICATIONS: (db.NOTIFICATIONS || []).slice(0, 40),
-        "REPORT LOG": (db["REPORT LOG"] || []).slice(0, 30),
-        REMINDERS: (db.REMINDERS || []).slice(0, 40),
-        TODOS: (db.TODOS || []).slice(0, 40),
+        ...trimmed,
+        NOTIFICATIONS: (trimmed.NOTIFICATIONS || []).slice(0, 30),
+        "REPORT LOG": (trimmed["REPORT LOG"] || []).slice(0, 20),
+        REMINDERS: (trimmed.REMINDERS || []).slice(0, 30),
+        TODOS: (trimmed.TODOS || []).slice(0, 30),
       };
 
       try {
         localStorage.setItem(key, JSON.stringify(prunedDB));
         return;
       } catch (err2) {
-        console.warn("[Storage] Secondary pruning required for LocalStorage quota...");
+        console.warn(`[Storage] Secondary pruning required for ${key}...`);
         const slimDB: DB = {
           ...prunedDB,
           USERS: (prunedDB.USERS || []).map((u) => ({ ...u, signature_data_url: undefined })),
-          NOTIFICATIONS: (prunedDB.NOTIFICATIONS || []).slice(0, 15),
+          NOTIFICATIONS: (prunedDB.NOTIFICATIONS || []).slice(0, 10),
           "REPORT LOG": [],
         };
         try {
           localStorage.setItem(key, JSON.stringify(slimDB));
         } catch (err3) {
-          console.error("[Storage] Fatal: Unable to write to localStorage despite pruning.", err3);
+          console.error(`[Storage] Fatal: Unable to write ${key} to localStorage despite pruning.`, err3);
         }
       }
     } else {
-      console.error("[Storage] Failed to save DB to localStorage:", err);
+      console.error(`[Storage] Failed to save ${key} to localStorage:`, err);
     }
   }
 }
