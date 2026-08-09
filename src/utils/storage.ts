@@ -673,13 +673,46 @@ async function pushAllToBackend(): Promise<void> {
   return currentPushPromise;
 }
 
-export async function deleteDocFromFirebase(tableName: keyof DB, id: string) {
-  scheduleRemoteSync();
+function safeSaveToLocalStorage(key: string, db: DB) {
+  try {
+    localStorage.setItem(key, JSON.stringify(db));
+  } catch (err: any) {
+    if (err?.name === "QuotaExceededError" || err?.code === 22 || String(err).includes("quota")) {
+      console.warn("[Storage] LocalStorage quota exceeded. Pruning old logs, notifications & reminders to free space...");
+      const prunedDB: DB = {
+        ...db,
+        NOTIFICATIONS: (db.NOTIFICATIONS || []).slice(0, 40),
+        "REPORT LOG": (db["REPORT LOG"] || []).slice(0, 30),
+        REMINDERS: (db.REMINDERS || []).slice(0, 40),
+        TODOS: (db.TODOS || []).slice(0, 40),
+      };
+
+      try {
+        localStorage.setItem(key, JSON.stringify(prunedDB));
+        return;
+      } catch (err2) {
+        console.warn("[Storage] Secondary pruning required for LocalStorage quota...");
+        const slimDB: DB = {
+          ...prunedDB,
+          USERS: (prunedDB.USERS || []).map((u) => ({ ...u, signature_data_url: undefined })),
+          NOTIFICATIONS: (prunedDB.NOTIFICATIONS || []).slice(0, 15),
+          "REPORT LOG": [],
+        };
+        try {
+          localStorage.setItem(key, JSON.stringify(slimDB));
+        } catch (err3) {
+          console.error("[Storage] Fatal: Unable to write to localStorage despite pruning.", err3);
+        }
+      }
+    } else {
+      console.error("[Storage] Failed to save DB to localStorage:", err);
+    }
+  }
 }
 
 function setDBInternal(next: DB, suppressRemote?: boolean) {
   cachedDB = next;
-  localStorage.setItem(APP_KEY, JSON.stringify(next));
+  safeSaveToLocalStorage(APP_KEY, next);
   notifyDBListeners();
   if (!suppressRemote) scheduleRemoteSync();
 }
@@ -958,7 +991,7 @@ export function getDB(): DB {
       (Array.isArray((existing as any).USERS) && (existing as any).USERS.some((u: any) => !u?.username));
 
     if (needsPersist) {
-      localStorage.setItem(APP_KEY, JSON.stringify(normalized));
+      safeSaveToLocalStorage(APP_KEY, normalized);
     }
     cachedDB = normalized;
     return normalized;
@@ -984,7 +1017,7 @@ export function getDB(): DB {
     "REPORT LOG": [],
     BULLETINS: [],
   };
-  localStorage.setItem(APP_KEY, JSON.stringify(fresh));
+  safeSaveToLocalStorage(APP_KEY, fresh);
   cachedDB = fresh;
   return fresh;
 }
@@ -1115,59 +1148,14 @@ export async function triggerDatabaseReset() {
   if (!backendEnabled()) return;
   
   try {
-    console.log("[Reset] Fetching remote metadata before hard reset...");
-    let remoteMeta: DBMetadata = { versions: {}, last_updated: "", db_reset_version: 0 };
-    const metaSnap = await getDoc(doc(db, "metadata", "global"));
-    if (metaSnap.exists()) {
-      remoteMeta = metaSnap.data() as DBMetadata;
-    }
-
-    const nextReset = (remoteMeta.db_reset_version || 0) + 1;
-    const nextSyncTime = new Date().toISOString();
-
-    const nextMetadata: DBMetadata = {
-      versions: remoteMeta.versions || {},
-      last_updated: nextSyncTime,
-      db_reset_version: nextReset
-    };
-
-    console.log("[Reset] Aligning remote collections with clean local DB...");
+    console.log("[Reset] Pushing clean local DB state to Google Sheets...");
     const dbData = serializeDBForRemote(getDB());
-    for (const t of SYNC_TABLES) {
-      if (t.name === "HYMNS") continue;
-      const colName = COLLECTION_MAPPING[t.name];
-      
-      const rows = (dbData[t.name] || []) as any[];
-      const localIds = new Set(rows.map(r => String(r[t.idCol] || "")));
-      
-      // Fetch all remote documents to find and remove deleted ones
-      const snap = await getDocs(collection(db, colName));
-      for (const remoteDoc of snap.docs) {
-        if (!localIds.has(remoteDoc.id)) {
-          console.log(`[Reset] Deleting orphaned remote doc: ${colName}/${remoteDoc.id}`);
-          await deleteDoc(doc(db, colName, remoteDoc.id));
-        }
-      }
-      
-      // Upload current clean local rows
-      for (const r of rows) {
-        const id = String(r[t.idCol] || "");
-        if (!id) continue;
-        await setDoc(doc(db, colName, id), r);
-      }
+    const res = await pushAllToSheets(dbData);
+    if (!res.success) {
+      throw new Error("Unable to push cleaned database to Google Sheets backend.");
     }
-
-    if (dbData.UNIT_SETTINGS) {
-      await setDoc(doc(db, "unit_settings", "global"), dbData.UNIT_SETTINGS);
-    }
-
-    // Write metadata to trigger other clients
-    await setDoc(doc(db, "metadata", "global"), nextMetadata);
-    localStorage.setItem(METADATA_KEY, JSON.stringify(nextMetadata));
-    localStorage.setItem(LAST_SYNC_TIME_KEY, nextSyncTime);
     setLastSyncedDB(dbData);
-    
-    console.log(`[Reset] Database reset version ${nextReset} pushed successfully.`);
+    console.log("[Reset] Clean database pushed successfully to Google Sheets.");
   } catch (err) {
     console.error("[Reset] Database reset failed:", err);
     throw err;
