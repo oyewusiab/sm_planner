@@ -99,24 +99,33 @@ export async function getSheetsMetadata(): Promise<any | null> {
   const url = getGasWebAppUrl();
   if (!url) return null;
   
-  try {
-    const response = await fetch(`${url}?action=ping`, {
-      method: "GET",
-      mode: "cors",
-      headers: { "Accept": "application/json" }
-    });
-    if (!response.ok) return null;
-    const data = await response.json();
-    if (data.ok || data.status === "success") {
-      const dbVer = data.data?.db_version || data.db_version || data.metadata?.db_version || 1;
-      const ts = data.ts || data.metadata?.last_updated || new Date().toISOString();
-      return {
-        last_updated: `${dbVer}_${ts}`,
-        db_version: dbVer
-      };
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const response = await fetch(`${url}?action=ping`, {
+        method: "GET",
+        mode: "cors",
+        redirect: "follow",
+        headers: { "Accept": "application/json" }
+      });
+      if (!response.ok) {
+        if (attempt < 2) continue;
+        return null;
+      }
+      const data = await response.json();
+      if (data.ok || data.status === "success") {
+        const dbVer = data.data?.db_version || data.db_version || data.metadata?.db_version || 1;
+        const ts = data.ts || data.metadata?.last_updated || new Date().toISOString();
+        return {
+          last_updated: `${dbVer}_${ts}`,
+          db_version: dbVer
+        };
+      }
+    } catch (err) {
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 500));
+        continue;
+      }
     }
-    return null;
-  } catch (err) {
-    return null;
   }
+  return null;
 }

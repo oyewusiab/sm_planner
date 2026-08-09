@@ -16,9 +16,10 @@ export async function pingBackend() {
     if (meta) {
       return { ok: true, data: { message: "pong" } };
     }
+    console.warn("Google Sheets ping: Backend currently unreachable.");
     throw new Error("Unable to connect to Google Sheets backend.");
   } catch (err: any) {
-    console.error("Google Sheets ping failed:", err);
+    console.warn("Google Sheets ping warning:", err?.message || err);
     throw new Error("Unable to connect to Google Sheets backend.");
   }
 }
