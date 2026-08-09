@@ -1,5 +1,6 @@
 import type { Planner, UnitSettings } from "../types";
 import { formatDateShort, formatTime12h, monthName } from "../utils/date";
+import { resolveAugustPlannerSeed } from "../utils/augustPlannerSeed";
 
 type Gender = "M" | "F";
 
@@ -105,7 +106,8 @@ const S = {
   },
 };
 
-export function PlannerPreviewTable({ planner, unit }: { planner: Planner; unit: UnitSettings }) {
+export function PlannerPreviewTable({ planner: rawPlanner, unit }: { planner: Planner; unit: UnitSettings }) {
+  const planner = resolveAugustPlannerSeed(rawPlanner) || rawPlanner;
   const maxSpeakers = Math.max(
     1,
     ...planner.weeks

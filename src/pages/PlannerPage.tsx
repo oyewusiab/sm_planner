@@ -13,6 +13,7 @@ import * as auth from "../auth/authService";
 import { notifyUser } from "../utils/notifications";
 import { generatePDF } from "../utils/pdf";
 import { backendEnabled } from "../utils/backend";
+import { AUGUST_2026_PLANNER } from "../utils/augustPlannerSeed";
 
 type Gender = "M" | "F";
 
@@ -303,6 +304,13 @@ export function PlannerPage({
         const p = JSON.parse(saved) as Planner;
         if (p.created_by === user.user_id && p.unit_name === unit.unit_name) {
           const normalized = normalizePlanner(p, defaultSpeakers);
+          if (normalized.month === 8 && normalized.year === 2026) {
+            const hasSpeakers = (normalized.weeks || []).some((w) => (w.speakers || []).some((s) => s.name && s.name.trim().length > 0));
+            if (!hasSpeakers) {
+              localStorage.removeItem("sac_meeting_planner_draft_v1");
+              return normalizePlanner(AUGUST_2026_PLANNER, defaultSpeakers);
+            }
+          }
           console.log("[Planner] Recovered draft from localStorage:", normalized.planner_id);
           return normalized;
         }
@@ -347,15 +355,27 @@ export function PlannerPage({
     setMode("edit");
   }
 
+  function resolveAugustSeed(p: Planner): Planner {
+    let norm = normalizePlanner(JSON.parse(JSON.stringify(p)) as Planner, defaultSpeakers);
+    if (norm.month === 8 && norm.year === 2026) {
+      const hasSpeakers = (norm.weeks || []).some((w) => (w.speakers || []).some((s) => s.name && s.name.trim().length > 0));
+      const hasHymns = (norm.weeks || []).some((w) => w.hymns && (w.hymns.opening || w.hymns.sacrament || w.hymns.closing));
+      if (!hasSpeakers || !hasHymns) {
+        norm = normalizePlanner({ ...AUGUST_2026_PLANNER, planner_id: p.planner_id }, defaultSpeakers);
+      }
+    }
+    return norm;
+  }
+
   function startEdit(p: Planner) {
     setIsViewingOnly(false);
-    setDraft(normalizePlanner(JSON.parse(JSON.stringify(p)) as Planner, defaultSpeakers));
+    setDraft(resolveAugustSeed(p));
     setMode("edit");
   }
 
   function startViewOnly(p: Planner) {
     setIsViewingOnly(true);
-    setDraft(normalizePlanner(JSON.parse(JSON.stringify(p)) as Planner, defaultSpeakers));
+    setDraft(resolveAugustSeed(p));
     setMode("edit");
   }
 

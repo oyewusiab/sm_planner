@@ -374,27 +374,73 @@ export const AUGUST_2026_ASSIGNMENTS: Assignment[] = [
   },
 ];
 
-export function ensureAugust2026PlannerInDB(db: DB): DB {
-  const existingIndex = db.PLANNERS.findIndex((p) => p.month === 8 && p.year === 2026);
-  
-  let updatedPlanners = [...db.PLANNERS];
-  if (existingIndex >= 0) {
-    const existing = updatedPlanners[existingIndex];
-    // If existing planner is incomplete or empty, update it with the full seed data
-    const hasSpeakers = (existing.weeks || []).some((w) => (w.speakers || []).length > 0);
-    if (!hasSpeakers) {
-      updatedPlanners[existingIndex] = {
+export function resolveAugustPlannerSeed(p: Planner | null | undefined): Planner | null {
+  if (!p) return null;
+  if (p.month === 8 && p.year === 2026) {
+    const hasNamedSpeakers = (p.weeks || []).some((w) =>
+      (w.speakers || []).some((s) => s.name && s.name.trim().length > 0)
+    );
+    const hasHymns = (p.weeks || []).some(
+      (w) => w.hymns && (w.hymns.opening || w.hymns.sacrament || w.hymns.closing)
+    );
+    if (!hasNamedSpeakers || !hasHymns) {
+      return {
         ...AUGUST_2026_PLANNER,
-        planner_id: existing.planner_id || AUGUST_2026_PLANNER.planner_id,
+        planner_id: p.planner_id || AUGUST_2026_PLANNER.planner_id,
+        unit_name: p.unit_name || AUGUST_2026_PLANNER.unit_name,
+        conducting_officer: p.conducting_officer || AUGUST_2026_PLANNER.conducting_officer,
       };
     }
-  } else {
+  }
+  return p;
+}
+
+export function ensureAugust2026PlannerInDB(db: DB): DB {
+  let foundAugust = false;
+
+  const updatedPlanners = db.PLANNERS.map((existing) => {
+    if (existing.month === 8 && existing.year === 2026) {
+      foundAugust = true;
+      const hasNamedSpeakers = (existing.weeks || []).some((w) =>
+        (w.speakers || []).some((s) => s.name && s.name.trim().length > 0)
+      );
+      const hasHymns = (existing.weeks || []).some(
+        (w) => w.hymns && (w.hymns.opening || w.hymns.sacrament || w.hymns.closing)
+      );
+      
+      // Force update if incomplete
+      if (!hasNamedSpeakers || !hasHymns) {
+        return {
+          ...AUGUST_2026_PLANNER,
+          planner_id: existing.planner_id || AUGUST_2026_PLANNER.planner_id,
+        };
+      }
+    }
+    return existing;
+  });
+
+  if (!foundAugust) {
     updatedPlanners.unshift(AUGUST_2026_PLANNER);
   }
 
-  // Merge assignments
+  // Target planner IDs for August 2026
+  const augustPlannerIds = new Set(
+    updatedPlanners.filter((p) => p.month === 8 && p.year === 2026).map((p) => p.planner_id)
+  );
+
+  const augustAssignments: Assignment[] = [];
+  for (const pid of augustPlannerIds) {
+    for (const a of AUGUST_2026_ASSIGNMENTS) {
+      augustAssignments.push({
+        ...a,
+        assignment_id: `ass_${pid}_${a.week_id}_${a.role.replace(/[^a-z0-9]/gi, "")}`,
+        planner_id: pid,
+      });
+    }
+  }
+
   const existingAssignIds = new Set(db.ASSIGNMENTS.map((a) => a.assignment_id));
-  const newAssignments = AUGUST_2026_ASSIGNMENTS.filter((a) => !existingAssignIds.has(a.assignment_id));
+  const newAssignments = augustAssignments.filter((a) => !existingAssignIds.has(a.assignment_id));
   const updatedAssignments = [...newAssignments, ...db.ASSIGNMENTS];
 
   return {
