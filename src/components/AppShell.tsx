@@ -9,6 +9,7 @@ import { ProfileModal } from "./ProfileModal";
 import { Badge, Button } from "./ui";
 import { formatUserDisplayName } from "../utils/format";
 import logoUrl from "../../logo.png";
+import { backendEnabled } from "../utils/backend";
 
 export type RouteKey =
   | "dashboard"
@@ -214,10 +215,8 @@ export function AppShell({
               <span>{unit.unit_name}</span>
               {!backendEnabled() ? (
                 <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0" title="Local Mode (Offline)" />
-              ) : !currentUserLoggedIn ? (
-                <span className="h-2 w-2 rounded-full bg-rose-400 shrink-0" title="Sync Suspended" />
               ) : (
-                <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0 animate-pulse" title="Cloud Synced" />
+                <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0 animate-pulse" title="Google Sheets Cloud Synced" />
               )}
             </div>
             <div className="truncate text-[11px] text-slate-500">{user.calling || user.role}</div>
