@@ -16,7 +16,7 @@ import {
   Textarea,
 } from "../components/ui";
 import { formatDateShort, formatTime12h, getTodayPartsInTimeZone, monthName } from "../utils/date";
-import { getDB, ids, time, updateDB, useTable } from "../utils/storage";
+import { getDB, useDB, ids, time, updateDB, useTable } from "../utils/storage";
 import { Modal } from "../components/Modal";
 import { listNotificationsForUser, markAllRead, markRead, notifyUser } from "../utils/notifications";
 
@@ -129,7 +129,7 @@ export function NotificationsPage({
   unit: UnitSettings;
   onChanged: () => void;
 }) {
-  const db = getDB();
+  const db = useDB();
   const { data: members = [] } = useTable("MEMBERS");
 
   const [activeMsgItem, setActiveMsgItem] = useState<any | null>(null);

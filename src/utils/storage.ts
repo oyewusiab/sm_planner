@@ -997,6 +997,22 @@ export function useTable<K extends keyof DB>(tableName: K) {
   return { data, loading: false, error: null };
 }
 
+export function useDB(): DB {
+  const [db, setDb] = useState<DB>(() => getDB());
+
+  useEffect(() => {
+    const handler = () => {
+      setDb(getDB());
+    };
+    dbListeners.add(handler);
+    return () => {
+      dbListeners.delete(handler);
+    };
+  }, []);
+
+  return db;
+}
+
 export function useUpsertMutation<K extends keyof DB>(tableName: K) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);

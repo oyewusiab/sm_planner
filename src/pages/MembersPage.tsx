@@ -5,7 +5,7 @@ import { extractTextFromPDF } from "../utils/pdfParser";
 import { Button, Card, CardBody, CardHeader, CardTitle, EmptyState, Input, Label, SectionTitle, Select, Textarea } from "../components/ui";
 import { Modal } from "../components/Modal";
 import { can } from "../utils/permissions";
-import { getDB, ids, updateDB, cleanDateToYYYYMMDD, forcePushChanges, syncNow } from "../utils/storage";
+import { getDB, useDB, ids, updateDB, cleanDateToYYYYMMDD, forcePushChanges, syncNow } from "../utils/storage";
 import { downloadTextFile, toCSV } from "../utils/csv";
 import { normalizeMemberName, getSurname } from "../utils/format";
 import { cn } from "../utils/cn";
@@ -273,7 +273,7 @@ export function MembersPage({
 }) {
   const allowed = can(user.role, "MANAGE_MEMBERS");
   const canEditOrDelete = user.role === "ADMIN" || user.role === "CLERK";
-  const db = getDB();
+  const db = useDB();
   const [tab, setTab] = useState<"directory" | "analytics">("directory");
 
   const [isSyncing, setIsSyncing] = useState(false);

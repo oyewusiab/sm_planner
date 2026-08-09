@@ -20,7 +20,7 @@ import {
   TabsContent,
 } from "../components/ui";
 import { formatDateShort, formatTime12h, monthName } from "../utils/date";
-import { getDB, syncNow, time, updateDB } from "../utils/storage";
+import { getDB, useDB, syncNow, time, updateDB } from "../utils/storage";
 import { syncMusic } from "../utils/backend";
 import { MemberAutocomplete, normalizeGender } from "../components/MemberAutocomplete";
 import { HymnAutocomplete } from "../components/HymnAutocomplete";
@@ -131,7 +131,7 @@ export function MusicPage({
   unit: UnitSettings;
   onChanged: () => void;
 }) {
-  const db = getDB();
+  const db = useDB();
 
   const isMusic = user.role === "MUSIC";
   const isAdmin = user.role === "ADMIN";

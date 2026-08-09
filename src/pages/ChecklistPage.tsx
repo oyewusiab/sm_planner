@@ -3,7 +3,7 @@ import type { ChecklistTask, Planner, UnitSettings, User } from "../types";
 import { Badge, Button, Card, CardBody, CardHeader, CardTitle, Divider, EmptyState, Input, Label, SectionTitle, Select } from "../components/ui";
 import { Modal } from "../components/Modal";
 import { formatDateShort, formatTime12h, monthName } from "../utils/date";
-import { getDB, ids, time, updateDB } from "../utils/storage";
+import { getDB, useDB, ids, time, updateDB } from "../utils/storage";
 import { MemberAutocomplete } from "../components/MemberAutocomplete";
 
 const DEFAULT_TASKS = [
@@ -51,7 +51,7 @@ export function ChecklistPage({
   onChanged: () => void;
 }) {
   const enabled = unit.prefs?.enable_checklist !== false;
-  const db = getDB();
+  const db = useDB();
   const members = db.MEMBERS;
   const taskTemplates = useMemo(() => getTaskTemplates(unit), [unit]);
 
