@@ -233,12 +233,15 @@ function sanitizeMemberRecord(raw: any) {
 }
 
 function sanitizeUserRecord(raw: any) {
+  const disabledVal = String(raw?.disabled ?? "").trim().toLowerCase();
+  const isDisabled = disabledVal === "true" || disabledVal === "1" || disabledVal === "yes" || disabledVal === "y";
+
   return {
     user_id: asText(raw?.user_id).trim(),
     name: asText(raw?.name).trim(),
     preferred_name: asText(raw?.preferred_name).trim() || undefined,
     username: asText(raw?.username).trim() || undefined,
-    email: asText(raw?.email).trim().replace(/\s+/g, "."),
+    email: asText(raw?.email).trim(),
     password_hash: asText(raw?.password_hash || raw?.password || raw?.passwordHash).trim(),
     role: raw?.role,
     organisation: asText(raw?.organisation).trim() || undefined,
@@ -256,8 +259,8 @@ function sanitizeUserRecord(raw: any) {
     notes: asText(raw?.notes).trim() || undefined,
     created_date: asText(raw?.created_date).trim() || undefined,
     last_login_date: asText(raw?.last_login_date || raw?.lastLoginDate).trim() || undefined,
-    must_reset_password: raw?.must_reset_password === true || raw?.must_reset_password === "true" || raw?.must_reset_password === 1,
-    disabled: raw?.disabled === true || raw?.disabled === "true" || raw?.disabled === 1,
+    must_reset_password: raw?.must_reset_password === true || raw?.must_reset_password === "true" || raw?.must_reset_password === 1 || String(raw?.must_reset_password).toLowerCase() === "yes",
+    disabled: isDisabled,
   };
 }
 

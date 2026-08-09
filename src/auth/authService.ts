@@ -54,28 +54,26 @@ export function getUsersByRole(role: Role): User[] {
 
 export async function login(identifier: string, password: string): Promise<User> {
   const id = identifier.trim().toLowerCase();
+  const cleanPhone = id.replace(/\D/g, "");
   let dbData = getDB();
 
-  // Find user locally by email, username, or name
-  let user = dbData.USERS.find(
-    (u) =>
-      norm(u.email || "") === id ||
-      norm(u.username || "") === id ||
-      norm(u.name || "") === id
-  );
+  const matchUser = (u: User) => {
+    if (u.email && norm(u.email) === id) return true;
+    if (u.username && norm(u.username) === id) return true;
+    if (u.name && norm(u.name) === id) return true;
+    if (u.preferred_name && norm(u.preferred_name) === id) return true;
+    if (cleanPhone && u.phone && norm(u.phone).replace(/\D/g, "") === cleanPhone) return true;
+    return false;
+  };
 
+  let user = dbData.USERS.find(matchUser);
   const backendOn = backendEnabled();
 
+  // If user not found locally, sync latest users from Google Sheets
   if (!user && backendOn) {
-    // Sync latest users database from Google Sheets
     await syncFromBackend({ force: true, replaceLocal: false });
     const updatedDb = getDB();
-    user = updatedDb.USERS.find(
-      (u) =>
-        norm(u.email || "") === id ||
-        norm(u.username || "") === id ||
-        norm(u.name || "") === id
-    );
+    user = updatedDb.USERS.find(matchUser);
   }
 
   if (!user) {
@@ -87,8 +85,49 @@ export async function login(identifier: string, password: string): Promise<User>
   }
 
   const hash = await sha256(password);
-  const storedHash = (user.password_hash || "").trim().toLowerCase();
-  const ok = timingSafeEqual(hash.trim().toLowerCase(), storedHash);
+  let storedHash = (user.password_hash || "").trim();
+
+  // Check 1: Standard SHA-256 hash match
+  let ok = !!storedHash && timingSafeEqual(hash.toLowerCase(), storedHash.toLowerCase());
+
+  // Check 2: Direct plain text password match (if entered directly into Google Sheets)
+  if (!ok && storedHash && storedHash.length !== 64) {
+    if (password === storedHash || password.toLowerCase() === storedHash.toLowerCase()) {
+      ok = true;
+      // Auto-upgrade plain text password to SHA256 hash
+      try {
+        updateDB((db0) => ({
+          ...db0,
+          USERS: db0.USERS.map((u) => (u.user_id === user!.user_id ? { ...u, password_hash: hash } : u)),
+        }));
+      } catch (err) {
+        console.warn("[Auth] Password hash upgrade failed:", err);
+      }
+    }
+  }
+
+  // Check 3: If password verification failed locally, re-sync from Google Sheets in case password was changed remotely
+  if (!ok && backendOn) {
+    await syncFromBackend({ force: true, replaceLocal: false });
+    const freshDb = getDB();
+    const freshUser = freshDb.USERS.find((u) => u.user_id === user!.user_id) || freshDb.USERS.find(matchUser);
+    if (freshUser) {
+      user = freshUser;
+      const freshStored = (freshUser.password_hash || "").trim();
+      if (freshStored && timingSafeEqual(hash.toLowerCase(), freshStored.toLowerCase())) {
+        ok = true;
+      } else if (freshStored && freshStored.length !== 64 && (password === freshStored || password.toLowerCase() === freshStored.toLowerCase())) {
+        ok = true;
+        try {
+          updateDB((db0) => ({
+            ...db0,
+            USERS: db0.USERS.map((u) => (u.user_id === freshUser.user_id ? { ...u, password_hash: hash } : u)),
+          }));
+        } catch (err) {}
+      }
+    }
+  }
+
   if (!ok) {
     throw new Error("Incorrect password. Please try again.");
   }

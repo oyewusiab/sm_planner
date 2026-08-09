@@ -31,7 +31,7 @@ export function LoginPage({
     setError(null);
 
     if (!identifier.trim()) {
-      setError("Please enter your email or username.");
+      setError("Please enter your email, username, name, or phone number.");
       return;
     }
     if (!password) {
@@ -222,12 +222,12 @@ export function LoginPage({
               /* Login Form */
               <div className="space-y-5" onKeyDown={handleKeyDown}>
                 <div className="space-y-1.5">
-                  <Label htmlFor="identifier">Identifier</Label>
+                  <Label htmlFor="identifier">Email, Username, Name, or Phone</Label>
                   <Input
                     id="identifier"
                     value={identifier}
                     onChange={(e) => setIdentifier(e.target.value)}
-                    placeholder="Email or Username"
+                    placeholder="Email, username, name, or phone"
                     className="h-12 bg-white/50 focus:scale-[1.01]"
                     autoFocus
                     autoComplete="username"
