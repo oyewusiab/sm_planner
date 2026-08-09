@@ -23,6 +23,7 @@ import type {
 import { backendEnabled } from "./backend";
 import { pullAllFromSheets, pushAllToSheets, getSheetsMetadata, isGasConfigured } from "./sheetsBackend";
 import { BUNDLED_HYMNS } from "./hymnsCatalog";
+import { ensureAugust2026PlannerInDB } from "./augustPlannerSeed";
 
 const APP_KEY = "sac_meeting_planner_mvp_v1";
 
@@ -510,7 +511,7 @@ function normalizeDB(raw: any): DB {
       deduplicated[t.name] = cleanList as any;
     }
   }
-  return deduplicated;
+  return ensureAugust2026PlannerInDB(deduplicated);
 }
 
 export function isEmptyDB(db: DB): boolean {
