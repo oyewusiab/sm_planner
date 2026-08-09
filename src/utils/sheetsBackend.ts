@@ -2,6 +2,7 @@
  * Google Apps Script (Google Sheets) Backend Client
  */
 
+const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycby9YC2DAtKdAv20l5GB79pu6_O81ExqrExpDEWmNpMeX4nQzIPIN5oSumIcY9IVig_vBg/exec";
 const GAS_URL_LOCAL_KEY = "sac_meeting_gas_web_app_url_v1";
 
 export function getGasWebAppUrl(): string {
@@ -12,7 +13,10 @@ export function getGasWebAppUrl(): string {
     }
   }
   const envUrl = import.meta.env.VITE_GAS_WEB_APP_URL;
-  return (envUrl && envUrl.trim().startsWith("http")) ? envUrl.trim() : "";
+  if (envUrl && envUrl.trim().startsWith("http")) {
+    return envUrl.trim();
+  }
+  return DEFAULT_GAS_URL;
 }
 
 export function setGasWebAppUrl(url: string) {
@@ -34,15 +38,25 @@ export async function pullAllFromSheets(): Promise<{ db: any; metadata: any } | 
   if (!url) return null;
   
   try {
-    const response = await fetch(`${url}?action=pullAll`, {
+    const response = await fetch(`${url}?action=export`, {
       method: "GET",
       mode: "cors",
       headers: { "Accept": "application/json" }
     });
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     const data = await response.json();
-    if (data.status === "success" && data.db) {
-      return { db: data.db, metadata: data.metadata || {} };
+    
+    // Support both export and pullAll response shapes
+    const dbPayload = data.data || data.db;
+    if ((data.ok || data.status === "success") && dbPayload) {
+      const ts = data.ts || data.metadata?.last_updated || new Date().toISOString();
+      return { 
+        db: dbPayload, 
+        metadata: { 
+          last_updated: ts, 
+          db_version: data.db_version || data.metadata?.db_version || 1 
+        } 
+      };
     }
     return null;
   } catch (err) {
@@ -59,13 +73,20 @@ export async function pushAllToSheets(dbData: any): Promise<{ success: boolean; 
     const response = await fetch(url, {
       method: "POST",
       mode: "cors",
-      headers: { "Content-Type": "text/plain;charset=utf-8" }, // Using text/plain prevents CORS preflight issues with Google Apps Script
-      body: JSON.stringify({ action: "pushAll", data: dbData })
+      headers: { "Content-Type": "text/plain;charset=utf-8" }, // text/plain avoids CORS preflight OPTIONS in Apps Script
+      body: JSON.stringify({ action: "import", db: dbData, mode: "merge" })
     });
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     const data = await response.json();
-    if (data.status === "success") {
-      return { success: true, metadata: data.metadata };
+    if (data.ok || data.status === "success") {
+      const ts = data.ts || data.metadata?.last_updated || new Date().toISOString();
+      return { 
+        success: true, 
+        metadata: { 
+          last_updated: ts, 
+          db_version: data.db_version || data.metadata?.db_version || 1 
+        } 
+      };
     }
     return { success: false };
   } catch (err) {
@@ -79,15 +100,20 @@ export async function getSheetsMetadata(): Promise<any | null> {
   if (!url) return null;
   
   try {
-    const response = await fetch(`${url}?action=getMetadata`, {
+    const response = await fetch(`${url}?action=ping`, {
       method: "GET",
       mode: "cors",
       headers: { "Accept": "application/json" }
     });
     if (!response.ok) return null;
     const data = await response.json();
-    if (data.status === "success") {
-      return data.metadata || null;
+    if (data.ok || data.status === "success") {
+      const dbVer = data.data?.db_version || data.db_version || data.metadata?.db_version || 1;
+      const ts = data.ts || data.metadata?.last_updated || new Date().toISOString();
+      return {
+        last_updated: `${dbVer}_${ts}`,
+        db_version: dbVer
+      };
     }
     return null;
   } catch (err) {
