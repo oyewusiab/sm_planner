@@ -49,6 +49,21 @@ export type DB = {
   BULLETINS: Bulletin[];
 };
 
+function safeParseJSON<T>(val: any, fallback: T): T {
+  if (val === null || val === undefined) return fallback;
+  if (typeof val === "string") {
+    const trimmed = val.trim();
+    if (!trimmed) return fallback;
+    try {
+      const parsed = JSON.parse(trimmed);
+      return parsed !== null && parsed !== undefined ? parsed : fallback;
+    } catch (e) {
+      return fallback;
+    }
+  }
+  return val as T;
+}
+
 const nowISO = () => new Date().toISOString();
 
 let remoteSyncTimer: number | null = null;
@@ -403,8 +418,9 @@ function normalizeDB(raw: any): DB {
   });
 
   const toArr = (v: any): string[] => {
-    if (Array.isArray(v)) return v.map((x) => String(x || "").trim()).filter(Boolean);
-    const s = String(v || "").trim();
+    const parsed = safeParseJSON(v, v);
+    if (Array.isArray(parsed)) return parsed.map((x) => String(x || "").trim()).filter(Boolean);
+    const s = String(parsed || "").trim();
     if (!s) return [];
     return s
       .split(/[;,]/g)
@@ -417,23 +433,27 @@ function normalizeDB(raw: any): DB {
         let state = p.state;
         let archive_method = p.archive_method;
         let archive_date = p.archive_date;
+        const weeksParsed = safeParseJSON(p?.weeks, p?.weeks);
 
         return {
-        ...p,
-        state,
-        archive_method,
-        archive_date,
-        weeks: Array.isArray(p?.weeks)
-          ? p.weeks.map((w: any) => ({
-              ...w,
-              sacrament: {
-                preparing: toArr(w?.sacrament?.preparing),
-                blessing: toArr(w?.sacrament?.blessing),
-                passing: toArr(w?.sacrament?.passing),
-              },
-              note: typeof w?.note === "string" ? w.note : "",
-            }))
-          : [],
+          ...p,
+          state,
+          archive_method,
+          archive_date,
+          weeks: Array.isArray(weeksParsed)
+            ? weeksParsed.map((w: any) => ({
+                ...w,
+                speakers: Array.isArray(safeParseJSON(w?.speakers, w?.speakers))
+                  ? safeParseJSON(w?.speakers, w?.speakers)
+                  : [],
+                sacrament: {
+                  preparing: toArr(w?.sacrament?.preparing),
+                  blessing: toArr(w?.sacrament?.blessing),
+                  passing: toArr(w?.sacrament?.passing),
+                },
+                note: typeof w?.note === "string" ? w.note : "",
+              }))
+            : [],
         };
       })
     : [];
@@ -441,21 +461,45 @@ function normalizeDB(raw: any): DB {
   const PLANNERS = PLANNERS_RAW;
 
   const AGENDAS = Array.isArray(raw?.AGENDAS)
-    ? (raw.AGENDAS as any[]).map(a => ({
-        ...a,
-        state: a.state || "DRAFT",
-        speakers: Array.isArray(a.speakers) ? a.speakers : [],
-        announcements: Array.isArray(a.announcements) ? a.announcements : ["", "", "", "", "", ""],
-        releases: Array.isArray(a.releases) ? a.releases : [],
-        calls: Array.isArray(a.calls) ? a.calls : [],
-        baptized_children: Array.isArray(a.baptized_children) ? a.baptized_children : ["", "", "", ""],
-        aaronic_ordinations: Array.isArray(a.aaronic_ordinations) ? a.aaronic_ordinations : [],
-        aaronic_advancements: Array.isArray(a.aaronic_advancements) ? a.aaronic_advancements : [],
-        achievements: Array.isArray(a.achievements) ? a.achievements : ["", "", "", ""],
-        babies: Array.isArray(a.babies) ? a.babies : [],
-        confirmations: Array.isArray(a.confirmations) ? a.confirmations : [],
-        fellowships: Array.isArray(a.fellowships) ? a.fellowships : ["", "", "", "", "", "", "", ""],
-      }))
+    ? (raw.AGENDAS as any[]).map((a) => {
+        const parseArr = (field: any, defaultArr: any[] = []) => {
+          const res = safeParseJSON(field, field);
+          return Array.isArray(res) ? res : defaultArr;
+        };
+        return {
+          ...a,
+          state: a.state || "DRAFT",
+          speakers: parseArr(a.speakers, []),
+          announcements: parseArr(a.announcements, ["", "", "", "", "", ""]),
+          releases: parseArr(a.releases, []),
+          calls: parseArr(a.calls, []),
+          baptized_children: parseArr(a.baptized_children, ["", "", "", ""]),
+          aaronic_ordinations: parseArr(a.aaronic_ordinations, []),
+          aaronic_advancements: parseArr(a.aaronic_advancements, []),
+          achievements: parseArr(a.achievements, ["", "", "", ""]),
+          babies: parseArr(a.babies, []),
+          confirmations: parseArr(a.confirmations, []),
+          fellowships: parseArr(a.fellowships, ["", "", "", "", "", "", "", ""]),
+        };
+      })
+    : [];
+
+  const BULLETINS = Array.isArray(raw?.BULLETINS)
+    ? (raw.BULLETINS as any[]).map((b) => {
+        const parseArr = (field: any) => {
+          const res = safeParseJSON(field, field);
+          return Array.isArray(res) ? res : [];
+        };
+        return {
+          ...b,
+          activities: parseArr(b.activities),
+          birthdays: parseArr(b.birthdays),
+          missionaries: parseArr(b.missionaries),
+          self_reliance_classes: parseArr(b.self_reliance_classes),
+          welfare_reminders: parseArr(b.welfare_reminders),
+          upcoming_events: parseArr(b.upcoming_events),
+        };
+      })
     : [];
 
   const base: DB = {
@@ -482,7 +526,7 @@ function normalizeDB(raw: any): DB {
     "PUBLIC HOLIDAY": Array.isArray(raw?.["PUBLIC HOLIDAY"]) ? raw["PUBLIC HOLIDAY"] : [],
     CONTACTS: Array.isArray(raw?.CONTACTS) ? raw.CONTACTS : [],
     "REPORT LOG": Array.isArray(raw?.["REPORT LOG"]) ? raw["REPORT LOG"] : [],
-    BULLETINS: Array.isArray(raw?.BULLETINS) ? raw.BULLETINS : [],
+    BULLETINS,
   };
 
   const deduplicated: DB = { ...base };
@@ -851,8 +895,6 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
 
     const normalizedRemote = normalizeDB(remoteSnap);
     const comparableRemote = serializeDBForRemote(normalizedRemote);
-    
-    setLastSyncedDB(comparableRemote);
 
     const { merged, needsPush } = replaceLocal
       ? { merged: normalizedRemote, needsPush: false }
@@ -861,7 +903,7 @@ export async function syncFromBackend(options?: { force?: boolean; replaceLocal?
     suppressRemoteSync += 1;
     try {
       setDBInternal(merged, true);
-      setLastSyncedDB(comparableRemote);
+      setLastSyncedDB(serializeDBForRemote(merged));
       lastPullTime = Date.now();
       
       const nextSyncTime = remoteMeta.last_updated || new Date().toISOString();

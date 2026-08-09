@@ -396,13 +396,7 @@ export function PlannerPage({
 
     if (state !== "DRAFT") {
       localStorage.removeItem("sac_meeting_planner_draft_v1");
-      void persistPlannerToFirebase(next)
-        .then(() => {
-          void syncFromBackend({ force: true, replaceLocal: false });
-        })
-        .catch((err) => {
-          console.error("[Planner] Remote write failed:", err);
-        });
+      void persistPlannerToFirebase(next);
     }
     return next;
   }

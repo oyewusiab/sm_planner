@@ -319,7 +319,70 @@ const SCHEMA = {
   "OTHER CHURCH PROGRAM": ["date", "program", "organisation", "program_id"],
   "PUBLIC HOLIDAY": ["date", "holiday", "theme", "holiday_id"],
   "CONTACTS": ["name", "calling", "organisation", "upcoming", "report", "email", "contact_id"],
-  "REPORT LOG": ["log_id", "date", "type", "recipient", "status", "timestamp"]
+  "REPORT LOG": ["log_id", "date", "type", "recipient", "status", "timestamp"],
+  PLANNER_APPROVAL_REQUESTS: [
+    "request_id",
+    "planner_id",
+    "status",
+    "requested_by",
+    "created_date",
+    "decided_by",
+    "decided_date",
+    "comment",
+  ],
+  BULLETINS: [
+    "bulletin_id",
+    "planner_id",
+    "week_id",
+    "date",
+    "theme",
+    "special_music",
+    "come_follow_me",
+    "cfm_reading",
+    "cfm_theme",
+    "cfm_discussion_question",
+    "cfm_family_challenge",
+    "cfm_study_tip",
+    "cleaning_group",
+    "cleaning_date",
+    "cleaning_time",
+    "cleaning_instructions",
+    "show_cleaning",
+    "activities",
+    "birthdays",
+    "birthday_message",
+    "missionaries",
+    "scripture_of_the_week",
+    "missionary_challenge",
+    "temple_trip_date",
+    "familysearch_tip",
+    "ancestor_challenge",
+    "self_reliance_classes",
+    "ward_focus",
+    "welfare_reminders",
+    "bishopric_message",
+    "upcoming_events",
+    "qr_whatsapp",
+    "qr_familysearch",
+    "qr_gospel_library",
+    "qr_website",
+    "qr_planner_link",
+    "show_sacrament",
+    "show_activities",
+    "show_birthdays",
+    "show_missionary",
+    "show_temple",
+    "show_self_reliance",
+    "show_focus",
+    "show_welfare",
+    "show_bishopric",
+    "show_upcoming",
+    "show_qr",
+    "color_theme",
+    "pdf_layout",
+    "created_date",
+    "updated_date",
+  ],
 };
 
 const PRIMARY_KEYS = {
@@ -331,10 +394,12 @@ const PRIMARY_KEYS = {
   NOTIFICATIONS: "notification_id",
   TODOS: "todo_id",
   SETTINGS_REQUESTS: "request_id",
+  PLANNER_APPROVAL_REQUESTS: "request_id",
   REMINDERS: "reminder_id",
   UNIT_SETTINGS: "Key",
   HYMNS: "number",
   AGENDAS: "agenda_id",
+  BULLETINS: "bulletin_id",
   "ACTIVITIES": "activity_id",
   "OTHER CHURCH PROGRAM": "program_id",
   "PUBLIC HOLIDAY": "holiday_id",
@@ -359,6 +424,14 @@ const JSON_FIELDS = {
     "fellowships",
     "speakers"
   ],
+  BULLETINS: [
+    "activities",
+    "birthdays",
+    "missionaries",
+    "self_reliance_classes",
+    "welfare_reminders",
+    "upcoming_events"
+  ],
 };
 
 const NUMBER_FIELDS = {
@@ -371,6 +444,20 @@ const BOOLEAN_FIELDS = {
   CHECKLISTS: ["status"],
   NOTIFICATIONS: ["read"],
   USERS: ["must_reset_password", "disabled"],
+  BULLETINS: [
+    "show_cleaning",
+    "show_sacrament",
+    "show_activities",
+    "show_birthdays",
+    "show_missionary",
+    "show_temple",
+    "show_self_reliance",
+    "show_focus",
+    "show_welfare",
+    "show_bishopric",
+    "show_upcoming",
+    "show_qr"
+  ],
 };
 
 const UNIT_JSON_KEYS = ["prefs", "venues"];
@@ -616,6 +703,7 @@ function handleExport_() {
     CHECKLISTS: getAllRows_("CHECKLISTS"),
     NOTIFICATIONS: getAllRows_("NOTIFICATIONS"),
     SETTINGS_REQUESTS: getAllRows_("SETTINGS_REQUESTS"),
+    PLANNER_APPROVAL_REQUESTS: getAllRows_("PLANNER_APPROVAL_REQUESTS"),
     TODOS: getAllRows_("TODOS"),
     REMINDERS: getAllRows_("REMINDERS"),
     HYMNS: getAllRows_("HYMNS"),
@@ -625,6 +713,7 @@ function handleExport_() {
     "PUBLIC HOLIDAY": getAllRows_("PUBLIC HOLIDAY"),
     CONTACTS: getAllRows_("CONTACTS"),
     "REPORT LOG": getAllRows_("REPORT LOG"),
+    BULLETINS: getAllRows_("BULLETINS"),
   };
   return jsonResponse_({
     ok: true,
@@ -653,6 +742,7 @@ function handleImport_(payload) {
     "CHECKLISTS",
     "NOTIFICATIONS",
     "SETTINGS_REQUESTS",
+    "PLANNER_APPROVAL_REQUESTS",
     "TODOS",
     "REMINDERS",
     "AGENDAS",
@@ -661,6 +751,7 @@ function handleImport_(payload) {
     "PUBLIC HOLIDAY",
     "CONTACTS",
     "REPORT LOG",
+    "BULLETINS",
   ];
 
   if (mode === "replace") {
