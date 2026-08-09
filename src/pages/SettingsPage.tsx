@@ -525,8 +525,8 @@ export function SettingsPage({
         MEMBERS: [...memberMap.values()],
       }));
 
-      // Trigger a hard database reset to force propagate to all other users immediately
-      triggerDatabaseReset().then(() => {
+      // Trigger a hard database reset with mode replace to overwrite remote tables with clean deduplicated data
+      triggerDatabaseReset({ mode: "replace" }).then(() => {
         onChanged();
         alert(`Database successfully cleaned and repaired!\n\n` +
               `- Empty activities removed: ${emptyActivitiesRemoved}\n` +

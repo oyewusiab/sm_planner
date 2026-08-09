@@ -65,34 +65,53 @@ export async function pullAllFromSheets(): Promise<{ db: any; metadata: any } | 
   }
 }
 
-export async function pushAllToSheets(dbData: any): Promise<{ success: boolean; metadata?: any }> {
+export async function pushAllToSheets(dbData: any, options?: { mode?: "merge" | "replace" }): Promise<{ success: boolean; metadata?: any }> {
   const url = getGasWebAppUrl();
   if (!url) return { success: false };
-  
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      mode: "cors",
-      headers: { "Content-Type": "text/plain;charset=utf-8" }, // text/plain avoids CORS preflight OPTIONS in Apps Script
-      body: JSON.stringify({ action: "import", db: dbData, mode: "merge" })
-    });
-    if (!response.ok) throw new Error(`HTTP error ${response.status}`);
-    const data = await response.json();
-    if (data.ok || data.status === "success") {
-      const ts = data.ts || data.metadata?.last_updated || new Date().toISOString();
-      return { 
-        success: true, 
-        metadata: { 
-          last_updated: ts, 
-          db_version: data.db_version || data.metadata?.db_version || 1 
-        } 
-      };
+  const mode = options?.mode || "merge";
+
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        mode: "cors",
+        redirect: "follow",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "import", db: dbData, mode })
+      });
+      if (!response.ok) {
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 1000));
+          continue;
+        }
+        throw new Error(`HTTP error ${response.status}`);
+      }
+      const data = await response.json();
+      if (data.ok || data.status === "success" || data.data?.imported) {
+        const ts = data.ts || data.metadata?.last_updated || new Date().toISOString();
+        return { 
+          success: true, 
+          metadata: { 
+            last_updated: ts, 
+            db_version: data.db_version || data.metadata?.db_version || 1 
+          } 
+        };
+      }
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 1000));
+        continue;
+      }
+      return { success: false };
+    } catch (err) {
+      console.warn(`[Google Sheets Sync] Push attempt ${attempt} failed:`, err);
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 1000));
+        continue;
+      }
+      return { success: false };
     }
-    return { success: false };
-  } catch (err) {
-    console.warn("[Google Sheets Sync] Push failed:", err);
-    return { success: false };
   }
+  return { success: false };
 }
 
 export async function getSheetsMetadata(): Promise<any | null> {

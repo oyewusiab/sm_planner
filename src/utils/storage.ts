@@ -1144,13 +1144,14 @@ export function useUpsertMutation<K extends keyof DB>(tableName: K) {
   return { mutate, loading, error };
 }
 
-export async function triggerDatabaseReset() {
+export async function triggerDatabaseReset(options?: { mode?: "merge" | "replace" }) {
   if (!backendEnabled()) return;
+  const mode = options?.mode || "replace";
   
   try {
-    console.log("[Reset] Pushing clean local DB state to Google Sheets...");
+    console.log(`[Reset] Pushing clean local DB state to Google Sheets (mode: ${mode})...`);
     const dbData = serializeDBForRemote(getDB());
-    const res = await pushAllToSheets(dbData);
+    const res = await pushAllToSheets(dbData, { mode });
     if (!res.success) {
       throw new Error("Unable to push cleaned database to Google Sheets backend.");
     }
