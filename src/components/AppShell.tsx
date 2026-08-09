@@ -77,6 +77,7 @@ export function AppShell({
   setRoute,
   onLogout,
   onProfileChanged,
+  onReloadPage,
   dbTick = 0,
   children,
 }: {
@@ -86,6 +87,7 @@ export function AppShell({
   setRoute: (r: RouteKey) => void;
   onLogout: () => void;
   onProfileChanged?: () => void;
+  onReloadPage?: (r: RouteKey) => void;
   dbTick?: number;
   children: React.ReactNode;
 }) {
@@ -93,6 +95,12 @@ export function AppShell({
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifTick, setNotifTick] = useState(0);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  const handleNavClick = (targetKey: RouteKey) => {
+    setRoute(targetKey);
+    setMobileNavOpen(false);
+    onReloadPage?.(targetKey);
+  };
 
 
 
@@ -311,7 +319,7 @@ export function AppShell({
                   return (
                     <button
                       key={i.key}
-                      onClick={() => setRoute(i.key)}
+                      onClick={() => handleNavClick(i.key)}
                       className={cn("sidebar-nav-item", active ? "active" : "")}
                     >
                       <span className="sidebar-nav-icon">{i.icon}</span>
@@ -398,10 +406,7 @@ export function AppShell({
                   return (
                     <button
                       key={i.key}
-                      onClick={() => {
-                        setRoute(i.key);
-                        setMobileNavOpen(false);
-                      }}
+                      onClick={() => handleNavClick(i.key)}
                       className={cn(
                         "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm",
                         active ? "bg-sky-50 text-sky-800" : "text-slate-700 hover:bg-slate-50"
@@ -432,7 +437,7 @@ export function AppShell({
               return (
                 <button
                   key={i.key}
-                  onClick={() => setRoute(i.key)}
+                  onClick={() => handleNavClick(i.key)}
                   className={cn(
                     "relative flex flex-col items-center rounded-md px-1 py-1 text-[11px]",
                     active ? "bg-sky-50 text-sky-700" : "text-slate-600"

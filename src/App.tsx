@@ -631,6 +631,15 @@ export function App() {
     return <div className="text-sm text-slate-600">Unknown route.</div>;
   })();
 
+  const handleReloadPage = (targetRoute: RouteKey) => {
+    refresh();
+    if (backendEnabled()) {
+      void syncFromBackend({ force: true }).then((ok) => {
+        if (ok) refresh();
+      });
+    }
+  };
+
   return (
     <AppShell
       user={user}
@@ -639,6 +648,7 @@ export function App() {
       setRoute={setRoute}
       onLogout={logout}
       onProfileChanged={refresh}
+      onReloadPage={handleReloadPage}
       dbTick={dbTick}
     >
       {content}
