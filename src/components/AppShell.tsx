@@ -78,6 +78,7 @@ export function AppShell({
   onLogout,
   onProfileChanged,
   onReloadPage,
+  isSyncing,
   dbTick = 0,
   children,
 }: {
@@ -88,6 +89,7 @@ export function AppShell({
   onLogout: () => void;
   onProfileChanged?: () => void;
   onReloadPage?: (r: RouteKey) => void;
+  isSyncing?: boolean;
   dbTick?: number;
   children: React.ReactNode;
 }) {
@@ -101,8 +103,6 @@ export function AppShell({
     setMobileNavOpen(false);
     onReloadPage?.(targetKey);
   };
-
-
 
   const handleApproveExpiryDeletion = (n: Notification) => {
     const isPlanner = n.type === "PLANNER_EXPIRY_APPROVAL";
@@ -207,7 +207,19 @@ export function AppShell({
   }, []);
 
   return (
-    <div className="min-h-screen" style={{ background: "var(--bg)" }}>
+    <div className="min-h-screen relative" style={{ background: "var(--bg)" }}>
+      {isSyncing && (
+        <div className="no-print pointer-events-none fixed top-0 inset-x-0 z-50 flex items-center justify-between bg-gradient-to-r from-sky-500 via-indigo-600 to-purple-600 px-4 py-1.5 text-xs font-semibold text-white shadow-lg animate-pulse">
+          <div className="flex items-center gap-2">
+            <span className="inline-block animate-spin">🔄</span>
+            <span>Fetching latest updates from Google Sheets...</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-[11px] font-bold text-sky-200">
+            <span className="inline-block animate-bounce">✨</span>
+            <span className="capitalize">{route} Refreshed</span>
+          </div>
+        </div>
+      )}
       <div className="no-print sticky top-0 z-40 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur md:hidden">
         <div className="flex items-center gap-2">
           <button

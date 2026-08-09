@@ -22,11 +22,47 @@ import { syncNow, syncFromBackend, getDB, onSyncStatusChange, updateDB, ids, onD
 import { backendEnabled, pingBackend, syncMusic } from "./utils/backend";
 import { Button } from "./components/ui";
 
-function LoadingScreen({ label = "Loading…" }: { label?: string }) {
+function LoadingScreen({ label = "Loading..." }: { label?: string }) {
+  const [phraseIdx, setPhraseIdx] = useState(0);
+  const phrases = [
+    "Harmonizing planners & agendas...",
+    "Fetching your latest ward updates...",
+    "Preparing your sacrament meeting plans...",
+    "Organizing music & member details...",
+    "Almost ready...",
+  ];
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setPhraseIdx((prev) => (prev + 1) % phrases.length);
+    }, 1800);
+    return () => clearInterval(timer);
+  }, []);
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-white to-slate-50 p-8">
-      <div className="rounded-xl border border-[color:var(--border)] bg-white px-5 py-4 text-sm text-slate-600 shadow-sm">
-        {label}
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-slate-900 via-sky-950 to-indigo-950 p-6 text-white selection:bg-sky-500 selection:text-white">
+      <div className="relative flex flex-col items-center">
+        <div className="absolute -inset-4 rounded-full bg-gradient-to-r from-sky-400 via-indigo-500 to-purple-500 opacity-30 blur-2xl animate-pulse" />
+
+        <div className="relative flex w-full max-w-sm flex-col items-center rounded-3xl border border-white/10 bg-white/10 p-8 text-center backdrop-blur-xl shadow-2xl">
+          <div className="relative mb-6 flex h-24 w-24 items-center justify-center">
+            <div className="absolute inset-0 rounded-3xl bg-gradient-to-tr from-sky-400 to-indigo-500 opacity-80 blur-md animate-pulse" />
+            <div className="absolute -inset-1 rounded-3xl border-2 border-sky-400/40 animate-spin" style={{ animationDuration: "6s" }} />
+            <img src={logoUrl} alt="Logo" className="relative h-16 w-16 object-contain drop-shadow-md" />
+          </div>
+
+          <h2 className="text-xl font-bold tracking-tight text-white">Sacrament Meeting Planner</h2>
+
+          <div className="mt-3 flex items-center justify-center gap-2 text-sm font-medium text-sky-200">
+            <span className="inline-block animate-bounce" style={{ animationDelay: "0ms" }}>✨</span>
+            <span>{label !== "Loading..." ? label : phrases[phraseIdx]}</span>
+            <span className="inline-block animate-bounce" style={{ animationDelay: "200ms" }}>🎵</span>
+          </div>
+
+          <div className="mt-6 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+            <div className="h-full w-full bg-gradient-to-r from-sky-400 via-indigo-400 to-purple-400 animate-pulse" />
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -649,6 +685,7 @@ export function App() {
       onLogout={logout}
       onProfileChanged={refresh}
       onReloadPage={handleReloadPage}
+      isSyncing={isSyncing}
       dbTick={dbTick}
     >
       {content}

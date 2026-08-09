@@ -154,7 +154,21 @@ export function LoginPage({
           )}
 
           {/* Glass Card */}
-          <div className="glass-panel rounded-[32px] p-8 shadow-2xl">
+          <div className="glass-panel relative overflow-hidden rounded-[32px] p-8 shadow-2xl">
+            {loading && (
+              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center rounded-[32px] bg-white/90 p-6 text-center backdrop-blur-md transition-all">
+                <div className="relative mb-3 flex h-16 w-16 items-center justify-center">
+                  <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-sky-400 to-indigo-600 animate-ping opacity-30" />
+                  <span className="text-4xl animate-bounce">✨</span>
+                </div>
+                <div className="text-base font-bold text-slate-800">Signing In & Syncing...</div>
+                <div className="mt-1 flex items-center justify-center gap-1 text-xs font-medium text-sky-600 animate-pulse">
+                  <span>Fetching latest ward updates from Google Sheets</span>
+                  <span>☁️</span>
+                </div>
+              </div>
+            )}
+
             <div className="mb-8">
               <h2 className="text-xl font-bold text-slate-800">
                 {needsReset ? "Secure Account" : "Welcome Back"}
@@ -176,7 +190,7 @@ export function LoginPage({
                     type="password"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Min. 6 characters"
+                    placeholder="At least 6 characters"
                     className="h-12 bg-white/50"
                     autoFocus
                   />
@@ -269,7 +283,15 @@ export function LoginPage({
                     disabled={loading}
                     className="h-12 w-full text-base shadow-lg shadow-blue-500/20"
                   >
-                    {loading ? "Verifying..." : "Sign In"}
+                    {loading ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <span className="inline-block animate-spin">⏳</span>
+                        <span>Authenticating & Syncing...</span>
+                        <span className="inline-block animate-bounce">✨</span>
+                      </span>
+                    ) : (
+                      "Sign In"
+                    )}
                   </Button>
                 </div>
 
