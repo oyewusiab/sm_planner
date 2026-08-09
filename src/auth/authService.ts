@@ -132,6 +132,15 @@ export async function login(identifier: string, password: string): Promise<User>
     throw new Error("Incorrect password. Please try again.");
   }
 
+  // Fetch latest remote data on login before redirecting to dashboard
+  if (backendOn) {
+    try {
+      await syncFromBackend({ force: true, replaceLocal: false });
+    } catch (err) {
+      console.warn("[Auth] Post-login sync warning:", err);
+    }
+  }
+
   // Record last login (non-blocking)
   const now = time.nowISO();
   setTimeout(() => {

@@ -304,12 +304,12 @@ export function App() {
     };
   }, [user]);
 
-  // Real-time listener and foreground refresh triggers.
+  // Real-time listener, page navigation, and foreground refresh triggers.
   useEffect(() => {
     if (!authReady || !user || !backendEnabled()) return;
 
-    console.log("[Sync] Initial sync on mount/login (auth ready)");
-    void syncFromBackend().then((ok) => {
+    console.log(`[Sync] Navigation/mount sync triggered for route: ${route}`);
+    void syncFromBackend({ force: false }).then((ok) => {
       if (ok) refresh();
     });
 
@@ -332,7 +332,7 @@ export function App() {
       window.removeEventListener("focus", handleFocusSync);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [user, authReady]);
+  }, [user, authReady, route]);
 
   useEffect(() => {
     (async () => {
@@ -341,29 +341,32 @@ export function App() {
         const hasUsers = db.USERS && db.USERS.length > 0;
         const guard = sessionGuardRef.current;
         setUnit(db.UNIT_SETTINGS);
-        restoreSessionFromLocal(hasUsers, guard);
-        setBooting(false);
 
-        // Existing local data should render immediately; refresh in the background.
-        void syncFromBackend()
-          .then((ok) => {
-            if (guard !== sessionGuardRef.current) return;
-            if (ok) {
-              setSyncError(null);
-            } else if (!hasUsers) {
-              setSyncError("Failed to connect to backend");
+        if (backendEnabled()) {
+          // Await initial sync during boot so fresh remote data is loaded into memory before removing splash screen
+          try {
+            const ok = await syncFromBackend({ force: true, replaceLocal: false });
+            if (guard === sessionGuardRef.current) {
+              if (ok) {
+                setSyncError(null);
+              } else if (!hasUsers) {
+                setSyncError("Failed to connect to backend");
+              }
             }
-            setUnit(getDB().UNIT_SETTINGS);
-            restoreSessionFromLocal(true, guard);
-            refresh();
-          })
-          .catch((err: any) => {
-            if (guard !== sessionGuardRef.current) return;
-            console.error("Initial sync failed:", err);
-            if (!hasUsers) {
-              setSyncError(err?.message || "Failed to connect to backend");
+          } catch (err: any) {
+            if (guard === sessionGuardRef.current) {
+              console.error("Initial sync failed:", err);
+              if (!hasUsers) {
+                setSyncError(err?.message || "Failed to connect to backend");
+              }
             }
-          });
+          }
+        }
+
+        setUnit(getDB().UNIT_SETTINGS);
+        restoreSessionFromLocal(true, guard);
+        setBooting(false);
+        refresh();
       } catch (err) {
         console.error("Booting error:", err);
         setBooting(false);
