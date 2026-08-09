@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { doc, setDoc } from "firebase/firestore";
 import type { Planner, PlannerState, UnitSettings, User, WeekPlan } from "../types";
 import { Badge, Button, Card, CardBody, CardHeader, CardTitle, Divider, EmptyState, Input, Label, SectionTitle, Select, Textarea } from "../components/ui";
 import { Modal } from "../components/Modal";
@@ -13,7 +12,6 @@ import { ids, time, useTable, useUpsertMutation, updateDB, syncFromBackend } fro
 import * as auth from "../auth/authService";
 import { notifyUser } from "../utils/notifications";
 import { generatePDF } from "../utils/pdf";
-import { db } from "../utils/firebase";
 import { backendEnabled } from "../utils/backend";
 
 type Gender = "M" | "F";
@@ -131,11 +129,9 @@ function normalizePlanner(planner: Planner, defaultSpeakers: number): Planner {
 async function persistPlannerToFirebase(planner: Planner) {
   if (!backendEnabled() || !planner?.planner_id) return;
   try {
-    await setDoc(doc(db, "planners", planner.planner_id), removeUndefined(planner));
-    await touchRemoteMetadata("PLANNERS");
+    void syncFromBackend({ force: true, replaceLocal: false });
   } catch (err) {
-    console.error("[Planner] Failed to persist planner to Firestore:", err);
-    throw err;
+    console.error("[Planner] Failed to persist planner to backend:", err);
   }
 }
 

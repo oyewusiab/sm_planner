@@ -2,9 +2,6 @@ import type { Role, User } from "../types";
 import { sha256, timingSafeEqual } from "../utils/crypto";
 import { backendEnabled } from "../utils/backend";
 import { getDB, updateDB, ids, time, syncFromBackend } from "../utils/storage";
-import { auth, functions } from "../utils/firebase";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, signOut } from "firebase/auth";
-import { httpsCallable } from "firebase/functions";
 
 function norm(s: string) {
   return (s || "").trim().toLowerCase();
@@ -51,12 +48,10 @@ export function getUserByUsername(username: string): User | null {
 }
 
 export function getUsersByRole(role: Role): User[] {
-  return getDB().USERS.filter((u) => u.role === role);
+  const db = getDB();
+  return db.USERS.filter((u) => u.role === role && !u.disabled);
 }
 
-/**
- * Authenticate user with Firebase Authentication (with fallback to legacy SHA-256 migration).
- */
 export async function login(identifier: string, password: string): Promise<User> {
   const id = identifier.trim().toLowerCase();
   let dbData = getDB();
@@ -71,120 +66,31 @@ export async function login(identifier: string, password: string): Promise<User>
 
   const backendOn = backendEnabled();
 
+  if (!user && backendOn) {
+    // Sync latest users database from Google Sheets
+    await syncFromBackend({ force: true, replaceLocal: false });
+    const updatedDb = getDB();
+    user = updatedDb.USERS.find(
+      (u) =>
+        norm(u.email || "") === id ||
+        norm(u.username || "") === id ||
+        norm(u.name || "") === id
+    );
+  }
+
   if (!user) {
-    if (backendOn && id.includes("@")) {
-      // Attempt direct Firebase Auth login on a new device since we don't have local cache of users yet
-      try {
-        const emailClean = id.replace(/\s+/g, ".");
-        const userCredential = await signInWithEmailAndPassword(auth, emailClean, password);
-        console.log("[Auth] Firebase login successful on new device:", userCredential.user.email);
-
-        // Hydrate local database now that we are authenticated
-        await syncFromBackend({ force: true, replaceLocal: false });
-
-        // Find the user profile in the synced local DB
-        const updatedDb = getDB();
-        user = updatedDb.USERS.find((u) => norm(u.email || "") === id);
-
-        if (!user) {
-          console.warn("[Auth] Successfully logged in with Firebase Auth, but user profile not found in database.");
-          await signOut(auth);
-          throw new Error("User account not found in database. Please check your credentials or contact your Clerk.");
-        }
-      } catch (err: any) {
-        console.warn("[Auth] Firebase Auth direct login failed on new device:", err);
-        const code = err?.code || "";
-        if (code === "auth/user-not-found" || code === "auth/invalid-credential" || code === "auth/invalid-email" || code === "auth/wrong-password") {
-          throw new Error("Incorrect email or password. Please try again.");
-        }
-        throw new Error(err.message || "Login failed. Please check your credentials or contact your Clerk.");
-      }
-    } else {
-      if (backendOn) {
-        throw new Error("User account not found. If this is a new device, please sign in using your email address.");
-      } else {
-        throw new Error("User account not found. Please check your credentials or contact your Clerk.");
-      }
-    }
+    throw new Error("User account not found. Please check your credentials or contact your Clerk.");
   }
 
   if (user.disabled) {
     throw new Error("This account has been disabled. Please contact your Clerk for assistance.");
   }
 
-  if (backendOn) {
-    const emailClean = user.email.trim().replace(/\s+/g, ".");
-    // Check if current user is already authenticated as this user in Firebase Auth
-    let alreadyLoggedIn = auth.currentUser?.email?.toLowerCase() === emailClean.toLowerCase();
-    if (!alreadyLoggedIn) {
-      try {
-        // 1. Try to log in directly via Firebase Auth using user's email
-        const userCredential = await signInWithEmailAndPassword(auth, emailClean, password);
-        console.log("[Auth] Firebase login successful:", userCredential.user.email);
-
-        // Self-heal auth_uid configuration if missing
-        const firebaseUid = userCredential.user.uid;
-        if (user.auth_uid !== firebaseUid) {
-          console.log("[Auth] Synced missing auth_uid with Firebase Auth UID.");
-          updateDB((db0) => ({
-            ...db0,
-            USERS: db0.USERS.map((u) =>
-              u.user_id === user!.user_id ? { ...u, auth_uid: firebaseUid } : u
-            ),
-          }));
-        }
-      } catch (err: any) {
-        const code = err?.code || "";
-        // If user does not exist in Firebase Auth yet (legacy user), attempt transition migration
-        if (code === "auth/user-not-found" || code === "auth/invalid-credential" || code === "auth/invalid-email") {
-          console.log("[Auth] Firebase Auth failed or user not found. Attempting legacy fallback...");
-          
-          // Verify typed password against stored legacy SHA-256 hash
-          const inputHash = await sha256(password);
-          const storedHash = (user.password_hash || "").trim().toLowerCase();
-          
-          const ok = timingSafeEqual(inputHash.trim().toLowerCase(), storedHash);
-          if (!ok) {
-            throw new Error("Incorrect password. Please try again.");
-          }
-
-          // Legacy password matches! Migrate user to Firebase Auth client-side
-          try {
-            console.log("[Auth] Legacy hash matched. Migrating user to Firebase Auth client-side...");
-            const signupCredential = await createUserWithEmailAndPassword(auth, emailClean, password);
-            const newAuthUid = signupCredential.user.uid;
-
-            // Update the user profile locally and remote in Firestore to set auth_uid
-            updateDB((db0) => ({
-              ...db0,
-              USERS: db0.USERS.map((u) =>
-                u.user_id === user!.user_id ? { ...u, auth_uid: newAuthUid } : u
-              ),
-            }));
-            
-            console.log("[Auth] Legacy migration and sign-in completed successfully client-side!");
-          } catch (migrationErr: any) {
-            console.error("[Auth] Legacy client-side migration failed:", migrationErr);
-            if (migrationErr?.code === "auth/email-already-in-use") {
-              throw new Error("Incorrect password. Please try again.");
-            }
-            throw new Error("Unable to complete security migration. Please contact your Administrator.");
-          }
-        } else {
-          // Other auth errors (e.g. wrong password, disabled, too many requests)
-          console.warn("[Auth] Firebase Auth sign-in failed:", err);
-          throw new Error(err.message || "Incorrect password. Please try again.");
-        }
-      }
-    }
-  } else {
-    // Offline / Local-only Mode: fallback to local SHA-256 check
-    const hash = await sha256(password);
-    const storedHash = (user.password_hash || "").trim().toLowerCase();
-    const ok = timingSafeEqual(hash.trim().toLowerCase(), storedHash);
-    if (!ok) {
-      throw new Error("Incorrect password. Please try again.");
-    }
+  const hash = await sha256(password);
+  const storedHash = (user.password_hash || "").trim().toLowerCase();
+  const ok = timingSafeEqual(hash.trim().toLowerCase(), storedHash);
+  if (!ok) {
+    throw new Error("Incorrect password. Please try again.");
   }
 
   // Record last login (non-blocking)
@@ -209,67 +115,28 @@ export async function login(identifier: string, password: string): Promise<User>
   return fresh;
 }
 
-/**
- * Set a new password for a user.
- * This also clears the must_reset_password flag.
- */
 export async function setUserPassword(user_id: string, newPassword: string) {
   if (!newPassword || newPassword.length < 6) {
     throw new Error("Password must be at least 6 characters.");
   }
 
-  const backendOn = backendEnabled();
-  const dbData = getDB();
-  const currentUserProfile = dbData.USERS.find(
-    (u) => u.auth_uid === auth.currentUser?.uid || u.user_id === auth.currentUser?.uid
-  );
-  const isUpdatingSelf = auth.currentUser && (
-    auth.currentUser.uid === user_id || 
-    (currentUserProfile && currentUserProfile.user_id === user_id)
-  );
-
-  if (backendOn && auth.currentUser && isUpdatingSelf) {
-    // User is updating their own password
-    await updatePassword(auth.currentUser, newPassword);
-  } else if (backendOn) {
-    // Admin resetting another user's password via Cloud Function
-    const resetPasswordFn = httpsCallable(functions, "adminResetPassword");
-    await resetPasswordFn({ user_id, password: newPassword });
-  }
-
-  // Calculate local hash for offline check fallback
   const hash = await sha256(newPassword);
 
   updateDB((db0) => {
     const USERS = db0.USERS.map((u) =>
       u.user_id === user_id
         ? {
-          ...u,
-          password_hash: hash,
-          must_reset_password: false,
-        }
+            ...u,
+            password_hash: hash,
+            must_reset_password: false,
+          }
         : u
     );
     return { ...db0, USERS };
   });
 }
 
-/**
- * Reset a user's password to a default value and require reset on next login.
- * Admin function.
- */
 export async function resetUserPasswordToDefault(user_id: string, password = "welcome") {
-  const backendOn = backendEnabled();
-  
-  if (backendOn) {
-    try {
-      const resetPasswordFn = httpsCallable(functions, "adminResetPassword");
-      await resetPasswordFn({ user_id, password });
-    } catch (err) {
-      console.warn("[Auth] adminResetPassword Cloud Function failed, falling back to local update:", err);
-    }
-  }
-
   const hash = await sha256(password);
   updateDB((db0) => {
     const USERS = db0.USERS.map((u) =>
@@ -394,90 +261,37 @@ export async function addUser(
   calling?: string,
   gender?: "M" | "F"
 ) {
-  const backendOn = backendEnabled();
   const { organisation, calling: calling0 } = defaultOrgCallingForRole(role, calling ? { calling } : undefined);
   const username = usernameFromUser(name, email);
-  let createdViaCloud = false;
 
-  if (backendOn) {
-    try {
-      // Create via Cloud Function. Firestore listener will automatically pull and update local DB.
-      const createUserFn = httpsCallable(functions, "adminCreateUser");
-      await createUserFn({
-        email,
-        password: "welcome", // Temporary password for first-time login
-        name,
-        role,
-        organisation,
-        calling: calling0,
-        gender,
-        username,
-      });
-      createdViaCloud = true;
-    } catch (err) {
-      console.warn("[Auth] adminCreateUser Cloud Function failed, falling back to local creation:", err);
-    }
-  }
-
-  if (!createdViaCloud) {
-    // Offline/Spark plan fallback: Create in local DB (will sync to Firestore)
-    updateDB((db0) => {
-      const user: User = {
-        user_id: ids.uid("user"),
-        name,
-        username,
-        email,
-        role,
-        organisation,
-        calling: calling0,
-        gender,
-        password_hash,
-        created_date: time.nowISO(),
-        must_reset_password: false,
-      };
-      return { ...db0, USERS: [user, ...db0.USERS] };
-    });
-  }
+  updateDB((db0) => {
+    const user: User = {
+      user_id: ids.uid("user"),
+      name,
+      username,
+      email,
+      role,
+      organisation,
+      calling: calling0,
+      gender,
+      password_hash,
+      created_date: time.nowISO(),
+      must_reset_password: false,
+    };
+    return { ...db0, USERS: [user, ...db0.USERS] };
+  });
 }
 
 export async function setUserDisabled(user_id: string, disabled: boolean) {
-  const backendOn = backendEnabled();
-  let updatedViaCloud = false;
-  if (backendOn) {
-    try {
-      const toggleStatusFn = httpsCallable(functions, "adminToggleUserStatus");
-      await toggleStatusFn({ user_id, disabled });
-      updatedViaCloud = true;
-    } catch (err) {
-      console.warn("[Auth] adminToggleUserStatus Cloud Function failed, falling back to local update:", err);
-    }
-  }
-
-  if (!updatedViaCloud) {
-    updateDB((db0) => {
-      const USERS = db0.USERS.map((u) => (u.user_id === user_id ? { ...u, disabled } : u));
-      return { ...db0, USERS };
-    });
-  }
+  updateDB((db0) => {
+    const USERS = db0.USERS.map((u) => (u.user_id === user_id ? { ...u, disabled } : u));
+    return { ...db0, USERS };
+  });
 }
 
 export async function deleteUser(user_id: string) {
-  const backendOn = backendEnabled();
-  let deletedViaCloud = false;
-  if (backendOn) {
-    try {
-      const deleteUserFn = httpsCallable(functions, "adminDeleteUser");
-      await deleteUserFn({ user_id });
-      deletedViaCloud = true;
-    } catch (err) {
-      console.warn("[Auth] adminDeleteUser Cloud Function failed, falling back to local deletion:", err);
-    }
-  }
-
-  if (!deletedViaCloud) {
-    updateDB((db0) => {
-      const USERS = db0.USERS.filter((u) => u.user_id !== user_id);
-      return { ...db0, USERS };
-    });
-  }
+  updateDB((db0) => {
+    const USERS = db0.USERS.filter((u) => u.user_id !== user_id);
+    return { ...db0, USERS };
+  });
 }

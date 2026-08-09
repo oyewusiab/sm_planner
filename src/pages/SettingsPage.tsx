@@ -17,6 +17,7 @@ import {
 } from "../components/ui";
 import { can } from "../utils/permissions";
 import { getDB, ids, time, updateDB, triggerDatabaseReset, cleanDateToYYYYMMDD, isCorruptActivityName } from "../utils/storage";
+import { getGasWebAppUrl, setGasWebAppUrl } from "../utils/sheetsBackend";
 import { sha256 } from "../utils/crypto";
 import { notifyRoles, notifyUser } from "../utils/notifications";
 import * as auth from "../auth/authService";
@@ -91,6 +92,13 @@ export function SettingsPage({
   const [snapshot, setSnapshot] = useState("");
   const [importMode, setImportMode] = useState<ImportMode>("merge");
   const [activeTab, setActiveTab] = useState<"general" | "private">("general");
+  const [gasUrlInput, setGasUrlInput] = useState(() => getGasWebAppUrl());
+
+  const handleSaveGasUrl = () => {
+    setGasWebAppUrl(gasUrlInput);
+    showFlash("success", "Google Sheets Web App URL updated successfully!");
+    onChanged();
+  };
 
   // Keep the form in sync if UNIT_SETTINGS changes from outside.
   useEffect(() => {
@@ -660,6 +668,31 @@ export function SettingsPage({
               <div className="flex justify-end pt-4">
                 <Button onClick={() => saveUnit("unit")}>{isClerk ? "Request Approval" : "Save Unit Settings"}</Button>
               </div>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>📊 Google Sheets Sync Integration</CardTitle>
+            </CardHeader>
+            <CardBody className="space-y-4">
+              <p className="text-sm text-slate-600">
+                Connect your Sacrament Meeting Planner to a Google Sheet via a Google Apps Script Web App for seamless, 100% reliable cloud sync across all users and browsers.
+              </p>
+              <div className="space-y-1">
+                <Label>Google Apps Script Web App URL</Label>
+                <Input
+                  value={gasUrlInput}
+                  onChange={(e) => setGasUrlInput(e.target.value)}
+                  placeholder="https://script.google.com/macros/s/.../exec"
+                />
+                <div className="text-xs text-slate-500 mt-1">
+                  Paste the deployment URL from your Google Apps Script (Executes as: Me, Access: Anyone).
+                </div>
+              </div>
+              <Button variant="primary" onClick={handleSaveGasUrl}>
+                Save Google Sheets URL
+              </Button>
             </CardBody>
           </Card>
 

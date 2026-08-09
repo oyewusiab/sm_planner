@@ -7,9 +7,6 @@ import { formatTime12h } from "../utils/date";
 import { Modal } from "./Modal";
 import { ProfileModal } from "./ProfileModal";
 import { Badge, Button } from "./ui";
-import { auth } from "../utils/firebase";
-import { backendEnabled } from "../utils/backend";
-
 import { formatUserDisplayName } from "../utils/format";
 import logoUrl from "../../logo.png";
 
@@ -96,12 +93,7 @@ export function AppShell({
   const [notifTick, setNotifTick] = useState(0);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  const [currentUserLoggedIn, setCurrentUserLoggedIn] = useState(!!auth.currentUser);
-  useEffect(() => {
-    return auth.onAuthStateChanged((firebaseUser) => {
-      setCurrentUserLoggedIn(!!firebaseUser);
-    });
-  }, []);
+
 
   const handleApproveExpiryDeletion = (n: Notification) => {
     const isPlanner = n.type === "PLANNER_EXPIRY_APPROVAL";
