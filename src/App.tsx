@@ -21,6 +21,7 @@ import { clearSession, getSession, newSessionForUser, setSession } from "./auth/
 import { syncNow, syncFromBackend, getDB, onSyncStatusChange, updateDB, ids, onDBChange, cleanDateToYYYYMMDD } from "./utils/storage";
 import { backendEnabled, pingBackend, syncMusic } from "./utils/backend";
 import { Button } from "./components/ui";
+import logoUrl from "../logo.png";
 
 function LoadingScreen({ label = "Loading..." }: { label?: string }) {
   const [phraseIdx, setPhraseIdx] = useState(0);
