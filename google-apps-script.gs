@@ -774,8 +774,14 @@ function handleDelete_(payload) {
 
 function handleExport_() {
   ensureSchema_();
-  const membersListRows = getAllRows_("MEMBERS_LIST");
-  const membersRows = membersListRows.length > 0 ? membersListRows : getAllRows_("MEMBERS");
+  let membersRows = getAllRows_("MEMBERS");
+  if (membersRows.length === 0) {
+    const legacyList = getAllRows_("MEMBERS_LIST");
+    if (legacyList.length > 0) {
+      mergeTable_("MEMBERS", legacyList);
+      membersRows = getAllRows_("MEMBERS");
+    }
+  }
 
   const db = {
     UNIT_SETTINGS: getUnitSettings_(),
@@ -783,7 +789,7 @@ function handleExport_() {
     PLANNERS: getAllRows_("PLANNERS"),
     ASSIGNMENTS: getAllRows_("ASSIGNMENTS"),
     MEMBERS: membersRows,
-    MEMBERS_LIST: membersListRows,
+    MEMBERS_LIST: membersRows,
     CHECKLISTS: getAllRows_("CHECKLISTS"),
     NOTIFICATIONS: getAllRows_("NOTIFICATIONS"),
     SETTINGS_REQUESTS: getAllRows_("SETTINGS_REQUESTS"),
@@ -823,7 +829,6 @@ function handleImport_(payload) {
     "PLANNERS",
     "ASSIGNMENTS",
     "MEMBERS",
-    "MEMBERS_LIST",
     "CHECKLISTS",
     "NOTIFICATIONS",
     "SETTINGS_REQUESTS",

@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import type { CalendarActivity, UnitSettings, User } from "../types";
 import { Button, Card, CardBody, CardHeader, CardTitle, Divider, Input, Label, Select } from "../components/ui";
-import { ids, updateDB, useTable, cleanDateToYYYYMMDD, forcePushChanges, syncNow, isCorruptActivityName } from "../utils/storage";
+import { ids, updateDB, useTable, cleanDateToYYYYMMDD, forcePushChanges, saveSingleRecordToBackend, syncNow, isCorruptActivityName } from "../utils/storage";
 import { formatDateShort, formatTime12h } from "../utils/date";
 import { generatePDF } from "../utils/pdf";
 import { extractTextFromPDF } from "../utils/pdfParser";
@@ -193,10 +193,12 @@ export function CalendarPage({
       } else {
         const idx = list.findIndex(a => a.activity_id === targetId);
         if (idx !== -1) list[idx] = nextActivity;
+        else list.push(nextActivity);
       }
       return { ...db0, ACTIVITIES: list };
     });
 
+    void saveSingleRecordToBackend("ACTIVITIES", targetId, nextActivity);
     setOpen(false);
     setEditing(null);
     onChanged();

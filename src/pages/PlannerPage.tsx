@@ -8,7 +8,7 @@ import { MemberAutocomplete, normalizeGender } from "../components/MemberAutocom
 import { can } from "../utils/permissions";
 import { formatUserDisplayName } from "../utils/format";
 import { formatDateShort, monthName, nextSundaysInMonth, yyyyMmToLabel } from "../utils/date";
-import { ids, time, useTable, useUpsertMutation, updateDB, syncFromBackend } from "../utils/storage";
+import { ids, time, useTable, useUpsertMutation, updateDB, saveSingleRecordToBackend, syncFromBackend } from "../utils/storage";
 import * as auth from "../auth/authService";
 import { notifyUser } from "../utils/notifications";
 import { generatePDF } from "../utils/pdf";
@@ -130,7 +130,7 @@ function normalizePlanner(planner: Planner, defaultSpeakers: number): Planner {
 async function persistPlannerToFirebase(planner: Planner) {
   if (!backendEnabled() || !planner?.planner_id) return;
   try {
-    void syncFromBackend({ force: true, replaceLocal: false });
+    void saveSingleRecordToBackend("PLANNERS", planner.planner_id, planner);
   } catch (err) {
     console.error("[Planner] Failed to persist planner to backend:", err);
   }
