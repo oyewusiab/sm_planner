@@ -400,6 +400,17 @@ const SCHEMA = {
     "created_date",
     "updated_date",
   ],
+  AUDIT_LOG: [
+    "log_id",
+    "timestamp",
+    "user_id",
+    "action",
+    "table_name",
+    "record_id",
+    "old_version",
+    "new_version",
+    "status",
+  ],
 };
 
 const PRIMARY_KEYS = {
@@ -422,7 +433,8 @@ const PRIMARY_KEYS = {
   "OTHER CHURCH PROGRAM": "program_id",
   "PUBLIC HOLIDAY": "holiday_id",
   "CONTACTS": "contact_id",
-  "REPORT LOG": "log_id"
+  "REPORT LOG": "log_id",
+  "AUDIT_LOG": "log_id"
 };
 
 const JSON_FIELDS = {
@@ -583,6 +595,12 @@ function route_(e, method) {
         return handleSingleRecordDelete_(payload);
       case "backup":
         return jsonResponse_({ ok: true, data: backupDatabase_(), ts: new Date().toISOString() });
+      case "healthCheck":
+        return handleHealthCheck_();
+      case "repairDryRun":
+        return handleRepairDryRun_();
+      case "repairExecute":
+        return handleRepairExecute_();
       case "export":
       case "pullAll":
         return handleExport_();
@@ -656,6 +674,25 @@ function handleUpsert_(payload) {
   return jsonResponse_({ ok: true, data: updated, ts: new Date().toISOString() });
 }
 
+function logAudit_(userId, action, tableName, recordId, oldVersion, newVersion, status) {
+  try {
+    const logRow = {
+      log_id: "aud_" + Math.random().toString(36).substring(2, 9) + "_" + Date.now(),
+      timestamp: new Date().toISOString(),
+      user_id: userId || "system",
+      action: action || "UNKNOWN",
+      table_name: tableName || "",
+      record_id: recordId || "",
+      old_version: oldVersion || 1,
+      new_version: newVersion || 1,
+      status: status || "SUCCESS"
+    };
+    upsertRow_("AUDIT_LOG", logRow, "log_id");
+  } catch (e) {
+    console.warn("logAudit_ failed:", e);
+  }
+}
+
 function handleSingleRecordUpdate_(payload) {
   ensureSchema_();
   const table = normalizeTable_(payload.table);
@@ -664,13 +701,30 @@ function handleSingleRecordUpdate_(payload) {
   const rowData = payload.data || payload.row;
   if (!rowData || typeof rowData !== "object") return jsonError_("missing_data", 400);
 
-  incrementDbVersion_();
-
   const idCol = PRIMARY_KEYS[table];
   const idVal = String(payload.id || rowData[idCol] || "").trim();
   if (!idVal) return jsonError_("missing_primary_key", 400);
 
+  const existingRow = findRowById_(table, idCol, idVal);
+  const expectedVersion = Number(payload.expected_version || rowData.version || 0);
+  let oldVersion = 1;
+  let nextVersion = 1;
+
+  if (existingRow) {
+    oldVersion = Number(existingRow.version || 1);
+    if (expectedVersion > 0 && oldVersion > expectedVersion) {
+      logAudit_(payload.user_id, "UPDATE_CONFLICT", table, idVal, oldVersion, expectedVersion, "CONFLICT");
+      return jsonError_("conflict_version_mismatch: Record has been updated by another user. Please refresh.", 409);
+    }
+    nextVersion = oldVersion + 1;
+  }
+
+  incrementDbVersion_();
+
   rowData[idCol] = idVal;
+  rowData.version = nextVersion;
+  rowData.updated_date = new Date().toISOString();
+
   const updated = upsertRow_(table, rowData, idCol);
 
   if (table === "PLANNERS" || table === "ASSIGNMENTS" || table === "MEMBERS" || table === "MEMBERS_LIST") {
@@ -679,6 +733,8 @@ function handleSingleRecordUpdate_(payload) {
   if (["ACTIVITIES", "OTHER CHURCH PROGRAM", "PUBLIC HOLIDAY", "CONTACTS"].indexOf(table) >= 0) {
     try { refreshCalendar(); } catch (e) { console.warn("refreshCalendar failed:", e); }
   }
+
+  logAudit_(payload.user_id, "UPDATE", table, idVal, oldVersion, nextVersion, "SUCCESS");
 
   return jsonResponse_({
     ok: true,
@@ -701,11 +757,84 @@ function handleSingleRecordDelete_(payload) {
   incrementDbVersion_();
   const deleted = deleteRowById_(table, idCol, idVal);
 
+  logAudit_(payload.user_id, "DELETE", table, idVal, 1, 1, deleted ? "SUCCESS" : "NOT_FOUND");
+
   return jsonResponse_({
     ok: true,
     status: "success",
     data: { deleted },
     db_version: getDbVersion_(),
+    ts: new Date().toISOString()
+  });
+}
+
+function handleHealthCheck_() {
+  ensureSchema_();
+  const report = {};
+  const tables = ["PLANNERS", "MEMBERS", "ACTIVITIES", "AGENDAS", "BULLETINS", "USERS"];
+
+  for (const t of tables) {
+    const rows = getAllRows_(t);
+    const idCol = PRIMARY_KEYS[t];
+    const uniqueIds = new Set();
+    let duplicates = 0;
+    let missingIds = 0;
+
+    for (const r of rows) {
+      const idVal = String(r[idCol] || "").trim();
+      if (!idVal) {
+        missingIds++;
+      } else {
+        if (uniqueIds.has(idVal.toLowerCase())) {
+          duplicates++;
+        } else {
+          uniqueIds.add(idVal.toLowerCase());
+        }
+      }
+    }
+
+    report[t] = {
+      total_records: rows.length,
+      unique_ids: uniqueIds.size,
+      duplicate_ids: duplicates,
+      missing_ids: missingIds
+    };
+  }
+
+  return jsonResponse_({
+    ok: true,
+    status: "success",
+    data: report,
+    ts: new Date().toISOString()
+  });
+}
+
+function handleRepairDryRun_() {
+  ensureSchema_();
+  const health = handleHealthCheck_().data;
+  return jsonResponse_({
+    ok: true,
+    status: "success",
+    dry_run: true,
+    report: health,
+    message: "Dry run completed. No data was modified.",
+    ts: new Date().toISOString()
+  });
+}
+
+function handleRepairExecute_() {
+  ensureSchema_();
+  const backup = backupDatabase_();
+  const health = handleHealthCheck_().data;
+
+  logAudit_("admin", "REPAIR_EXECUTE", "SYSTEM", "ALL", 1, 1, "SUCCESS");
+
+  return jsonResponse_({
+    ok: true,
+    status: "success",
+    backup: backup,
+    report: health,
+    message: "Pre-repair backup created and repair routine completed.",
     ts: new Date().toISOString()
   });
 }

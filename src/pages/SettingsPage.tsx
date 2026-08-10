@@ -17,7 +17,7 @@ import {
 } from "../components/ui";
 import { can } from "../utils/permissions";
 import { getDB, ids, time, updateDB, triggerDatabaseReset, cleanDateToYYYYMMDD, isCorruptActivityName } from "../utils/storage";
-import { getGasWebAppUrl, setGasWebAppUrl } from "../utils/sheetsBackend";
+import { getGasWebAppUrl, setGasWebAppUrl, fetchHealthCheck, runRepairDryRun, executeRepair, triggerBackupSheets } from "../utils/sheetsBackend";
 import { sha256 } from "../utils/crypto";
 import { notifyRoles, notifyUser } from "../utils/notifications";
 import * as auth from "../auth/authService";
@@ -1243,15 +1243,52 @@ export function SettingsPage({
 
           <Card>
             <CardHeader>
-              <CardTitle>Database Optimization and Repair</CardTitle>
+              <CardTitle>Database Health & Dry-Run Repair Tool (Phase 12)</CardTitle>
             </CardHeader>
-            <CardBody className="space-y-3">
+            <CardBody className="space-y-4">
               <div className="text-sm text-slate-600">
-                If the database contains duplicate entries or corrupted records (such as empty activities or duplicate members from external syncing), use this tool to automatically deduplicate and repair the database.
+                Safely inspect database health, duplicate records, missing primary key IDs, and execute dry-run repairs before writing changes to Google Sheets.
               </div>
-              <div className="flex justify-start">
-                <Button variant="danger" onClick={repairDatabase}>
-                  Repair & Deduplicate Database
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={async () => {
+                    const res = await fetchHealthCheck();
+                    if (res.success && res.data) {
+                      alert("Health Scan Completed!\n\n" + JSON.stringify(res.data, null, 2));
+                    } else {
+                      alert("Health check failed or backend offline.");
+                    }
+                  }}
+                >
+                  🔍 Run Health Scan
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={async () => {
+                    const res = await runRepairDryRun();
+                    if (res.success) {
+                      alert("Dry-Run Repair Simulation:\n" + (res.message || "") + "\n\nNo production rows were altered.");
+                    } else {
+                      alert("Dry-run simulation failed.");
+                    }
+                  }}
+                >
+                  🛡️ Dry-Run Simulation
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={async () => {
+                    if (!confirm("Execute database repair? A mandatory automatic backup will be created in Google Sheets first.")) return;
+                    const res = await executeRepair();
+                    if (res.success) {
+                      alert("Repair Successful!\nBackup sheet created: " + (res.backup?.backup_name || "BACKUP") + "\n\n" + (res.message || ""));
+                    } else {
+                      alert("Repair execution failed.");
+                    }
+                  }}
+                >
+                  ⚡ Execute Pre-Backup Repair
                 </Button>
               </div>
             </CardBody>

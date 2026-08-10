@@ -205,3 +205,54 @@ export async function triggerBackupSheets(): Promise<{ success: boolean; data?: 
     return { success: false };
   }
 }
+
+export async function fetchHealthCheck(): Promise<{ success: boolean; data?: any }> {
+  const url = getGasWebAppUrl();
+  if (!url) return { success: false };
+  try {
+    const response = await fetch(`${url}?action=healthCheck`, {
+      method: "GET",
+      mode: "cors",
+      headers: { "Accept": "application/json" }
+    });
+    if (!response.ok) return { success: false };
+    const data = await response.json();
+    return { success: !!(data.ok || data.status === "success"), data: data.data };
+  } catch (err) {
+    return { success: false };
+  }
+}
+
+export async function runRepairDryRun(): Promise<{ success: boolean; report?: any; message?: string }> {
+  const url = getGasWebAppUrl();
+  if (!url) return { success: false };
+  try {
+    const response = await fetch(`${url}?action=repairDryRun`, {
+      method: "GET",
+      mode: "cors",
+      headers: { "Accept": "application/json" }
+    });
+    if (!response.ok) return { success: false };
+    const data = await response.json();
+    return { success: !!(data.ok || data.status === "success"), report: data.report, message: data.message };
+  } catch (err) {
+    return { success: false };
+  }
+}
+
+export async function executeRepair(): Promise<{ success: boolean; backup?: any; report?: any; message?: string }> {
+  const url = getGasWebAppUrl();
+  if (!url) return { success: false };
+  try {
+    const response = await fetch(`${url}?action=repairExecute`, {
+      method: "GET",
+      mode: "cors",
+      headers: { "Accept": "application/json" }
+    });
+    if (!response.ok) return { success: false };
+    const data = await response.json();
+    return { success: !!(data.ok || data.status === "success"), backup: data.backup, report: data.report, message: data.message };
+  } catch (err) {
+    return { success: false };
+  }
+}
