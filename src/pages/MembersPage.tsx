@@ -5,7 +5,7 @@ import { extractTextFromPDF } from "../utils/pdfParser";
 import { Button, Card, CardBody, CardHeader, CardTitle, EmptyState, Input, Label, SectionTitle, Select, Textarea } from "../components/ui";
 import { Modal } from "../components/Modal";
 import { can } from "../utils/permissions";
-import { getDB, useDB, ids, updateDB, cleanDateToYYYYMMDD, forcePushChanges, syncNow } from "../utils/storage";
+import { getDB, useDB, ids, updateDB, cleanDateToYYYYMMDD, forcePushChanges, saveSingleRecordToBackend, syncNow } from "../utils/storage";
 import { downloadTextFile, toCSV } from "../utils/csv";
 import { normalizeMemberName, getSurname } from "../utils/format";
 import { cn } from "../utils/cn";
@@ -1034,33 +1034,25 @@ export function MembersPage({
   const [editing, setEditing] = useState<Member | null>(null);
 
   function save(member: Member, originalKey?: string) {
+    const cleanName = asText(member.name).trim();
+    const memberId = member.member_id || originalKey || ids.uid("mem");
+    const nextMember: Member = {
+      ...member,
+      member_id: memberId,
+      name: cleanName,
+      created_date: member.created_date || new Date().toISOString().split("T")[0],
+      updated_date: new Date().toISOString()
+    };
+
     updateDB((db0) => {
-      const cleanName = asText(member.name).trim();
-      const memberId = member.member_id || originalKey || ids.uid("member");
-      const previousKey = asText(originalKey || member.member_id || member.name).trim();
-      const nextMember: Member = {
-        ...member,
-        member_id: memberId,
-        name: cleanName,
-        created_date: member.created_date || new Date().toISOString().split("T")[0],
-        updated_date: new Date().toISOString()
-      };
       const MEMBERS = [
         nextMember,
-        ...db0.MEMBERS.filter((m) => {
-          const existingId = asText(m.member_id).trim();
-          const existingKey = asText(m.member_id || m.name).trim();
-          const existingName = asText(m.name).trim();
-          return (
-            existingId !== memberId &&
-            existingKey !== previousKey &&
-            existingName !== previousKey &&
-            existingName !== cleanName
-          );
-        }),
+        ...db0.MEMBERS.filter((m) => m.member_id !== memberId)
       ];
-      return { ...db0, MEMBERS };
+      return { ...db0, MEMBERS, MEMBERS_LIST: MEMBERS };
     });
+
+    void saveSingleRecordToBackend("MEMBERS", memberId, nextMember);
     onChanged();
   }
 

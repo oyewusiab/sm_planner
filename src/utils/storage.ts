@@ -21,7 +21,7 @@ import type {
   Bulletin,
 } from "../types";
 import { backendEnabled } from "./backend";
-import { pullAllFromSheets, pushAllToSheets, getSheetsMetadata, isGasConfigured } from "./sheetsBackend";
+import { pullAllFromSheets, pushAllToSheets, pushRecordToSheets, getSheetsMetadata, isGasConfigured } from "./sheetsBackend";
 import { BUNDLED_HYMNS } from "./hymnsCatalog";
 import { ensureAugust2026PlannerInDB } from "./augustPlannerSeed";
 
@@ -104,8 +104,8 @@ export const SYNC_TABLES: { name: keyof DB; idCol: string }[] = [
   { name: "USERS", idCol: "user_id" },
   { name: "PLANNERS", idCol: "planner_id" },
   { name: "ASSIGNMENTS", idCol: "assignment_id" },
-  { name: "MEMBERS", idCol: "name" },
-  { name: "MEMBERS_LIST", idCol: "name" },
+  { name: "MEMBERS", idCol: "member_id" },
+  { name: "MEMBERS_LIST", idCol: "member_id" },
   { name: "CHECKLISTS", idCol: "checklist_id" },
   { name: "NOTIFICATIONS", idCol: "notification_id" },
   { name: "SETTINGS_REQUESTS", idCol: "request_id" },
@@ -229,8 +229,12 @@ function sanitizeMemberRecord(raw: any) {
       ? undefined
       : Number(ageValue);
 
+  const rawId = asText(raw?.member_id).trim();
+  const cleanSlug = name.toLowerCase().replace(/[^a-z0-9]/g, "_");
+  const member_id = rawId || (cleanSlug ? `mem_${cleanSlug}` : `mem_${Math.random().toString(36).slice(2, 9)}`);
+
   return {
-    member_id: name || asText(raw?.member_id).replace(/\s+/g, " ").trim(),
+    member_id,
     name,
     gender: asText(raw?.gender).trim(),
     age: Number.isFinite(parsedAge) ? parsedAge : undefined,
@@ -246,6 +250,26 @@ function sanitizeMemberRecord(raw: any) {
     prayers_count: raw?.prayers_count !== undefined && raw?.prayers_count !== null && raw?.prayers_count !== "" ? Number(raw.prayers_count) : undefined,
     last_assigned_date: asText(raw?.last_assigned_date).trim() || undefined,
     readiness_score: raw?.readiness_score !== undefined && raw?.readiness_score !== null && raw?.readiness_score !== "" ? Number(raw.readiness_score) : undefined,
+  };
+}
+
+function serializeMemberForRemote(raw: any) {
+  const member = sanitizeMemberRecord(raw);
+  return {
+    member_id: member.member_id,
+    name: member.name,
+    gender: member.gender || "",
+    age: member.age ?? "",
+    phone: member.phone || "",
+    email: member.email || "",
+    organisation: member.organisation || "",
+    status: member.status || "",
+    notes: member.notes || "",
+    total_assignments: member.total_assignments ?? "",
+    spoken_count: member.spoken_count ?? "",
+    prayers_count: member.prayers_count ?? "",
+    last_assigned_date: member.last_assigned_date || "",
+    readiness_score: member.readiness_score ?? "",
   };
 }
 
@@ -308,25 +332,6 @@ function serializeUserForRemote(raw: any) {
     last_login_date: user.last_login_date || "",
     must_reset_password: !!user.must_reset_password,
     disabled: !!user.disabled,
-  };
-}
-
-function serializeMemberForRemote(raw: any) {
-  const member = sanitizeMemberRecord(raw);
-  return {
-    name: member.name,
-    gender: member.gender || "",
-    age: member.age ?? "",
-    phone: member.phone || "",
-    email: member.email || "",
-    organisation: member.organisation || "",
-    status: member.status || "",
-    notes: member.notes || "",
-    total_assignments: member.total_assignments ?? "",
-    spoken_count: member.spoken_count ?? "",
-    prayers_count: member.prayers_count ?? "",
-    last_assigned_date: member.last_assigned_date || "",
-    readiness_score: member.readiness_score ?? "",
   };
 }
 
@@ -617,6 +622,30 @@ export async function forcePushChanges(): Promise<boolean> {
   if (!backendEnabled()) return true;
   await pushAllToBackend();
   return !hasPendingPush;
+}
+
+export async function saveSingleRecordToBackend(tableName: keyof DB, id: string, record: any): Promise<boolean> {
+  if (!backendEnabled() || !id) return false;
+  notifySyncListeners(true);
+  try {
+    const formatted = serializeRowForRemote(tableName, record);
+    console.log(`[Sync] Pushing single record update to ${tableName}:${id}...`);
+    const res = await pushRecordToSheets(tableName, id, formatted);
+    if (res.success) {
+      hasPendingPush = false;
+      const nextSyncTime = new Date().toISOString();
+      localStorage.setItem(LAST_SYNC_TIME_KEY, nextSyncTime);
+      setLastSyncedDB(serializeDBForRemote(getDB()));
+      console.log(`[Sync] Single record ${tableName}:${id} successfully synced.`);
+      return true;
+    }
+    return false;
+  } catch (err) {
+    console.warn(`[Sync] Single record push failed for ${tableName}:${id}:`, err);
+    return false;
+  } finally {
+    notifySyncListeners(false);
+  }
 }
 
 function scheduleRemoteSync() {

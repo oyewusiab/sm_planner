@@ -149,6 +149,46 @@ export async function getSheetsMetadata(): Promise<any | null> {
   return null;
 }
 
+export async function pushRecordToSheets(table: string, id: string, data: any): Promise<{ success: boolean; metadata?: any }> {
+  const url = getGasWebAppUrl();
+  if (!url) return { success: false };
+
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        mode: "cors",
+        redirect: "follow",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "updateRecord", table, id, data })
+      });
+      if (!response.ok) {
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 1000));
+          continue;
+        }
+        throw new Error(`HTTP error ${response.status}`);
+      }
+      const resData = await response.json();
+      if (resData.ok || resData.status === "success") {
+        const ts = resData.ts || new Date().toISOString();
+        return {
+          success: true,
+          metadata: { last_updated: ts, db_version: resData.db_version || 1 }
+        };
+      }
+    } catch (err) {
+      console.warn(`[Single Record Push] Attempt ${attempt} failed for ${table}:${id}:`, err);
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 1000));
+        continue;
+      }
+      return { success: false };
+    }
+  }
+  return { success: false };
+}
+
 export async function triggerBackupSheets(): Promise<{ success: boolean; data?: any }> {
   const url = getGasWebAppUrl();
   if (!url) return { success: false };

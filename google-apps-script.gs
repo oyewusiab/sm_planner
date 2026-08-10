@@ -174,6 +174,7 @@ const SCHEMA = {
     "disabled",
   ],
   MEMBERS: [
+    "member_id",
     "name",
     "gender",
     "age",
@@ -189,6 +190,7 @@ const SCHEMA = {
     "readiness_score",
   ],
   MEMBERS_LIST: [
+    "member_id",
     "name",
     "gender",
     "age",
@@ -403,8 +405,8 @@ const SCHEMA = {
 const PRIMARY_KEYS = {
   PLANNERS: "planner_id",
   USERS: "user_id",
-  MEMBERS: "name",
-  MEMBERS_LIST: "name",
+  MEMBERS: "member_id",
+  MEMBERS_LIST: "member_id",
   ASSIGNMENTS: "assignment_id",
   CHECKLISTS: "checklist_id",
   NOTIFICATIONS: "notification_id",
@@ -567,13 +569,18 @@ function route_(e, method) {
       case "list":
         return handleList_(payload);
       case "get":
+      case "getRecord":
         return handleGet_(payload);
       case "upsert":
-        return handleUpsert_(payload);
+      case "createRecord":
+      case "updateRecord":
+      case "upsertRecord":
+        return handleSingleRecordUpdate_(payload);
       case "bulkUpsert":
         return handleBulkUpsert_(payload);
       case "delete":
-        return handleDelete_(payload);
+      case "deleteRecord":
+        return handleSingleRecordDelete_(payload);
       case "backup":
         return jsonResponse_({ ok: true, data: backupDatabase_(), ts: new Date().toISOString() });
       case "export":
@@ -637,16 +644,70 @@ function handleUpsert_(payload) {
     return jsonResponse_({ ok: true, data: { updated: true }, ts: new Date().toISOString() });
   }
   const idCol = PRIMARY_KEYS[table];
-  const idVal = String(row[idCol] || "");
+  const idVal = String(row[idCol] || "").trim();
   if (!idVal) return jsonError_("missing_primary_key", 400);
   const updated = upsertRow_(table, row, idCol);
-  if (table === "PLANNERS" || table === "ASSIGNMENTS" || table === "MEMBERS") {
+  if (table === "PLANNERS" || table === "ASSIGNMENTS" || table === "MEMBERS" || table === "MEMBERS_LIST") {
     recalculateMemberAnalytics_();
   }
   if (["ACTIVITIES", "OTHER CHURCH PROGRAM", "PUBLIC HOLIDAY", "CONTACTS"].indexOf(table) >= 0) {
     try { refreshCalendar(); } catch (e) { console.warn("refreshCalendar failed:", e); }
   }
   return jsonResponse_({ ok: true, data: updated, ts: new Date().toISOString() });
+}
+
+function handleSingleRecordUpdate_(payload) {
+  ensureSchema_();
+  const table = normalizeTable_(payload.table);
+  if (!table) return jsonError_("unknown_table", 400);
+
+  const rowData = payload.data || payload.row;
+  if (!rowData || typeof rowData !== "object") return jsonError_("missing_data", 400);
+
+  incrementDbVersion_();
+
+  const idCol = PRIMARY_KEYS[table];
+  const idVal = String(payload.id || rowData[idCol] || "").trim();
+  if (!idVal) return jsonError_("missing_primary_key", 400);
+
+  rowData[idCol] = idVal;
+  const updated = upsertRow_(table, rowData, idCol);
+
+  if (table === "PLANNERS" || table === "ASSIGNMENTS" || table === "MEMBERS" || table === "MEMBERS_LIST") {
+    recalculateMemberAnalytics_();
+  }
+  if (["ACTIVITIES", "OTHER CHURCH PROGRAM", "PUBLIC HOLIDAY", "CONTACTS"].indexOf(table) >= 0) {
+    try { refreshCalendar(); } catch (e) { console.warn("refreshCalendar failed:", e); }
+  }
+
+  return jsonResponse_({
+    ok: true,
+    status: "success",
+    data: updated,
+    db_version: getDbVersion_(),
+    ts: new Date().toISOString()
+  });
+}
+
+function handleSingleRecordDelete_(payload) {
+  ensureSchema_();
+  const table = normalizeTable_(payload.table);
+  if (!table) return jsonError_("unknown_table", 400);
+
+  const idCol = PRIMARY_KEYS[table];
+  const idVal = String(payload.id || payload.value || "").trim();
+  if (!idVal) return jsonError_("missing_primary_key", 400);
+
+  incrementDbVersion_();
+  const deleted = deleteRowById_(table, idCol, idVal);
+
+  return jsonResponse_({
+    ok: true,
+    status: "success",
+    data: { deleted },
+    db_version: getDbVersion_(),
+    ts: new Date().toISOString()
+  });
 }
 
 function handleBulkUpsert_(payload) {
