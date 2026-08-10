@@ -621,11 +621,9 @@ export async function forcePushChanges(): Promise<boolean> {
 
 function scheduleRemoteSync() {
   if (!backendEnabled() || suppressRemoteSync > 0) return;
-  hasPendingPush = true; // Mark as dirty
-  if (remoteSyncTimer) window.clearTimeout(remoteSyncTimer);
-  remoteSyncTimer = window.setTimeout(() => {
-    void pushAllToBackend();
-  }, 120);
+  hasPendingPush = true; // Mark as dirty/unsaved
+  // Phase 2: Do not auto-push full database on 120ms keystroke debounce.
+  // Changes are safely held in local DB & drafts until the user explicitly saves or submits.
 }
 
 type DBMetadata = {
@@ -870,22 +868,8 @@ export function initializeFirebaseSync() {
 }
 
 export function initializeSheetsSync() {
-  if (!backendEnabled()) return;
-  if (sheetsPollingTimer) return;
-
-  console.log("[Sync] Initializing Google Sheets polling sync...");
-  
-  sheetsPollingTimer = window.setInterval(async () => {
-    if (remoteSyncInFlight || remotePullInFlight) return;
-    const remoteMeta = await getSheetsMetadata();
-    if (remoteMeta && remoteMeta.last_updated) {
-      const localLastSyncTime = localStorage.getItem(LAST_SYNC_TIME_KEY) || "";
-      if (remoteMeta.last_updated > localLastSyncTime) {
-        console.log("[Sync] Remote Google Sheets changes detected. Triggering pull...");
-        void syncFromBackend({ force: false });
-      }
-    }
-  }, 30 * 1000);
+  // Phase 2: 30-second aggressive background polling replacement disabled for system stabilization.
+  // Data synchronization occurs deterministically on app boot, user login, page navigation, or explicit user action.
 }
 
 export function updateLocalTableFromFirebase(tableName: keyof DB, remoteRows: any[]) {

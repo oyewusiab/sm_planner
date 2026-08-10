@@ -306,13 +306,26 @@ export function AppShell({
               </button>
             </div>
 
-            {/* Unit info */}
+            {/* Unit info & Phase 3 Sync Status Badge */}
             <div
               className="rounded-xl px-3 py-2.5"
               style={{ background: "rgba(255,255,255,0.06)" }}
             >
-              <div className="truncate text-sm font-semibold text-white/90">
-                {unit.unit_name}
+              <div className="flex items-center justify-between">
+                <div className="truncate text-sm font-semibold text-white/90">
+                  {unit.unit_name}
+                </div>
+                {isSyncing ? (
+                  <span className="flex items-center gap-1 rounded-full bg-sky-500/20 px-2 py-0.5 text-[10px] font-bold text-sky-300 ring-1 ring-sky-400/40">
+                    <span className="inline-block animate-spin">🔄</span>
+                    Saving...
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-300 ring-1 ring-emerald-400/40" title="Authoritative Google Sheets Synced">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Synced
+                  </span>
+                )}
               </div>
               <div className="mt-0.5 truncate text-xs text-white/50">
                 {unit.unit_type} · {formatTime12h(unit.meeting_time)}

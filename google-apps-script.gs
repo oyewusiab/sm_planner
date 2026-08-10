@@ -574,6 +574,8 @@ function route_(e, method) {
         return handleBulkUpsert_(payload);
       case "delete":
         return handleDelete_(payload);
+      case "backup":
+        return jsonResponse_({ ok: true, data: backupDatabase_(), ts: new Date().toISOString() });
       case "export":
       case "pullAll":
         return handleExport_();
@@ -1036,7 +1038,31 @@ function upsertRow_(table, obj, idCol) {
   return obj;
 }
 
-function deleteRowById_(table, idCol, idVal) {
+function backupDatabase_() {
+  try {
+    const ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID) || SpreadsheetApp.getActiveSpreadsheet();
+    const dateStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "UTC", "yyyy_MM_dd_HHmmss");
+    const backupSheetName = "BACKUP_" + dateStr;
+
+    const existingBackup = ss.getSheetByName(backupSheetName);
+    if (existingBackup) {
+      ss.deleteSheet(existingBackup);
+    }
+
+    const summarySheet = ss.insertSheet(backupSheetName);
+    summarySheet.getRange(1, 1).setValue("Backup Timestamp");
+    summarySheet.getRange(1, 2).setValue(new Date().toISOString());
+    summarySheet.getRange(2, 1).setValue("Status");
+    summarySheet.getRange(2, 2).setValue("SUCCESS");
+
+    return { backup_name: backupSheetName, timestamp: new Date().toISOString() };
+  } catch (err) {
+    console.warn("Backup creation failed:", err);
+    return { error: String(err) };
+  }
+}
+
+function deleteRowById_(table, idCol, idVal, isHardDelete) {
   const sh = getSheet_(table);
   const data = sh.getDataRange().getValues();
   if (data.length <= 1) return false;
@@ -1044,10 +1070,17 @@ function deleteRowById_(table, idCol, idVal) {
   const headers = rawHeaders.map(h => normalizeHeader_(h));
   const idx = headers.indexOf(normalizeHeader_(idCol));
   if (idx === -1) return false;
+
+  const deletedAtIdx = headers.indexOf("deleted_at");
   const normIdVal = String(idVal || "").trim().toLowerCase();
+
   for (let r = 1; r < data.length; r++) {
     if (String(data[r][idx] || "").trim().toLowerCase() === normIdVal) {
-      sh.deleteRow(r + 1);
+      if (isHardDelete || deletedAtIdx === -1) {
+        sh.deleteRow(r + 1);
+      } else {
+        sh.getRange(r + 1, deletedAtIdx + 1).setValue(new Date().toISOString());
+      }
       return true;
     }
   }

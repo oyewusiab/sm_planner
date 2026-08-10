@@ -148,3 +148,20 @@ export async function getSheetsMetadata(): Promise<any | null> {
   }
   return null;
 }
+
+export async function triggerBackupSheets(): Promise<{ success: boolean; data?: any }> {
+  const url = getGasWebAppUrl();
+  if (!url) return { success: false };
+  try {
+    const response = await fetch(`${url}?action=backup`, {
+      method: "GET",
+      mode: "cors",
+      headers: { "Accept": "application/json" }
+    });
+    if (!response.ok) return { success: false };
+    const data = await response.json();
+    return { success: !!(data.ok || data.status === "success"), data: data.data };
+  } catch (err) {
+    return { success: false };
+  }
+}
