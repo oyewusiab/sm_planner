@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useLayoutEffect } from "react";
 import type { Bulletin, BulletinActivity, Member, Planner, UnitSettings, User, CalendarActivity, OtherChurchProgram } from "../types";
 import { Button, Card, CardBody, CardHeader, CardTitle, Divider, EmptyState, Input, Label, Select, Textarea } from "../components/ui";
-import { ids, updateDB, useTable } from "../utils/storage";
+import { ids, updateDB, useTable, saveSingleRecordToBackend } from "../utils/storage";
 import { formatDateShort, yyyyMmToLabel, formatTime12h } from "../utils/date";
 import { generatePDF } from "../utils/pdf";
 import html2canvas from "html2canvas-pro";
@@ -791,7 +791,7 @@ const allWeeks = useMemo(() => {
       return { ...db0, BULLETINS: list };
     });
 
-    void forcePushChanges();
+    void saveSingleRecordToBackend("BULLETINS", targetBulletinId, nextBulletin);
     onChanged();
     alert("Bulletin saved successfully!");
   };
